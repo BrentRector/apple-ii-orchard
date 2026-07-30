@@ -60,12 +60,8 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 RST1_VEC             EQU $0008               ; Z-80 RST 1 ($08) restart vector — 8 bytes. Available for application/debugger use.
 RST5_VEC             EQU $0028               ; Z-80 RST 5 ($28) restart vector — 8 bytes. Available for application/debugger use.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0101 -> TPA_START+1          shared instruction tail: $0101 is reachable code inside the instruction at $0100
@@ -1268,7 +1264,7 @@ ERR_89:
         CALL SUB_43F9                    ; $0E50  CD F9 43
         LD HL,L_0D15                     ; $0E53  21 15 0D
 ERR_90:
-        CALL WBOOT_VEC                   ; $0E56  CD 00 00
+        CALL WBOOTV                   ; $0E56  CD 00 00
         LD A,(L_0858)                    ; $0E59  3A 58 08
         SUB $02                          ; $0E5C  D6 02
         CALL Z,SUB_3EDB                  ; $0E5E  CC DB 3E
@@ -1414,7 +1410,7 @@ ERR_107:
 ERR_108:
         POP DE                           ; $0F38  D1
         CALL SUB_0F60                    ; $0F39  CD 60 0F
-        LD HL,DEFAULT_DMA                ; $0F3C  21 80 00
+        LD HL,TBUFF                ; $0F3C  21 80 00
         LD (HL),$00                      ; $0F3F  36 00
         LD (L_0873),HL                   ; $0F41  22 73 08
         LD HL,(L_0863)                   ; $0F44  2A 63 08
@@ -2018,7 +2014,7 @@ EXEC_STMT_2:
 EXEC_STMT_3:
 ; [AI] CALL through a runtime-patched vector (the $00 00 operand is overwritten
 ;      by COLD_START via SUB_129A_3+1 with the Ctrl-C / STOP poll routine).
-        CALL WBOOT_VEC                   ; $1387  CD 00 00  (self-modified: STOP check)
+        CALL WBOOTV                   ; $1387  CD 00 00  (self-modified: STOP check)
         POP HL                           ; $138A  E1
         OR A                             ; $138B  B7
         CALL NZ,SUB_4437                 ; $138C  C4 37 44
@@ -2271,7 +2267,7 @@ SUB_1506:
         EX DE,HL                         ; $150A  EB
         JP Z,CHRGET                    ; $150B  CA E4 13
         DEC HL                           ; $150E  2B
-        LD DE,WBOOT_VEC                  ; $150F  11 00 00
+        LD DE,WBOOTV                  ; $150F  11 00 00
 SUB_1506_1:
         CALL CHRGET                    ; $1512  CD E4 13
         RET NC                           ; $1515  D0
@@ -3207,7 +3203,7 @@ SUB_1CE8:
         DEFB    $FE,$26,$C2                                      ; $1CF1
         DEFW    SUB_14FB                 ; $1CF4
 SUB_1CF6:
-        LD DE,WBOOT_VEC                  ; $1CF6  11 00 00
+        LD DE,WBOOTV                  ; $1CF6  11 00 00
         CALL CHRGET                    ; $1CF9  CD E4 13
         CALL SUB_1CE8                    ; $1CFC  CD E8 1C
         CP $4F                           ; $1CFF  FE 4F
@@ -3421,7 +3417,7 @@ SUB_1E4D_3:
         RET                              ; $1E71  C9
 SUB_1E72:
         CALL CHRGET                    ; $1E72  CD E4 13
-        LD BC,WBOOT_VEC                  ; $1E75  01 00 00
+        LD BC,WBOOTV                  ; $1E75  01 00 00
         CP $1B                           ; $1E78  FE 1B
         JR NC,SUB_1E72_1                 ; $1E7A  30 0D
         CP $11                           ; $1E7C  FE 11
@@ -3535,7 +3531,7 @@ SUB_1E72_11:
         OR A                             ; $1F3D  B7
         JR Z,SUB_1E72_15                 ; $1F3E  28 3F
         LD (L_0B37),A                    ; $1F40  32 37 0B
-        LD HL,WBOOT_VEC                  ; $1F43  21 00 00
+        LD HL,WBOOTV                  ; $1F43  21 00 00
         ADD HL,SP                        ; $1F46  39
         CALL SUB_2B6A                    ; $1F47  CD 6A 2B
         LD HL,RST1_VEC                   ; $1F4A  21 08 00
@@ -4127,7 +4123,7 @@ SUB_22E1:
         OR A                             ; $22F2  B7
         RET M                            ; $22F3  F8
         LD BC,$9180                      ; $22F4  01 80 91
-        LD DE,WBOOT_VEC                  ; $22F7  11 00 00
+        LD DE,WBOOTV                  ; $22F7  11 00 00
         JP SUB_2824                      ; $22FA  C3 24 28
         DEFB    $01,$0A,$00,$C5                                  ; $22FD
         DEFW    SUB_583F_2               ; $2301
@@ -4447,7 +4443,7 @@ SUB_2590_6:
 SUB_25C3:
         PUSH HL                          ; $25C3  E5
 SUB_25C3_1:
-        LD HL,WBOOT_VEC                  ; $25C4  21 00 00
+        LD HL,WBOOTV                  ; $25C4  21 00 00
 SUB_25C3_2:
         LD (L_0B34),HL                   ; $25C7  22 34 0B
 SUB_25C3_3:
@@ -4488,7 +4484,7 @@ SUB_25C3_10:
 CON_DRV:
         LD (A_VEC),HL                    ; $2602  22 D0 F3
 CON_DRV_1:
-        LD (WBOOT_VEC),A                 ; $2605  32 00 00
+        LD (WBOOTV),A                 ; $2605  32 00 00
         RET                              ; $2608  C9
         DEFB    $3E                                              ; $2609
         DEFW    SUB_31F3_1               ; $260A
@@ -4691,11 +4687,11 @@ CON_DRV_14:
 ;      Re-select the current default drive (CDISK) via BDOS, then print the
 ;      "Ok" message (error code $20 loaded at CON_DRV_19+1) through ERR_26.
 CON_DRV_15:
-        LD A,(CDISK)                     ; $2806  3A 04 00  current drive (0=A..)
+        LD A,(CDISK_ADDR)                     ; $2806  3A 04 00  current drive (0=A..)
 CON_DRV_16:
         LD E,A                           ; $2809  5F        E = drive for BDOS fn 14
 CON_DRV_17:
-        CALL BDOS_VEC                    ; $280A  CD 05 00  BDOS: select disk
+        CALL BDOS                    ; $280A  CD 05 00  BDOS: select disk
 CON_DRV_18:
         POP DE                           ; $280D  D1
 CON_DRV_19:
@@ -4995,7 +4991,7 @@ SUB_2990:
         LD (SUB_2990_4+1),A              ; $299A  32 C7 29
         EX DE,HL                         ; $299D  EB
         LD (SUB_2990_3+1),HL             ; $299E  22 C2 29
-        LD BC,WBOOT_VEC                  ; $29A1  01 00 00
+        LD BC,WBOOTV                  ; $29A1  01 00 00
         LD D,B                           ; $29A4  50
         LD E,B                           ; $29A5  58
         LD HL,SUB_2874                   ; $29A6  21 74 28
@@ -5019,7 +5015,7 @@ SUB_2990_2:
         JR NC,SUB_2990_5                 ; $29BE  30 08
         PUSH DE                          ; $29C0  D5
 SUB_2990_3:
-        LD DE,WBOOT_VEC                  ; $29C1  11 00 00
+        LD DE,WBOOTV                  ; $29C1  11 00 00
         ADD HL,DE                        ; $29C4  19
         POP DE                           ; $29C5  D1
 SUB_2990_4:
@@ -5239,7 +5235,7 @@ SUB_2AC5_6:
         RET                              ; $2AD3  C9
 SUB_2AD4:
         LD B,$88                         ; $2AD4  06 88
-        LD DE,WBOOT_VEC                  ; $2AD6  11 00 00
+        LD DE,WBOOTV                  ; $2AD6  11 00 00
 SUB_2AD4_1:
         LD HL,L_0CD7                     ; $2AD9  21 D7 0C
 SUB_2AD4_2:
@@ -5536,7 +5532,7 @@ SUB_2C55_1:
         RET                              ; $2C5D  C9
 SUB_2C5E:
         LD BC,$9080                      ; $2C5E  01 80 90
-        LD DE,WBOOT_VEC                  ; $2C61  11 00 00
+        LD DE,WBOOTV                  ; $2C61  11 00 00
         CALL SUB_2B81                    ; $2C64  CD 81 2B
         RET NZ                           ; $2C67  C0
         LD H,C                           ; $2C68  61
@@ -5572,7 +5568,7 @@ SUB_2C98:
         JP Z,ERR_25+1               ; $2C9C  CA AA 0D
         CALL M,SUB_2C89                  ; $2C9F  FC 89 2C
 SUB_2CA2:
-        LD HL,WBOOT_VEC                  ; $2CA2  21 00 00
+        LD HL,WBOOTV                  ; $2CA2  21 00 00
         LD (L_0CD0),HL                   ; $2CA5  22 D0 0C
         LD (L_0CD2),HL                   ; $2CA8  22 D2 0C
 SUB_2CA2_1:
@@ -5690,7 +5686,7 @@ SUB_2D6F_2:
         RET                              ; $2D78  C9
 SUB_2D79:
         PUSH HL                          ; $2D79  E5
-        LD HL,WBOOT_VEC                  ; $2D7A  21 00 00
+        LD HL,WBOOTV                  ; $2D7A  21 00 00
         LD A,B                           ; $2D7D  78
         OR C                             ; $2D7E  B1
         JR Z,SUB_2D79_3                  ; $2D7F  28 12
@@ -6665,7 +6661,7 @@ SUB_33A0_4:
 SUB_33A0_5:
         CP $04                           ; $33CD  FE 04
         JP NC,SUB_341F_2                 ; $33CF  D2 28 34
-        LD BC,WBOOT_VEC                  ; $33D2  01 00 00
+        LD BC,WBOOTV                  ; $33D2  01 00 00
         CALL SUB_3809                    ; $33D5  CD 09 38
 SUB_33D8:
         LD HL,L_0CE6                     ; $33D8  21 E6 0C
@@ -8945,7 +8941,7 @@ SUB_42EA:
         PUSH HL                          ; $42ED  E5
         LD C,A                           ; $42EE  4F
 SUB_42EA_1:
-        CALL WBOOT_VEC                   ; $42EF  CD 00 00
+        CALL WBOOTV                   ; $42EF  CD 00 00
         POP HL                           ; $42F2  E1
         POP DE                           ; $42F3  D1
         POP BC                           ; $42F4  C1
@@ -9065,7 +9061,7 @@ SUB_4382_3:
 SUB_4382_4:
         LD C,A                           ; $4386  4F
 SUB_4382_5:
-        CALL WBOOT_VEC                   ; $4387  CD 00 00
+        CALL WBOOTV                   ; $4387  CD 00 00
         POP HL                           ; $438A  E1
         POP DE                           ; $438B  D1
         POP BC                           ; $438C  C1
@@ -9128,7 +9124,7 @@ SUB_43DA:
         PUSH DE                          ; $43DB  D5
         PUSH HL                          ; $43DC  E5
 SUB_43DA_1:
-        CALL WBOOT_VEC                   ; $43DD  CD 00 00
+        CALL WBOOTV                   ; $43DD  CD 00 00
         POP HL                           ; $43E0  E1
 SUB_43DA_2:
         POP DE                           ; $43E1  D1
@@ -9202,7 +9198,7 @@ SUB_4437_2:
         CALL SUB_4472                    ; $444E  CD 72 44
         JR NZ,SUB_4437_4                 ; $4451  20 09
 SUB_4437_3:
-        CALL WBOOT_VEC                   ; $4453  CD 00 00
+        CALL WBOOTV                   ; $4453  CD 00 00
         OR A                             ; $4456  B7
         JR Z,SUB_4437_5                  ; $4457  28 0C
         CALL SUB_43DA                    ; $4459  CD DA 43
@@ -9957,7 +9953,7 @@ SUB_4900:
         LD HL,(L_0B46)                   ; $4900  2A 46 0B
 SUB_4900_1:
         LD (L_0B6B),HL                   ; $4903  22 6B 0B
-        LD HL,WBOOT_VEC                  ; $4906  21 00 00
+        LD HL,WBOOTV                  ; $4906  21 00 00
         PUSH HL                          ; $4909  E5
         LD HL,(L_0B96)                   ; $490A  2A 96 0B
         PUSH HL                          ; $490D  E5
@@ -11454,7 +11450,7 @@ SUB_53F7_5:
 SUB_53F7_6:
         OR $F1                           ; $541F  F6 F1
         LD (L_086D),A                    ; $5421  32 6D 08
-        LD HL,DEFAULT_DMA                ; $5424  21 80 00
+        LD HL,TBUFF                ; $5424  21 80 00
         LD (HL),$00                      ; $5427  36 00
         LD (L_0873),HL                   ; $5429  22 73 08
         CALL SUB_44F5                    ; $542C  CD F5 44
@@ -11814,7 +11810,7 @@ FILE_CLOSE_4:
         LD (DE),A                        ; $5721  12        clear channel state byte
         LD C,$10                         ; $5722  0E 10     C = fn 16 (close file)
         INC DE                           ; $5724  13        DE -> FCB
-        CALL BDOS_VEC                    ; $5725  CD 05 00  close it
+        CALL BDOS                    ; $5725  CD 05 00  close it
         JP ERR_9                    ; $5728  C3 64 0D
 FILE_CLOSE_5:
         INC A                            ; $572B  3C
@@ -11865,7 +11861,7 @@ FILES_CLOSE_ALL_3:
         POP DE                           ; $5766  D1
         CALL SET_DMA_FCB                    ; $5767  CD 78 58
         LD C,$10                         ; $576A  0E 10
-        CALL BDOS_VEC                    ; $576C  CD 05 00
+        CALL BDOS                    ; $576C  CD 05 00
         POP BC                           ; $576F  C1
 FILES_CLOSE_ALL_4:
         LD D,$29                         ; $5770  16 29
@@ -11958,7 +11954,7 @@ SUB_57A0_3:
         DEFW    SUB_189A                 ; $5806
 SUB_5808:
         PUSH BC                          ; $5808  C5
-        LD BC,DEFAULT_DMA                ; $5809  01 80 00
+        LD BC,TBUFF                ; $5809  01 80 00
         LDIR                             ; $580C  ED B0
         POP BC                           ; $580E  C1
         RET                              ; $580F  C9
@@ -12058,7 +12054,7 @@ SET_DMA_FCB:
         ADD HL,DE                        ; $587E  19        HL = FCB + $28
         EX DE,HL                         ; $587F  EB        DE = DMA address
         LD C,$1A                         ; $5880  0E 1A     C = fn 26 (set DMA)
-        CALL BDOS_VEC                    ; $5882  CD 05 00
+        CALL BDOS                    ; $5882  CD 05 00
         POP HL                           ; $5885  E1
         POP DE                           ; $5886  D1
 SET_DMA_FCB_1:
@@ -12298,18 +12294,18 @@ FILE_OPEN_6:
         JR NZ,FILE_OPEN_9                 ; $5A0C  20 12
         PUSH DE                          ; $5A0E  D5
         LD C,$13                         ; $5A0F  0E 13    C = fn 19 (delete file)
-        CALL BDOS_VEC                    ; $5A11  CD 05 00  remove any old copy
+        CALL BDOS                    ; $5A11  CD 05 00  remove any old copy
         POP DE                           ; $5A14  D1
 FILE_OPEN_7:
         LD C,$16                         ; $5A15  0E 16    C = fn 22 (make file)
 FILE_OPEN_8:
-        CALL BDOS_VEC                    ; $5A17  CD 05 00  create new file
+        CALL BDOS                    ; $5A17  CD 05 00  create new file
         INC A                            ; $5A1A  3C        $FF -> 0 means dir full
         JP Z,ERR_18+1               ; $5A1B  CA 85 0D  -> "Disk full" error
         JR FILE_OPEN_10                   ; $5A1E  18 13
 FILE_OPEN_9:
         LD C,$0F                         ; $5A20  0E 0F    C = fn 15 (open file)
-        CALL BDOS_VEC                    ; $5A22  CD 05 00
+        CALL BDOS                    ; $5A22  CD 05 00
         INC A                            ; $5A25  3C        $FF -> 0 means not found
         JR NZ,FILE_OPEN_10                ; $5A26  20 0B   opened OK
         CALL ERR                    ; $5A28  CD 98 0C
@@ -12358,7 +12354,7 @@ FILE_OPEN_15:
         DEFW    SUB_554F                 ; $5A66
         DEFB    $CD,$D9,$25                                      ; $5A68
 FILE_OPEN_16:
-        JP WBOOT_VEC                     ; $5A6B  C3 00 00
+        JP WBOOTV                     ; $5A6B  C3 00 00
         DEFB    $C0,$E5,$CD                                      ; $5A6E
         DEFW    SUB_554F                 ; $5A71
         DEFB    $0E,$19,$CD,$05,$00                              ; $5A73
@@ -12431,7 +12427,7 @@ FCB_BDOS_IO:
         PUSH DE                          ; $5B44  D5
         LD C,A                           ; $5B45  4F        C = BDOS function
         PUSH BC                          ; $5B46  C5
-        CALL BDOS_VEC                    ; $5B47  CD 05 00
+        CALL BDOS                    ; $5B47  CD 05 00
         POP BC                           ; $5B4A  C1
         POP DE                           ; $5B4B  D1
         PUSH AF                          ; $5B4C  F5        save BDOS status
@@ -12478,15 +12474,15 @@ SUB_5B70_1:
         CALL SUB_5BA3                    ; $5B86  CD A3 5B
         PUSH DE                          ; $5B89  D5
         LD C,$1A                         ; $5B8A  0E 1A
-        CALL BDOS_VEC                    ; $5B8C  CD 05 00
+        CALL BDOS                    ; $5B8C  CD 05 00
         LD HL,(L_0863)                   ; $5B8F  2A 63 08
         INC HL                           ; $5B92  23
         EX DE,HL                         ; $5B93  EB
         LD C,$14                         ; $5B94  0E 14
-        CALL BDOS_VEC                    ; $5B96  CD 05 00
+        CALL BDOS                    ; $5B96  CD 05 00
         OR A                             ; $5B99  B7
         POP DE                           ; $5B9A  D1
-        LD HL,DEFAULT_DMA                ; $5B9B  21 80 00
+        LD HL,TBUFF                ; $5B9B  21 80 00
         ADD HL,DE                        ; $5B9E  19
         RET NZ                           ; $5B9F  C0
         EX DE,HL                         ; $5BA0  EB
@@ -12504,7 +12500,7 @@ SUB_5BB1:
         DEC HL                           ; $5BB4  2B
         CALL CHRGET                    ; $5BB5  CD E4 13
         PUSH DE                          ; $5BB8  D5
-        LD DE,DEFAULT_DMA                ; $5BB9  11 80 00
+        LD DE,TBUFF                ; $5BB9  11 80 00
         JR Z,SUB_5BB1_1                  ; $5BBC  28 05
         PUSH BC                          ; $5BBE  C5
         CALL SUB_14E4                    ; $5BBF  CD E4 14
@@ -12812,7 +12808,7 @@ COLD_START_10:
 COLD_START_11:
         LD (TPA_START_2),A               ; $5E66  32 07 01
 COLD_START_12:
-        LD BC,CDISK                      ; $5E69  01 04 00
+        LD BC,CDISK_ADDR                      ; $5E69  01 04 00
 COLD_START_13:
         ADD HL,BC                        ; $5E6C  09
 COLD_START_14:
@@ -12934,7 +12930,7 @@ COLD_START_71:
 ;      record-locking I/O path, A==0 the CP/M-1.4 path (chosen just below).
         LD C,$0C                         ; $5EC4  0E 0C   C = fn 12 (get version)
 COLD_START_72:
-        CALL BDOS_VEC                    ; $5EC6  CD 05 00
+        CALL BDOS                    ; $5EC6  CD 05 00
 COLD_START_73:
         LD (L_08EE),A                    ; $5EC9  32 EE 08  save CP/M version
 COLD_START_74:
@@ -12963,7 +12959,7 @@ COLD_START_84:
 COLD_START_85:
         LD (L_0858),A                    ; $5EEC  32 58 08
 COLD_START_86:
-        LD HL,WBOOT_VEC                  ; $5EEF  21 00 00
+        LD HL,WBOOTV                  ; $5EEF  21 00 00
 COLD_START_87:
         LD (L_085A),HL                   ; $5EF2  22 5A 08
 COLD_START_88:
@@ -12987,7 +12983,7 @@ COLD_START_96:
 COLD_START_97:
         CALL SUB_207E                    ; $5F0A  CD 7E 20
 COLD_START_98:
-        LD HL,DEFAULT_DMA                ; $5F0D  21 80 00
+        LD HL,TBUFF                ; $5F0D  21 80 00
 COLD_START_99:
         LD (L_0CBA),HL                   ; $5F10  22 BA 0C
 COLD_START_100:
@@ -13021,7 +13017,7 @@ COLD_START_113:
 COLD_START_114:
         LD (L_5FD0),A                    ; $5F38  32 D0 5F
 COLD_START_115:
-        LD HL,DEFAULT_DMA                ; $5F3B  21 80 00
+        LD HL,TBUFF                ; $5F3B  21 80 00
 COLD_START_116:
         LD A,(HL)                        ; $5F3E  7E
 COLD_START_117:

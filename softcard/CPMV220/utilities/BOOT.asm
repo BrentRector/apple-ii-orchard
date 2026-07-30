@@ -19,7 +19,6 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 
 ; [AI] -- SoftCard host (6502-side) communication cells in high RAM --
 APPLE_DISKII_SLOT6   EQU $C600               ; [AI] Apple II Disk II controller boot ROM entry, slot 6 ($Cn00, n=6)
@@ -548,9 +547,9 @@ PAD_FALLTHROUGH_255:
 REBOOT_MAIN:
         LD DE,MSG_PRESS_RETURN           ; $0200  11 17 02   ; [AI] DE -> "PRESS RETURN TO BOOT$"
         LD C,$09                         ; $0203  0E 09       ; [AI] BDOS fn 9 = print $-terminated string
-        CALL BDOS_VEC                    ; $0205  CD 05 00    ; [AI] print the prompt to the console
+        CALL BDOS                    ; $0205  CD 05 00    ; [AI] print the prompt to the console
         LD C,$01                         ; $0208  0E 01       ; [AI] BDOS fn 1 = console input (wait for one key, echo); A = char
-        CALL BDOS_VEC                    ; $020A  CD 05 00    ; [AI] block until the user presses a key (RETURN); key returned in A
+        CALL BDOS                    ; $020A  CD 05 00    ; [AI] block until the user presses a key (RETURN); key returned in A
         LD HL,APPLE_DISKII_SLOT6         ; $020D  21 00 C6    ; [AI] HL = $C600, Disk II slot-6 boot ROM entry
         LD (A_VEC),HL         ; $0210  22 D0 F3    ; [AI] publish the 6502 boot vector ($C600) to the host comm cell
         LD HL,(Z_CPU)          ; $0213  2A DE F3    ; [AI] HL = pointer the 6502 watches (from Z_CPU)

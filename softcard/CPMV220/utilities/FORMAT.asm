@@ -33,9 +33,6 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -46,7 +43,7 @@ MAIN_BANNER:
         LD DE,MSG_BANNER                 ; $0103  11 39 02
         CALL PRINT_STR                   ; $0106  CD C8 01  ; [AI] print the sign-on banner ($-terminated)
 MAIN_CHECK_TAIL:
-        LD A,(DEFAULT_DMA)               ; $0109  3A 80 00  ; [AI] A = command-tail length at $0080
+        LD A,(TBUFF)               ; $0109  3A 80 00  ; [AI] A = command-tail length at $0080
         LD (TAIL_LEN),A                  ; $010C  32 16 02  ; [AI] save tail length / "had-args" flag
         OR A                             ; $010F  B7
         JP Z,PROMPT_DRIVE                ; $0110  CA A7 01  ; [AI] no command tail -> ask interactively
@@ -129,10 +126,10 @@ PROMPT_DRIVE:
 PROMPT_READ_LINE:
         CALL PRINT_STR                   ; $01AA  CD C8 01   ; [AI] "Format disk in which drive? "
         LD A,$80                         ; $01AD  3E 80      ; [AI] max input length = 128
-        LD (DEFAULT_DMA),A               ; $01AF  32 80 00   ; [AI] set up the read-console-buffer header
+        LD (TBUFF),A               ; $01AF  32 80 00   ; [AI] set up the read-console-buffer header
         LD C,$0A                         ; $01B2  0E 0A      ; [AI] BDOS fn 10 = read console line
-        LD DE,DEFAULT_DMA                ; $01B4  11 80 00   ; [AI] DE -> buffer ($0080)
-        CALL BDOS_VEC                    ; $01B7  CD 05 00
+        LD DE,TBUFF                ; $01B4  11 80 00   ; [AI] DE -> buffer ($0080)
+        CALL BDOS                    ; $01B7  CD 05 00
         LD A,$0A                         ; $01BA  3E 0A
         CALL CONOUT                      ; $01BC  CD CC 01   ; [AI] echo a line feed
         LD A,(CMDLINE)                   ; $01BF  3A 81 00   ; [AI] first typed char ($0081)
@@ -149,7 +146,7 @@ CONOUT:
 CONOUT_SETFN:
         LD C,$02                         ; $01CD  0E 02      ; [AI] BDOS fn 2 = console output
 CONOUT_BDOS:
-        JP BDOS_VEC                      ; $01CF  C3 05 00   ; [AI] tail-call BDOS (DE/C already set)
+        JP BDOS                      ; $01CF  C3 05 00   ; [AI] tail-call BDOS (DE/C already set)
 CHECK_WRITE_PROTECT:
         LD HL,DRV_TOGGLE                 ; $01D2  21 18 02
         LD C,(HL)                        ; $01D5  4E         ; [AI] read current motor/select toggle state
@@ -177,16 +174,16 @@ EXIT_TEST:
         CALL PRINT_STR                   ; $01F8  CD C8 01   ; [AI] "Insert CP/M System disk in drive A:  Press RETURN"
         CALL CONIN_DIRECT                ; $01FB  CD 01 02   ; [AI] wait for a key
 DO_WARMBOOT:
-        JP WBOOT_VEC                     ; $01FE  C3 00 00   ; [AI] warm boot -> reload CCP/BDOS, return to prompt
+        JP WBOOTV                     ; $01FE  C3 00 00   ; [AI] warm boot -> reload CCP/BDOS, return to prompt
 CONIN_DIRECT:
         LD E,$FF                         ; $0201  1E FF      ; [AI] E=$FF -> input (vs output) for fn 6
 CONIN_DIRECT_FN:
         LD C,$06                         ; $0203  0E 06      ; [AI] BDOS fn 6 = direct console I/O
-        CALL BDOS_VEC                    ; $0205  CD 05 00
+        CALL BDOS                    ; $0205  CD 05 00
         OR A                             ; $0208  B7
         JR Z,CONIN_DIRECT                ; $0209  28 F6      ; [AI] A=0 -> no key ready, poll again
         CP $03                           ; $020B  FE 03      ; [AI] Ctrl-C ?
-        JP Z,WBOOT_VEC                   ; $020D  CA 00 00   ; [AI] Ctrl-C -> abort to warm boot
+        JP Z,WBOOTV                   ; $020D  CA 00 00   ; [AI] Ctrl-C -> abort to warm boot
 TO_UPPER:
         CP $60                           ; $0210  FE 60      ; [AI] >= 'a' (lowercase) ?
         RET C                            ; $0212  D8         ; [AI] no -> leave unchanged

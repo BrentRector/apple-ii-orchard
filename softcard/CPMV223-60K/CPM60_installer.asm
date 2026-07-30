@@ -34,10 +34,10 @@
     ENDIF
 
 ; -- CP/M page-zero / BDOS --
-WBOOT_VEC   EQU $0000   ; warm-boot vector (JP WBOOT). Also poked as RPC trigger.
-BDOS_VEC    EQU $0005   ; BDOS entry (CALL $0005)
+WBOOTV   EQU $0000   ; warm-boot vector (JP WBOOT). Also poked as RPC trigger.
+BDOS    EQU $0005   ; BDOS entry (CALL $0005)
 RST2_VEC    EQU $0010   ; +offset used to index the DPB returned by fn $1B
-DEFAULT_FCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
+TFCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
 
 ; -- 60K-BIOS RWTS-bridge variables (high RAM, shared with 6502 via window) --
 RPC_PARM    EQU $F3D0   ; RPC parameter word (page/opcode passed to 6502)
@@ -75,12 +75,12 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
 TPA_START:
         LD C,$20                ; BDOS fn $20 set/get user code...
         LD E,$1F                ; E=$1F -> "get" current user number
-        CALL BDOS_VEC
-        LD A,(DEFAULT_FCB)      ; FCB drive byte (cmdline "X:" if supplied)
+        CALL BDOS
+        LD A,(TFCB)      ; FCB drive byte (cmdline "X:" if supplied)
         OR A
         JP NZ,TPA_START_1       ; non-zero -> use the explicit drive
         LD C,$19                ; fn $19 get current disk (0-based)
-        CALL BDOS_VEC
+        CALL BDOS
         INC A                   ; make 1-based to match FCB convention
 TPA_START_1:
         LD C,A                  ; C = 1-based target drive
@@ -100,12 +100,12 @@ TPA_START_1:
 ; ---------------------------------------------------------------------------
         LD E,C
         LD C,$0E                ; fn $0E select disk = C (0-based)
-        CALL BDOS_VEC
+        CALL BDOS
         LD C,$13                ; fn $13 delete file
         LD DE,$0355             ; FCB "cp/m    sys" (CP/M.SYS placeholder)
-        CALL BDOS_VEC
+        CALL BDOS
         LD C,$1B                ; fn $1B get allocation vector / DPB; HL->DPB
-        CALL BDOS_VEC
+        CALL BDOS
         LD DE,RST2_VEC          ; +$10 into the DPB
         ADD HL,DE
         LD A,(HL)               ; geometry sanity byte 0
@@ -118,7 +118,7 @@ TPA_START_1:
         JP NZ,TPA_START_8       ; unexpected -> "Disk I/O error"
         LD C,$16                ; fn $16 make file (create "cp/m    sys")
         LD DE,$0355
-        CALL BDOS_VEC
+        CALL BDOS
         INC A                   ; $FF -> 0 means make failed (no dir entry)
         JP Z,TPA_START_9        ;   -> "Disk space already in use"
 
@@ -142,7 +142,7 @@ TPA_START_2:
         LD ($0363),A            ; FCB extent = 0
         LD C,$10                ; fn $10 close file -> commit directory entry
         LD DE,$0355
-        CALL BDOS_VEC
+        CALL BDOS
         POP BC                  ; restore drive (C = 0-based)
 
 ; ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ TPA_START_2:
         LD (RW_SECCNT),A        ; F3EB = 2 sectors per RPC unit
         LD A,$14
         LD (RW_TRACK),A         ; F3E9 = start at track $14 (20) = system tracks
-        LD HL,WBOOT_VEC         ; HL = $0000 (source pointer; really page in H)
+        LD HL,WBOOTV         ; HL = $0000 (source pointer; really page in H)
         LD B,$30                ; 48 pages of system image to write
 TPA_START_3:
         LD (RW_SECTOR),HL       ; F3E0 = current sector/source word
@@ -271,7 +271,7 @@ RPC_WRITE:
 WAIT_KEY:
         LD C,$06
         LD E,$FF                ; direct console input: poll keyboard
-        CALL BDOS_VEC
+        CALL BDOS
         OR A
         JP Z,WAIT_KEY           ; loop until a non-zero key
         RET
@@ -285,7 +285,7 @@ WAIT_KEY:
 ; ---------------------------------------------------------------------------
 PRINT_STR:
         LD C,$09
-        JP BDOS_VEC
+        JP BDOS
 
 ; ============================================================================
 ; STRINGS / DATA  (file 0x112-0x255, $0212-$0355)

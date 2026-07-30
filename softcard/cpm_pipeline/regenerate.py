@@ -22,6 +22,9 @@ comments are carried over verbatim, so the result still reassembles exactly.
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -29,31 +32,99 @@ from .annotate_ai import insert_comments
 
 # A column-0 label (ca65 / sjasmplus): NAME or NAME:.
 _LABEL_RE = re.compile(r"^([A-Za-z_.][A-Za-z0-9_.]*):")
-# The address comment every emitted code/data line carries: "; $XXXX".
-_ADDR_RE = re.compile(r";\s*\$([0-9A-Fa-f]{4})\b")
+# A name bound by EQU rather than placed in the output. These are constants, not
+# locations, so they must NOT be treated as labels with addresses.
+_EQU_RE = re.compile(r"^([A-Za-z_.][A-Za-z0-9_.]*)\s*:?\s+EQU\b", re.I)
 # A full-line comment (only whitespace before the ';').
 _FULL_COMMENT_RE = re.compile(r"^\s*;")
+# A listing line: source-line number, then the address, then optional bytes,
+# then the source text. Only the first two fields are needed here.
+_LST_LINE_RE = re.compile(r"^\s*(\d+)\s+([0-9A-Fa-f]{4})(?:\s|$)")
+
+
+class LabelAddressError(RuntimeError):
+    """Raised when a source's label addresses could not be obtained."""
+
+
+def _line_addrs_from_listing(text: str) -> dict[int, int]:
+    """Assemble `text` and return {source line number: address} from the listing.
+
+    The assembler listing is the same artifact ``os_listing.emit_listing`` emits
+    for the tracked ``.lst`` files, so addresses come from one mechanism across
+    the pipeline rather than a second, parallel one. Its first column is the
+    SOURCE line number, which makes the join back to the source exact -- no
+    guessing where the source text starts within the listing's columns.
+    """
+    if not shutil.which("sjasmplus"):
+        raise LabelAddressError("sjasmplus not on PATH (source shared/toolchain/env.sh)")
+    with tempfile.TemporaryDirectory() as tds:
+        td = Path(tds)
+        (td / "r.asm").write_text(text, encoding="utf-8")
+        proc = subprocess.run(["sjasmplus", "--lst=r.lst", "r.asm"],
+                              cwd=str(td), capture_output=True, text=True)
+        # sjasmplus writes a listing even for a source it could not assemble, so
+        # the exit status is what says whether the addresses in it mean anything.
+        # It exits 0 on warnings (the DISP/ORG notices the 60K modules raise are
+        # expected) and non-zero on errors.
+        if proc.returncode != 0:
+            raise LabelAddressError(
+                "source did not assemble, so its addresses are unusable:\n"
+                + (proc.stdout or "") + (proc.stderr or ""))
+        lst = td / "r.lst"
+        if not lst.exists():
+            raise LabelAddressError("sjasmplus produced no listing")
+        out: dict[int, int] = {}
+        for line in lst.read_text(encoding="latin-1").splitlines():
+            m = _LST_LINE_RE.match(line)
+            if m:
+                out.setdefault(int(m.group(1)), int(m.group(2), 16))
+        if not out:
+            raise LabelAddressError("assembler listing carried no addresses")
+        return out
 
 
 def parse_label_addrs(text: str) -> dict[str, int]:
-    """Map each label name to the address of the first emitted item after it.
+    """Map each code/data label in `text` to its address, per the assembler.
 
-    Robust to renaming: every code/data line carries a ``; $XXXX`` address
-    comment, and labels sit on their own line just above. Consecutive labels at
-    the same address all map to that address."""
-    out: dict[str, int] = {}
-    pending: list[str] = []
-    for line in text.splitlines():
-        m = _LABEL_RE.match(line)
-        if m:
-            pending.append(m.group(1))
+    This ASSEMBLES the source and reads the addresses out of the assembler's
+    listing. It used to scrape the ``; $XXXX`` address comment that each emitted
+    line carries, which made those comments load-bearing: reformat, re-wrap or
+    strip them and every address silently became wrong, with nothing to catch it
+    -- the byte gate cannot see a comment. Asking the assembler removes that
+    whole class of failure, and it is what lets a source drop its inline
+    addresses entirely (the 44K trees keep theirs in a generated .lst instead).
+
+    Only names introduced as column-0 labels are returned. Names bound by EQU
+    are constants rather than locations -- ``DRIVES EQU 6`` must not be reported
+    as "a label at address 6" -- so they are excluded, using the source's own
+    syntax to tell the two apart. A label is reported at the address of the
+    first emitted item at or after it, so consecutive labels share an address,
+    which is the behaviour callers depend on.
+
+    Raises LabelAddressError if the source cannot be assembled.
+    """
+    label_lines: list[tuple[int, str]] = []          # (source line number, name)
+    equ_names: set[str] = set()
+    for lineno, line in enumerate(text.splitlines(), 1):
+        if _FULL_COMMENT_RE.match(line):
             continue
-        am = _ADDR_RE.search(line)
-        if am and pending:
-            addr = int(am.group(1), 16)
-            for name in pending:
-                out[name] = addr
-            pending = []
+        code = line.split(";")[0]
+        m = _EQU_RE.match(code)
+        if m:
+            equ_names.add(m.group(1))
+            continue
+        m = _LABEL_RE.match(code)
+        if m:
+            label_lines.append((lineno, m.group(1)))
+
+    line_addrs = _line_addrs_from_listing(text)
+    out: dict[str, int] = {}
+    for lineno, name in label_lines:
+        if name in equ_names:
+            continue
+        addr = line_addrs.get(lineno)
+        if addr is not None:
+            out[name] = addr
     return out
 
 
@@ -611,8 +682,15 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
         ov.unlink(missing_ok=True)
     src = src.replace("{out_bin}", "CPM_BIOS.bin")
     src = splice_curated_header(old, src)
+    # Repair the link guards BEFORE migrating comments. splice_curated_header
+    # copies the curated header verbatim, and that block opens an IFNDEF whose
+    # ENDIF sits outside the spliced range, so the intermediate does not
+    # assemble until _guard_link_directives has re-applied the guard pairs.
+    # migrate_comments now asks the assembler for label addresses, so it needs a
+    # source that actually assembles; previously it scraped comments and never
+    # noticed it was working on a malformed file.
+    src = _guard_link_directives(src)            # keep the CPM60.COM master-link guards
     merged, mig, drop = migrate_comments(old, src)
-    merged = _guard_link_directives(merged)      # keep the CPM60.COM master-link guards
     rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
     linked = _assemble_link_mode(merged, _BIOS_60K_ORG, _BIOS_60K_LEN)  # as the master INCLUDEs it
     ok = rebuilt == bios and linked == bios
@@ -715,8 +793,15 @@ def regenerate_60k_bdos(*, write: bool = False, ai_names=None, extra_seeds=None)
         ov.unlink(missing_ok=True)
     src = src.replace("{out_bin}", "CPM_BDOS.bin")
     src = splice_curated_header(old, src)
+    # Repair the link guards BEFORE migrating comments. splice_curated_header
+    # copies the curated header verbatim, and that block opens an IFNDEF whose
+    # ENDIF sits outside the spliced range, so the intermediate does not
+    # assemble until _guard_link_directives has re-applied the guard pairs.
+    # migrate_comments now asks the assembler for label addresses, so it needs a
+    # source that actually assembles; previously it scraped comments and never
+    # noticed it was working on a malformed file.
+    src = _guard_link_directives(src)            # keep the CPM60.COM master-link guards
     merged, mig, drop = migrate_comments(old, src)
-    merged = _guard_link_directives(merged)      # keep the CPM60.COM master-link guards
     rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
     linked = _assemble_link_mode(merged, _BDOS_60K_ORG, _BDOS_60K_LEN)  # as the master INCLUDEs it
     ok = rebuilt == bdos and linked == bdos

@@ -37,11 +37,7 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 DEFAULT_CR           EQU $007C               ; Default FCB current record byte (overlaps end of DEFAULT_FCB2).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0494 -> RWTS_SKEW_PTR+1       z80 skip idiom: enters the operand of $11 at $0493
@@ -78,7 +74,7 @@ MAIN_LOOP:
         LD ($0922),A                     ; $0129  32 22 09  ; [AI] set up the read-console-buffer header (max len byte)
         LD DE,$0922                      ; $012C  11 22 09  ; [AI] DE -> input buffer (len, count, chars...)
         LD C,$0A                         ; $012F  0E 0A     ; [AI] BDOS fn 10 = read console buffer (edited line input)
-        CALL BDOS_VEC                    ; $0131  CD 05 00
+        CALL BDOS                    ; $0131  CD 05 00
         CALL PUT_CRLF                    ; $0134  CD C2 04
         LD A,($0923)                     ; $0137  3A 23 09  ; [AI] number of characters the user typed
         CP $03                           ; $013A  FE 03     ; [AI] need at least 3 chars for a command
@@ -150,7 +146,7 @@ FLUSH_KBD:
 CONSOLE_STATUS_IN:
         LD E,$FF                         ; $01B2  1E FF
         LD C,$06                         ; $01B4  0E 06     ; [AI] BDOS fn 6 = direct console I/O
-        CALL BDOS_VEC                    ; $01B6  CD 05 00
+        CALL BDOS                    ; $01B6  CD 05 00
         OR A                             ; $01B9  B7        ; [AI] set Z if no key
         RET                              ; $01BA  C9
 ; [AI] ===== CMD_COPY: parse "appfile=cpmfile" and transfer the file =====
@@ -260,14 +256,14 @@ COPY_TYPE_OK:
         LD (DIR_REC_HI),A                ; $0277  32 15 05
         LD ($0068),A                     ; $027A  32 68 00  ; [AI] zero another FCB field
         CALL SET_APPLE_PARAMS            ; $027D  CD E3 02  ; [AI] arm the 6502 RWTS params (buffer/drive/slot)
-        LD DE,DEFAULT_FCB                ; $0280  11 5C 00
+        LD DE,TFCB                ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
         LD C,$13                         ; $0284  0E 13     ; [AI] BDOS fn 19 = delete file (remove any old copy)
-        CALL BDOS_VEC                    ; $0286  CD 05 00
+        CALL BDOS                    ; $0286  CD 05 00
         POP DE                           ; $0289  D1
         PUSH DE                          ; $028A  D5
         LD C,$16                         ; $028B  0E 16     ; [AI] BDOS fn 22 = make (create) the CP/M output file
-        CALL BDOS_VEC                    ; $028D  CD 05 00
+        CALL BDOS                    ; $028D  CD 05 00
         LD DE,STR_DIR_FULL               ; $0290  11 BC 06  ; [AI] "Directory full"
         INC A                            ; $0293  3C        ; [AI] $FF return from make -> 0 means error
         JP Z,PRINT_AND_RESTART           ; $0294  CA 16 01
@@ -330,10 +326,10 @@ SET_APPLE_PARAMS_TAIL:
 ; [AI] OPEN_CPM_OUTPUT: prep CP/M side (insert-CP/M prompt + open file) for writing.
 OPEN_CPM_OUTPUT:
         CALL SET_APPLE_PARAMS            ; $02FE  CD E3 02
-        LD DE,DEFAULT_FCB                ; $0301  11 5C 00
+        LD DE,TFCB                ; $0301  11 5C 00
 OPEN_CPM_FCB:
         LD C,$0F                         ; $0304  0E 0F     ; [AI] BDOS fn 15 = open file
-        CALL BDOS_VEC                    ; $0306  CD 05 00
+        CALL BDOS                    ; $0306  CD 05 00
         LD A,(DIR_REC_HI)                ; $0309  3A 15 05
         LD (DEFAULT_CR),A                ; $030C  32 7C 00  ; [AI] restore FCB current-record so we append
         JP SET_FCB_DRIVE                 ; $030F  C3 70 04
@@ -344,9 +340,9 @@ SAVE_FCB_POS:
         LD A,($0068)                     ; $0318  3A 68 00
         LD (DIR_REC_LO),A                ; $031B  32 14 05  ; [AI] remember position byte
 MAKE_CPM_FILE:
-        LD DE,DEFAULT_FCB                ; $031E  11 5C 00
+        LD DE,TFCB                ; $031E  11 5C 00
         LD C,$10                         ; $0321  0E 10     ; [AI] BDOS fn 16 = close file
-        CALL BDOS_VEC                    ; $0323  CD 05 00
+        CALL BDOS                    ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A  ; [AI] CP/M-side buffer addr ($1A22) for next phase
         LD (CPM_BUF_PTR),HL              ; $0329  22 16 05
         LD DE,STR_INSERT_APPLE           ; $032C  11 EC 05
@@ -391,7 +387,7 @@ FLUSH_REC_LOOP:
         PUSH HL                          ; $0369  E5
         EX DE,HL                         ; $036A  EB
         LD C,$1A                         ; $036B  0E 1A     ; [AI] BDOS fn 26 = set DMA address (this record)
-        CALL BDOS_VEC                    ; $036D  CD 05 00
+        CALL BDOS                    ; $036D  CD 05 00
         LD A,(DIR_FILE_TYPE)             ; $0370  3A 0E 05  ; [AI] Apple file type
         OR A                             ; $0373  B7
         JR NZ,FLUSH_WRITE                ; $0374  20 0B     ; [AI] nonzero (BINARY) -> write bytes as-is
@@ -405,14 +401,14 @@ FLUSH_STRIP_HI:
         INC HL                           ; $037E  23
         DJNZ FLUSH_STRIP_HI              ; $037F  10 F9
 FLUSH_WRITE:
-        LD DE,DEFAULT_FCB                ; $0381  11 5C 00
+        LD DE,TFCB                ; $0381  11 5C 00
         LD C,$15                         ; $0384  0E 15     ; [AI] BDOS fn 21 = write sequential
-        CALL BDOS_VEC                    ; $0386  CD 05 00
+        CALL BDOS                    ; $0386  CD 05 00
         OR A                             ; $0389  B7
         LD DE,STR_DISK_FULL              ; $038A  11 CB 06  ; [AI] "Disk full"
         JP NZ,PRINT_AND_RESTART          ; $038D  C2 16 01  ; [AI] write error -> report
         POP HL                           ; $0390  E1
-        LD DE,DEFAULT_DMA                ; $0391  11 80 00  ; [AI] advance 128 bytes to the next record
+        LD DE,TBUFF                ; $0391  11 80 00  ; [AI] advance 128 bytes to the next record
         ADD HL,DE                        ; $0394  19
         POP BC                           ; $0395  C1
         DEC BC                           ; $0396  0B
@@ -562,7 +558,7 @@ SET_DRIVE_SLOT:
 SET_FCB_DRIVE:
         LD A,(APPLE_DRIVE_2)             ; $0470  3A 12 05
         INC A                            ; $0473  3C        ; [AI] FCB drive field is 1-based (0 = default)
-        LD (DEFAULT_FCB),A               ; $0474  32 5C 00
+        LD (TFCB),A               ; $0474  32 5C 00
         RET                              ; $0477  C9
 ; [AI] SET_APPLE_BUF_HI: point the 6502 at the fixed T/S-list buffer ($1822) and read.
 SET_APPLE_BUF_HI:
@@ -596,7 +592,7 @@ RWTS_SKEW_PTR:
         LD HL,$0E03                      ; $04A4  21 03 0E  ; [AI] RWTS command word ($0E03 = read)
         LD (A_VEC),HL                    ; $04A7  22 D0 F3
 APPLE_RWTS_GO:
-        LD (WBOOT_VEC),A                 ; $04AA  32 00 00  ; [AI] (operand self-modified at $0103 to the saved 6502 SP; triggers the 6502)
+        LD (WBOOTV),A                 ; $04AA  32 00 00  ; [AI] (operand self-modified at $0103 to the saved 6502 SP; triggers the 6502)
         LD A,(DSK_STATUS)                     ; $04AD  3A EA F3  ; [AI] read back 6502 status
         OR A                             ; $04B0  B7
         RET Z                            ; $04B1  C8        ; [AI] 0 = success
@@ -632,7 +628,7 @@ PRINT_BANNER_3:
 PRINT_STRING:
         LD C,$09                         ; $04D3  0E 09     ; [AI] BDOS fn 9 = print $-string
 PRINT_STRING_TAIL:
-        JP BDOS_VEC                      ; $04D5  C3 05 00
+        JP BDOS                      ; $04D5  C3 05 00
 ; [AI] PROMPT_TWO_DRIVES: if Apple and CP/M drives differ, show the two-drive
 ; [AI] "Insert Apple in Z:, CP/M in Q:" prompt and wait for RETURN.
 PROMPT_TWO_DRIVES:
@@ -674,7 +670,7 @@ PUT_CHAR_4:
 PUT_CHAR_5:
         LD C,$02                         ; $0501  0E 02     ; [AI] BDOS fn 2 = console output
 PUT_CHAR_6:
-        CALL BDOS_VEC                    ; $0503  CD 05 00
+        CALL BDOS                    ; $0503  CD 05 00
 PUT_CHAR_7:
         POP HL                           ; $0506  E1
 PUT_CHAR_8:

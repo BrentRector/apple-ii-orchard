@@ -39,11 +39,7 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 RST5_VEC             EQU $0028               ; Z-80 RST 5 ($28) restart vector — 8 bytes. Available for application/debugger use.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0101 -> TPA_START+1          shared instruction tail: $0101 is reachable code inside the instruction at $0100
@@ -1245,7 +1241,7 @@ SUB_0C75_83:
 SUB_0C75_84:
         LD HL,L_0CF2                     ; $0E30  21 F2 0C
 SUB_0C75_85:
-        CALL WBOOT_VEC                   ; $0E33  CD 00 00
+        CALL WBOOTV                   ; $0E33  CD 00 00
         LD A,(L_0835)                    ; $0E36  3A 35 08
         SUB $02                          ; $0E39  D6 02
         CALL Z,INIT_CLI                  ; $0E3B  CC 5D 62
@@ -1402,7 +1398,7 @@ SUB_0C75_113:
 SUB_0C75_114:
         POP DE                           ; $0F15  D1
         CALL SUB_0F3D                    ; $0F16  CD 3D 0F
-        LD HL,DEFAULT_DMA                ; $0F19  21 80 00
+        LD HL,TBUFF                ; $0F19  21 80 00
         LD (HL),$00                      ; $0F1C  36 00
         LD (L_0850),HL                   ; $0F1E  22 50 08
         LD HL,(L_0840)                   ; $0F21  2A 40 08
@@ -1450,7 +1446,7 @@ SUB_0F3D_5:
         LD (HL),D                        ; $0F5E  72
         JR SUB_0F3D                      ; $0F5F  18 DC
 SUB_0F61:
-        LD DE,WBOOT_VEC                  ; $0F61  11 00 00
+        LD DE,WBOOTV                  ; $0F61  11 00 00
         PUSH DE                          ; $0F64  D5
         JR Z,SUB_0F61_2                  ; $0F65  28 14
         POP DE                           ; $0F67  D1
@@ -4473,7 +4469,7 @@ SUB_3CCD_6:
         CALL FILE_OPEN_STMT_14+1               ; $3D20  CD 65 5D
 SUB_3CCD_7:
         POP BC                           ; $3D23  C1
-        LD DE,WBOOT_VEC                  ; $3D24  11 00 00
+        LD DE,WBOOTV                  ; $3D24  11 00 00
         LD C,D                           ; $3D27  4A
         JP SUB_4CCC_7+2                  ; $3D28  C3 12 4D
         DEFB    $CD                                              ; $3D2B
@@ -5635,7 +5631,7 @@ L_45EB:
 SUB_476B:
         PUSH DE                          ; $476B  D5
         PUSH HL                          ; $476C  E5
-        CALL WBOOT_VEC                   ; $476D  CD 00 00
+        CALL WBOOTV                   ; $476D  CD 00 00
         POP HL                           ; $4770  E1
         POP DE                           ; $4771  D1
         POP BC                           ; $4772  C1
@@ -6879,7 +6875,7 @@ SUB_50FB_4:
         DEFB    $E1,$F1,$F1,$C3                                  ; $520A
         DEFW    SUB_327F_16              ; $520E
 SUB_5210:
-        LD HL,CDISK                      ; $5210  21 04 00
+        LD HL,CDISK_ADDR                      ; $5210  21 04 00
         ADD HL,SP                        ; $5213  39
 SUB_5210_1:
         LD A,(HL)                        ; $5214  7E
@@ -7021,7 +7017,7 @@ SUB_52D4:
 SUB_52DD:
         CALL $7779                       ; $52DD  CD 79 77
         PUSH HL                          ; $52E0  E5
-        LD HL,WBOOT_VEC                  ; $52E1  21 00 00
+        LD HL,WBOOTV                  ; $52E1  21 00 00
         LD (L_0CA1),HL                   ; $52E4  22 A1 0C
         POP HL                           ; $52E7  E1
         DEC HL                           ; $52E8  2B
@@ -8005,7 +8001,7 @@ CLOSE_FILE_6:
 CLOSE_FILE_7:
         CALL $7BFA                       ; $5AF7  CD FA 7B
         LD C,$10                         ; $5AFA  0E 10   ; [AI] BDOS fn 16 = close file
-        CALL BDOS_VEC                    ; $5AFC  CD 05 00 ; [AI] DE -> FCB
+        CALL BDOS                    ; $5AFC  CD 05 00 ; [AI] DE -> FCB
         POP BC                           ; $5AFF  C1
         LD D,$29                         ; $5B00  16 29
         XOR A                            ; $5B02  AF
@@ -8148,12 +8144,12 @@ FILE_OPEN_STMT_4:
 ; [AI] NAME old TO new: open the existing file, then rename it via BDOS.
         LD DE,L_08AA                     ; $5CEB  11 AA 08
         LD C,$0F                         ; $5CEE  0E 0F   ; [AI] BDOS fn 0F = open file
-        CALL BDOS_VEC                    ; $5CF0  CD 05 00
+        CALL BDOS                    ; $5CF0  CD 05 00
         INC A                            ; $5CF3  3C       ; [AI] A=$FF (255) on open failure -> 0
         JP NZ,SUB_0C75_11+1              ; $5CF4  C2 65 0D ; [AI] not found -> error
         LD C,$17                         ; $5CF7  0E 17   ; [AI] BDOS fn 17 = rename file
         LD DE,L_089A                     ; $5CF9  11 9A 08 ; [AI] DE -> rename FCB (old|new names)
-        CALL BDOS_VEC                    ; $5CFC  CD 05 00
+        CALL BDOS                    ; $5CFC  CD 05 00
         POP HL                           ; $5CFF  E1
         RET                              ; $5D00  C9
         DEFB    $01                                              ; $5D01
@@ -8260,17 +8256,17 @@ OPEN_BY_MODE:
         JR NZ,OPEN_BY_MODE_2                 ; $5D9C  20 12   ; [AI] no -> just open existing
         PUSH DE                          ; $5D9E  D5
         LD C,$13                         ; $5D9F  0E 13   ; [AI] BDOS fn 19 = delete file (clear old)
-        CALL BDOS_VEC                    ; $5DA1  CD 05 00
+        CALL BDOS                    ; $5DA1  CD 05 00
         POP DE                           ; $5DA4  D1
 OPEN_BY_MODE_1:
         LD C,$16                         ; $5DA5  0E 16   ; [AI] BDOS fn 22 = make (create) file
-        CALL BDOS_VEC                    ; $5DA7  CD 05 00
+        CALL BDOS                    ; $5DA7  CD 05 00
         INC A                            ; $5DAA  3C       ; [AI] $FF -> 0 means "no directory space"
         JP Z,SUB_0C75_10+1               ; $5DAB  CA 62 0D ; [AI] -> "Disk full" error
         JR OPEN_BY_MODE_3                    ; $5DAE  18 13
 OPEN_BY_MODE_2:
         LD C,$0F                         ; $5DB0  0E 0F   ; [AI] BDOS fn 0F = open existing file
-        CALL BDOS_VEC                    ; $5DB2  CD 05 00
+        CALL BDOS                    ; $5DB2  CD 05 00
         INC A                            ; $5DB5  3C
         JR NZ,OPEN_BY_MODE_3                 ; $5DB6  20 0B
         CALL SUB_0C75                    ; $5DB8  CD 75 0C
@@ -8399,7 +8395,7 @@ SUB_5FC9:
         LD A,$10                         ; $5FC9  3E 10
 SUB_5FC9_1:
         EX DE,HL                         ; $5FCB  EB
-        LD HL,WBOOT_VEC                  ; $5FCC  21 00 00
+        LD HL,WBOOTV                  ; $5FCC  21 00 00
         PUSH HL                          ; $5FCF  E5
 SUB_5FC9_2:
         ADD HL,HL                        ; $5FD0  29
@@ -8462,7 +8458,7 @@ SUB_5FC9_14:
         LD ($81BA),HL                    ; $6011  22 BA 81
         POP HL                           ; $6014  E1
         PUSH HL                          ; $6015  E5
-        LD HL,DEFAULT_DMA                ; $6016  21 80 00
+        LD HL,TBUFF                ; $6016  21 80 00
         LD A,L                           ; $6019  7D
         SUB E                            ; $601A  93
         LD L,A                           ; $601B  6F
@@ -8479,7 +8475,7 @@ SUB_5FC9_15:
         LD A,($81BC)                     ; $6028  3A BC 81
         OR A                             ; $602B  B7
         JR Z,SUB_5FC9_19                 ; $602C  28 3B
-        LD DE,DEFAULT_DMA                ; $602E  11 80 00
+        LD DE,TBUFF                ; $602E  11 80 00
         CALL $691F                       ; $6031  CD 1F 69
         JR NC,SUB_5FC9_16                ; $6034  30 05
         PUSH HL                          ; $6036  E5
@@ -8508,7 +8504,7 @@ SUB_5FC9_17:
 SUB_5FC9_18:
         LD H,A                           ; $6057  67
         OR L                             ; $6058  B5
-        LD DE,WBOOT_VEC                  ; $6059  11 00 00
+        LD DE,WBOOTV                  ; $6059  11 00 00
         PUSH HL                          ; $605C  E5
         LD HL,($81B6)                    ; $605D  2A B6 81
         INC HL                           ; $6060  23
@@ -8644,7 +8640,7 @@ SUB_612D_12:
         LD ($7DEE),HL                    ; $61F2  22 EE 7D
         LD A,H                           ; $61F5  7C
         LD (L_0107),A                    ; $61F6  32 07 01
-        LD BC,CDISK                      ; $61F9  01 04 00
+        LD BC,CDISK_ADDR                      ; $61F9  01 04 00
         ADD HL,BC                        ; $61FC  09
         LD E,(HL)                        ; $61FD  5E
 SUB_612D_13:
@@ -8714,7 +8710,7 @@ SUB_6242:
         LD HL,(Z_CPU)                    ; $624E  2A DE F3
         LD (L_45EB),HL                   ; $6251  22 EB 45
         LD C,$0C                         ; $6254  0E 0C   ; [AI] BDOS fn 0C = return CP/M version
-        CALL BDOS_VEC                    ; $6256  CD 05 00 ; [AI] -> HL=version, A=L
+        CALL BDOS                    ; $6256  CD 05 00 ; [AI] -> HL=version, A=L
         LD (L_08CB),A                    ; $6259  32 CB 08 ; [AI] stash version byte for later checks
         OR A                             ; $625C  B7
 ; [AI] INIT_CLI: post-relocation startup. Sets the top-of-memory limit from
@@ -8736,7 +8732,7 @@ INIT_CLI_1:
 INIT_CLI_2:
         LD (L_0C9A),A                    ; $6279  32 9A 0C
         LD (L_0835),A                    ; $627C  32 35 08
-        LD HL,WBOOT_VEC                  ; $627F  21 00 00
+        LD HL,WBOOTV                  ; $627F  21 00 00
         LD (L_0837),HL                   ; $6282  22 37 08
 INIT_CLI_3:
         LD (COLOR),A                     ; $6285  32 30 F0
@@ -8750,7 +8746,7 @@ INIT_CLI_4:
         LD BC,SUB_5035_1+2               ; $6294  01 3E 50
         LD (SUB_49C3_13),A               ; $6297  32 97 4B
         CALL SUB_4063                    ; $629A  CD 63 40
-        LD HL,DEFAULT_DMA                ; $629D  21 80 00
+        LD HL,TBUFF                ; $629D  21 80 00
         LD (L_0C97),HL                   ; $62A0  22 97 0C
         LD HL,L_0B27                     ; $62A3  21 27 0B
 INIT_CLI_5:
@@ -8771,7 +8767,7 @@ INIT_CLI_6:
         LD ($8352),A                     ; $62C8  32 52 83
 ; [AI] Point at the command tail at $0080 (byte 0 = tail length, the typed
 ; [AI]   "GBASIC <args>" text follows) and scan it for a filename / options.
-        LD HL,DEFAULT_DMA                ; $62CB  21 80 00
+        LD HL,TBUFF                ; $62CB  21 80 00
 INIT_CLI_7:
         LD A,(HL)                        ; $62CE  7E   ; [AI] A = tail length; 0 = nothing typed
         OR A                             ; $62CF  B7

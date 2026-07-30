@@ -43,15 +43,12 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
 
 MAIN:
-        LD A,(DEFAULT_FCB)               ; $0100  3A 5C 00   ; [AI] A = drive byte of default FCB (set by CCP from cmd arg)
+        LD A,(TFCB)               ; $0100  3A 5C 00   ; [AI] A = drive byte of default FCB (set by CCP from cmd arg)
 MAIN_TEST_ARG:
         OR A                             ; $0103  B7         ; [AI] was a target-drive argument supplied?
 MAIN_HAVE_ARG:
@@ -61,7 +58,7 @@ MAIN_NO_ARG:
 MAIN_ERR_EXIT:
         CALL PRINT_STR                   ; $010A  CD A6 01   ; [AI] "Command error"
 MAIN_REBOOT:
-        JP WBOOT_VEC                     ; $010D  C3 00 00   ; [AI] warm boot back to CCP
+        JP WBOOTV                     ; $010D  C3 00 00   ; [AI] warm boot back to CCP
 DO_UPDATE:
         CALL MAP_DRIVE                   ; $0110  CD F9 02   ; [AI] C = drive code, A = Disk II drive# (1/2)
         LD (DSK_DRIVE),A                     ; $0113  32 E4 F3   ; [AI] tell SoftCard BIOS which drive# to use
@@ -85,7 +82,7 @@ MAIN_CALC_SLOT:
         LD (DSK_COMMAND),A                     ; $0134  32 EB F3   ; [AI] sectors-per-op / pass count = 2
         LD A,$13                         ; $0137  3E 13
         LD (DSK_BUFFER_HI),A                     ; $0139  32 E9 F3   ; [AI] starting track/sector index = $13
-        LD HL,WBOOT_VEC                  ; $013C  21 00 00   ; [AI] HL = $0000 = first source page of the system image
+        LD HL,WBOOTV                  ; $013C  21 00 00   ; [AI] HL = $0000 = first source page of the system image
         LD B,$27                         ; $013F  06 27       ; [AI] B = $27 (39) blocks to write
 WRITE_LOOP:
         LD (DSK_TRACK),HL                    ; $0141  22 E0 F3   ; [AI] hand the 6502 the current source address
@@ -138,14 +135,14 @@ WAIT_KEY:
         LD C,$06                         ; $019A  0E 06       ; [AI] BDOS fn 6 = direct console I/O
 WAIT_KEY_POLL:
         LD E,$FF                         ; $019C  1E FF       ; [AI] E=$FF -> input/status poll
-        CALL BDOS_VEC                    ; $019E  CD 05 00
+        CALL BDOS                    ; $019E  CD 05 00
         OR A                             ; $01A1  B7          ; [AI] any key ready?
         JP Z,WAIT_KEY                    ; $01A2  CA 9A 01    ; [AI] no -> keep polling
         RET                              ; $01A5  C9
 PRINT_STR:
         LD C,$09                         ; $01A6  0E 09       ; [AI] BDOS fn 9 = print $-terminated string at DE
 PRINT_STR_BDOS:
-        JP BDOS_VEC                      ; $01A8  C3 05 00
+        JP BDOS                      ; $01A8  C3 05 00
 ; [AI] Sign-on banner + insert-disk prompt:
 ; [AI] "Apple ][ CP/M / 56K CP/M Disk update program / (C) 1980 Microsoft /
 ; [AI]  Insert 16 sector disk into drive " (continues into MSG_DRIVE_LETTER)
@@ -814,7 +811,7 @@ BIOS_PARAM_0E03:
 ; [AI] from the Disk II slot-6 ROM ($C600, set at $0189) -- then warm boot.
 BIOS_DISPATCH_REBOOT:
         LD (HL),A                        ; $2A00  77         ; [AI] trigger the 6502 reboot op
-        JP WBOOT_VEC                     ; $2A01  C3 00 00   ; [AI] warm boot
+        JP WBOOTV                     ; $2A01  C3 00 00   ; [AI] warm boot
         DEFS    252, $00    ; $2A04  fill
 
     SAVEBIN "CPM56.bin", $0100, $2A00

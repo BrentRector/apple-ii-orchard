@@ -27,10 +27,6 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; [AI] -- SoftCard communications-port registers (memory-mapped on the Z-80 side) --
 SIO_STATUS           EQU $E0AE               ; [AI] serial status: bit0 = RX byte available, bit1 = TX holding-reg empty
@@ -41,7 +37,7 @@ SIO_DATA             EQU $E0AF               ; [AI] serial data register: read =
 
 ; [AI] ----- Program entry: validate command line, (re)create the output file -----
 MAIN:
-        LD A,(DEFAULT_DMA)               ; $0100  3A 80 00   [AI] A = command-tail length byte at $0080
+        LD A,(TBUFF)               ; $0100  3A 80 00   [AI] A = command-tail length byte at $0080
 MAIN_HAVE_LEN:
         OR A                             ; $0103  B7         [AI] empty command line?
 MAIN_ERR_MSG:
@@ -49,12 +45,12 @@ MAIN_ERR_MSG:
 MAIN_CHECK_EMPTY:
         JP Z,EXIT_PRINT                  ; $0107  CA 8D 01   [AI] no filename -> print error and quit
         LD C,$13                         ; $010A  0E 13      [AI] BDOS fn 19 = delete file
-        LD DE,DEFAULT_FCB                ; $010C  11 5C 00   [AI] FCB built from the command-line filename
+        LD DE,TFCB                ; $010C  11 5C 00   [AI] FCB built from the command-line filename
         PUSH DE                          ; $010F  D5
-        CALL BDOS_VEC                    ; $0110  CD 05 00   [AI] delete any existing copy of the target file
+        CALL BDOS                    ; $0110  CD 05 00   [AI] delete any existing copy of the target file
         POP DE                           ; $0113  D1
         LD C,$16                         ; $0114  0E 16      [AI] BDOS fn 22 = make (create) file
-        CALL BDOS_VEC                    ; $0116  CD 05 00   [AI] create the empty destination file
+        CALL BDOS                    ; $0116  CD 05 00   [AI] create the empty destination file
         INC A                            ; $0119  3C         [AI] make returns $FF on failure -> INC makes it 0
         LD DE,MSG_NO_DIR_SPACE           ; $011A  11 CE 01   [AI] point DE at "No directory space$"
         JP Z,EXIT_PRINT                  ; $011D  CA 8D 01   [AI] directory full -> print message and quit
@@ -86,7 +82,7 @@ SEND_BANNER:
 
 ; [AI] ----- Receive one 128-byte record, accumulating an XOR checksum -----
 RECV_RECORD:
-        LD HL,DEFAULT_DMA                ; $0147  21 80 00   [AI] write incoming bytes into the DMA buffer ($0080)
+        LD HL,TBUFF                ; $0147  21 80 00   [AI] write incoming bytes into the DMA buffer ($0080)
         LD C,$00                         ; $014A  0E 00      [AI] C = running XOR checksum, start at 0
         LD D,$81                         ; $014C  16 81      [AI] D = byte counter ($81 = 128 data + 1 checksum byte)
 RECV_BYTE_LOOP:
@@ -111,9 +107,9 @@ RECV_BYTE_LOOP:
 RECORD_GOOD:
         LD E,$2E                         ; $016A  1E 2E      [AI] '.'
         CALL CONOUT                      ; $016C  CD BB 01   [AI] progress dot to the console
-        LD DE,DEFAULT_FCB                ; $016F  11 5C 00
+        LD DE,TFCB                ; $016F  11 5C 00
         LD C,$15                         ; $0172  0E 15      [AI] BDOS fn 21 = write sequential (from DMA buffer)
-        CALL BDOS_VEC                    ; $0174  CD 05 00   [AI] write the 128-byte record to the file
+        CALL BDOS                    ; $0174  CD 05 00   [AI] write the 128-byte record to the file
         LD E,$47                         ; $0177  1E 47      [AI] 'G' (good / ACK)
         CALL SEND_BYTE                   ; $0179  CD 93 01   [AI] tell host to send the next record
         JP RECV_RECORD                   ; $017C  C3 47 01   [AI] receive the next record
@@ -121,16 +117,16 @@ RECORD_GOOD:
 ; [AI] ----- End of transfer (host raised KEYBD=$83): close the file -----
 TRANSFER_DONE:
         LD (KEYSTB),A             ; $017F  32 10 E0   [AI] mark transfer complete
-        LD DE,DEFAULT_FCB                ; $0182  11 5C 00
+        LD DE,TFCB                ; $0182  11 5C 00
         LD C,$10                         ; $0185  0E 10      [AI] BDOS fn 16 = close file
-        CALL BDOS_VEC                    ; $0187  CD 05 00   [AI] flush directory / close the destination file
+        CALL BDOS                    ; $0187  CD 05 00   [AI] flush directory / close the destination file
         LD DE,MSG_COMPLETE               ; $018A  11 E1 01   [AI] "\r\nDOWNLOAD Complete$"
 
 ; [AI] Common exit: print the $-terminated string in DE, then warm-boot CP/M.
 EXIT_PRINT:
         CALL PRINT_STRING                ; $018D  CD B6 01   [AI] BDOS fn 9 print-string
 EXIT_WBOOT:
-        JP WBOOT_VEC                     ; $0190  C3 00 00   [AI] return to CP/M via warm boot
+        JP WBOOTV                     ; $0190  C3 00 00   [AI] return to CP/M via warm boot
 
 ; [AI] SEND_BYTE: block until SIO TX holding register is empty, then send E.
 SEND_BYTE:
@@ -159,12 +155,12 @@ RECV_BYTE_READY:
 PRINT_STRING:
         LD C,$09                         ; $01B6  0E 09
 PRINT_STRING_BDOS:
-        JP BDOS_VEC                      ; $01B8  C3 05 00   [AI] tail-call BDOS (RET returns to PRINT_STRING's caller)
+        JP BDOS                      ; $01B8  C3 05 00   [AI] tail-call BDOS (RET returns to PRINT_STRING's caller)
 
 ; [AI] CONOUT: BDOS fn 2, write the single character in E to the console.
 CONOUT:
         LD C,$02                         ; $01BB  0E 02
-        JP BDOS_VEC                      ; $01BD  C3 05 00   [AI] tail-call BDOS
+        JP BDOS                      ; $01BD  C3 05 00   [AI] tail-call BDOS
 
 ; [AI] "Command Error$" -- shown when no filename is given on the command line.
 MSG_CMD_ERROR:

@@ -32,10 +32,7 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
 RST6_VEC             EQU $0030               ; Z-80 RST 6 ($30) restart vector — 8 bytes. Available for application/debugger use.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $0230 -> COPY_DIR_WRITE_2+2   shared instruction tail: $0230 is reachable code inside the instruction at $022E
@@ -64,7 +61,7 @@ TPA_START_6:
 TPA_START_7:
         LD (TRACKS_TO_COPY),A            ; $0114  32 E0 02   ; [AI] save number of tracks to copy per pass
 TPA_START_8:
-        LD A,(DEFAULT_DMA)               ; $0117  3A 80 00   ; [AI] command-tail length byte at $0080
+        LD A,(TBUFF)               ; $0117  3A 80 00   ; [AI] command-tail length byte at $0080
 TPA_START_9:
         OR A                             ; $011A  B7         ; [AI] any command tail present?
 TPA_START_10:
@@ -77,13 +74,13 @@ PROMPT_INPUT:
 TPA_START_12:
         LD A,$80                         ; $0121  3E 80      ; [AI] max input length = 128
 TPA_START_13:
-        LD (DEFAULT_DMA),A               ; $0123  32 80 00   ; [AI] set BDOS read-buffer capacity byte
+        LD (TBUFF),A               ; $0123  32 80 00   ; [AI] set BDOS read-buffer capacity byte
 TPA_START_14:
         LD C,$0A                         ; $0126  0E 0A      ; [AI] BDOS fn 10 = read console line into buffer
 TPA_START_15:
-        LD DE,DEFAULT_DMA                ; $0128  11 80 00   ; [AI] DE -> read buffer (also default DMA)
+        LD DE,TBUFF                ; $0128  11 80 00   ; [AI] DE -> read buffer (also default DMA)
 TPA_START_16:
-        CALL BDOS_VEC                    ; $012B  CD 05 00   ; [AI] read the command line
+        CALL BDOS                    ; $012B  CD 05 00   ; [AI] read the command line
 TPA_START_17:
         LD A,$0A                         ; $012E  3E 0A      ; [AI] line feed
 TPA_START_18:
@@ -127,7 +124,7 @@ COPY_PASS:
 ; [AI] DE/RESUME_VECTOR selects multi- vs single-drive handling. Each pass copies
 ; [AI] TRACKS_TO_COPY tracks of $0800 bytes from MASTER to SLAVE.
         PUSH DE                          ; $0171  D5         ; [AI] save resume vector
-        LD HL,WBOOT_VEC                  ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start)
+        LD HL,WBOOTV                  ; $0172  21 00 00   ; [AI] HL = 0 (track 0 start)
         LD (DSK_TRACK),HL                    ; $0175  22 E0 F3   ; [AI] reset BIOS track counter to 0
         LD HL,(SRC_DST_DRIVES)           ; $0178  2A DE 02   ; [AI] HL = {dst,src} drive pair
         LD DE,PROMPT_INSERT_MASTER       ; $017B  11 FC 03   ; [AI] "Insert MASTER disk into drive Z:"
@@ -152,7 +149,7 @@ TRACK_GROUP_LOOP:
         JR NC,FULL_BATCH                 ; $0199  30 05      ; [AI] enough for a full batch
         ADD HL,DE                        ; $019B  19         ; [AI] restore: fewer than a full batch left
         LD B,L                           ; $019C  45         ; [AI] B = exact remaining count
-        LD HL,WBOOT_VEC                  ; $019D  21 00 00   ; [AI] HL = 0 (last batch)
+        LD HL,WBOOTV                  ; $019D  21 00 00   ; [AI] HL = 0 (last batch)
 FULL_BATCH:
         PUSH HL                          ; $01A0  E5         ; [AI] save remaining-track count
         LD A,(SINGLE_DRIVE_FLAG)         ; $01A1  3A E1 02   ; [AI] single-drive mode flag
@@ -188,7 +185,7 @@ ASK_YN:
         LD DE,PROMPT_INSERT_SYSTEM       ; $01E2  11 AC 03   ; [AI] "Insert CP/M System disk into drive A:"
         CALL PRINT_AND_WAIT_CR           ; $01E5  CD BD 02   ; [AI] prompt for system disk before exit
 EXIT_WBOOT:
-        JP WBOOT_VEC                     ; $01E8  C3 00 00   ; [AI] warm boot back to CCP
+        JP WBOOTV                     ; $01E8  C3 00 00   ; [AI] warm boot back to CCP
 ANSWER_NOT_N:
         CP $59                           ; $01EB  FE 59      ; [AI] 'Y'?
         JR NZ,ASK_YN                     ; $01ED  20 DE      ; [AI] neither Y nor N -> re-read key
@@ -263,7 +260,7 @@ CONOUT:
 SUB_024E_1:
         LD C,$02                         ; $024F  0E 02
 CONOUT_2:
-        JP BDOS_VEC                      ; $0251  C3 05 00   ; [AI] tail-call into BDOS
+        JP BDOS                      ; $0251  C3 05 00   ; [AI] tail-call into BDOS
 
 ; [AI] Fetch next command-tail character via HL, uppercase it (subtract $20 if >= $E0
 ; [AI] in the rotated sense), return in A. Used to walk the parsed operand string.
@@ -343,7 +340,7 @@ CHECK_6502_STATUS:
         LD HL,$14AE                      ; $029D  21 AE 14
         LD (A_VEC),HL                    ; $02A0  22 D0 F3   ; [AI] re-arm 6502 parameter word
 SET_DE_PTR_PATCH:
-        LD (WBOOT_VEC),A                 ; $02A3  32 00 00   ; [AI] self-modified target (operand patched at $0103; entry $02A4 = +1)
+        LD (WBOOTV),A                 ; $02A3  32 00 00   ; [AI] self-modified target (operand patched at $0103; entry $02A4 = +1)
         LD A,(DSK_STATUS)                     ; $02A6  3A EA F3   ; [AI] 6502 result/status byte
         OR A                             ; $02A9  B7         ; [AI] 0 = success?
         RET Z                            ; $02AA  C8         ; [AI] OK -> continue
@@ -371,12 +368,12 @@ SUB_02BD_1:
 CONIN_UPPER:
         LD E,$FF                         ; $02C8  1E FF      ; [AI] fn 6 input request
         LD C,$06                         ; $02CA  0E 06      ; [AI] BDOS fn 6 = direct console I/O
-        CALL BDOS_VEC                    ; $02CC  CD 05 00
+        CALL BDOS                    ; $02CC  CD 05 00
         OR A                             ; $02CF  B7         ; [AI] no key ready?
 SUB_02C8_1:
         JR Z,CONIN_UPPER                 ; $02D0  28 F6      ; [AI] poll until a key arrives
         CP $03                           ; $02D2  FE 03      ; [AI] ^C abort?
-        JP Z,WBOOT_VEC                   ; $02D4  CA 00 00   ; [AI] ^C -> warm boot
+        JP Z,WBOOTV                   ; $02D4  CA 00 00   ; [AI] ^C -> warm boot
         CP $60                           ; $02D7  FE 60      ; [AI] lowercase letter?
         RET C                            ; $02D9  D8         ; [AI] no -> return as-is
         SUB $20                          ; $02DA  D6 20      ; [AI] fold to uppercase

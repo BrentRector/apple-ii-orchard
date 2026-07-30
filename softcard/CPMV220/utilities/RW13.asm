@@ -20,9 +20,6 @@
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -34,7 +31,7 @@ START:
 START_PRINT_BANNER:
         LD C,$09                         ; $0103  0E 09     ; [AI] BDOS fn 9 = print $-terminated string
 PRINT_BANNER_CALL:
-        CALL BDOS_VEC                    ; $0105  CD 05 00  ; [AI] emit banner to console
+        CALL BDOS                    ; $0105  CD 05 00  ; [AI] emit banner to console
 START_DISPATCH:
         LD A,($0082)                     ; $0108  3A 82 00  ; [AI] A = first char of command tail arg ($0080=len, $0081=' ', $0082=arg[0])
         CP $58                           ; $010B  FE 58     ; [AI] 'X' (upper) -> install 13-sector mode
@@ -87,9 +84,9 @@ ERR_INVALID_DRIVE:
 PRINT_AND_WBOOT:
         LD C,$09                         ; $0148  0E 09     ; [AI] BDOS fn 9 = print $-string
 PRINT_AND_WBOOT_CALL:
-        CALL BDOS_VEC                    ; $014A  CD 05 00
+        CALL BDOS                    ; $014A  CD 05 00
 PRINT_AND_WBOOT_C9:
-        JP WBOOT_VEC                     ; $014D  C3 00 00  ; [AI] return to CP/M via warm boot
+        JP WBOOTV                     ; $014D  C3 00 00  ; [AI] return to CP/M via warm boot
 
 ; [AI] ----- Restore path: bare drive letter argument -----
 ; [AI] Validate the drive, and if currently in 13-sector mode, put it back to 16-sector.
@@ -100,7 +97,7 @@ CHECK_RESTORE_1:
 CHECK_RESTORE_MSG:
         LD DE,MSG_MUST_RW13_FIRST        ; $0155  11 71 02  ; [AI] preload "Must 'RW13 X' first"
         JR NZ,PRINT_AND_WBOOT            ; $0158  20 EE     ; [AI] not in 13-sector -> nothing to restore, complain
-        LD A,(DEFAULT_FCB)               ; $015A  3A 5C 00  ; [AI] A = drive code from parsed FCB (0=default,1=A,...)
+        LD A,(TFCB)               ; $015A  3A 5C 00  ; [AI] A = drive code from parsed FCB (0=default,1=A,...)
         CP $01                           ; $015D  FE 01
         JR Z,ERR_INVALID_DRIVE           ; $015F  28 E4     ; [AI] drive 1 here is rejected as invalid
         JR NC,RESTORE_DRIVE              ; $0161  30 05     ; [AI] >=2 -> valid drive, proceed

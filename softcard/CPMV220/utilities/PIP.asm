@@ -5,11 +5,6 @@
     DEVICE NOSLOT64K
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_FCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
     INCLUDE "cpm22.inc"                  ; CP/M 2.2 ABI (provides TPA = $0100)
     ORG TPA
@@ -192,7 +187,7 @@ MSG_INVALID_SEPARATOR:
 TPA_START_1:
         LD SP,STACK_TOP                     ; $04CE  31 F2 1D  [AI] set private stack
 TPA_START_2:
-        LD BC,DEFAULT_DMA                ; $04D1  01 80 00  [AI] source = command tail @ $0080
+        LD BC,TBUFF                ; $04D1  01 80 00  [AI] source = command tail @ $0080
 TPA_START_3:
         PUSH BC                          ; $04D4  C5
 TPA_START_4:
@@ -226,13 +221,13 @@ TPA_START_17:
 TPA_START_18:
         CALL PRINT_MSG                    ; $04F7  CD 39 08  [AI] "REQUIRES CP/M 2.0..."
 TPA_START_19:
-        CALL WBOOT_VEC                   ; $04FA  CD 00 00  [AI] warm-boot (exit)
+        CALL WBOOTV                   ; $04FA  CD 00 00  [AI] warm-boot (exit)
 TPA_START_20:
         CALL GET_DPB                    ; $04FD  CD 16 09  [AI] fn 31: get disk params
         LD ($1EC0),A                     ; $0500  32 C0 1E  [AI] save current user number
-        LD DE,WBOOT_VEC                  ; $0503  11 00 00
+        LD DE,WBOOTV                  ; $0503  11 00 00
         LD C,$19                         ; $0506  0E 19      [AI] fn 25: get current disk
-        CALL BDOS_VEC                    ; $0508  CD 05 00
+        CALL BDOS                    ; $0508  CD 05 00
         LD (CUR_DISK),A                    ; $050B  32 FC 1D  [AI] remember default drive
 ; [AI] --- COMMAND LOOP TOP: reset stack, read & execute one PIP command line ---
 TPA_START_21:
@@ -271,7 +266,7 @@ TPA_START_23:
         LD HL,(CUR_DISK)                   ; $0554  2A FC 1D  [AI] interactive: select default drive
         LD C,L                           ; $0557  4D
         CALL SELECT_DISK                    ; $0558  CD 5E 08
-        CALL WBOOT_VEC                   ; $055B  CD 00 00  [AI] then warm boot (exit) -- "PIP" alone = quit
+        CALL WBOOTV                   ; $055B  CD 00 00  [AI] then warm boot (exit) -- "PIP" alone = quit
 ; [AI] Parse the first file/device spec of the command into FCB-area $1E27.
 ; [AI] $1EA9 = result spec-type: 2=disk file, 3=destination=device, 4=two-disk-file copy.
 TPA_START_24:
@@ -307,7 +302,7 @@ TPA_START_26:
         LD A,(WILDCARD_FLAG)                    ; $05A4  3A F5 1D
         RRA                              ; $05A7  1F
         JP NC,TPA_START_27               ; $05A8  D2 B7 05
-        LD BC,DEFAULT_FCB                ; $05AB  01 5C 00
+        LD BC,TFCB                ; $05AB  01 5C 00
         CALL PARSE_AND_OPEN                    ; $05AE  CD EE 1C
         CALL EXPAND_WILDCARD_COPY                    ; $05B1  CD 78 1B
         JP TPA_START_28                  ; $05B4  C3 C0 05
@@ -612,9 +607,9 @@ AUX_READER_RET:
         DEFB    $03,$CD,$05,$00,$C9                              ; $080E
 ; [AI] CONIN_RAW: BDOS fn 1 -- read one char from console (echoed). Returns char in A.
 CONIN_RAW:
-        LD DE,WBOOT_VEC                  ; $0813  11 00 00
+        LD DE,WBOOTV                  ; $0813  11 00 00
         LD C,$01                         ; $0816  0E 01     [AI] fn 1 console input
-        CALL BDOS_VEC                    ; $0818  CD 05 00
+        CALL BDOS                    ; $0818  CD 05 00
         RET                              ; $081B  C9
 ; [AI] CONOUT: BDOS fn 2 -- write char (C, masked to 7 bits) to the console.
 CONOUT:
@@ -632,7 +627,7 @@ CONOUT_5:
 CONOUT_6:
         LD C,$02                         ; $0828  0E 02     [AI] fn 2 console output
 CONOUT_7:
-        CALL BDOS_VEC                    ; $082A  CD 05 00
+        CALL BDOS                    ; $082A  CD 05 00
 CONOUT_8:
         RET                              ; $082D  C9
 ; [AI] CRLF: emit carriage-return + line-feed to the console.
@@ -664,15 +659,15 @@ PRINT_MSG_6:
 PRINT_MSG_7:
         LD C,$09                         ; $0846  0E 09
 PRINT_MSG_8:
-        CALL BDOS_VEC                    ; $0848  CD 05 00
+        CALL BDOS                    ; $0848  CD 05 00
 PRINT_MSG_9:
         RET                              ; $084B  C9
 PRINT_VERSION:
-        LD DE,WBOOT_VEC                  ; $084C  11 00 00
+        LD DE,WBOOTV                  ; $084C  11 00 00
 PRINT_VERSION_1:
         LD C,$0C                         ; $084F  0E 0C
 PRINT_VERSION_2:
-        CALL BDOS_VEC                    ; $0851  CD 05 00
+        CALL BDOS                    ; $0851  CD 05 00
 PRINT_VERSION_3:
         RET                              ; $0854  C9
         DEFB    $11,$00                                          ; $0855
@@ -686,7 +681,7 @@ SELECT_DISK:
         LD H,$00                         ; $0865  26 00
         EX DE,HL                         ; $0867  EB
         LD C,$0E                         ; $0868  0E 0E
-        CALL BDOS_VEC                    ; $086A  CD 05 00
+        CALL BDOS                    ; $086A  CD 05 00
         RET                              ; $086D  C9
 ; [AI] OPEN_FILE: BDOS fn 15 -- open file (BC = FCB ptr). Result code -> $1EAE ($FF = fail).
 OPEN_FILE:
@@ -697,7 +692,7 @@ OPEN_FILE:
         LD HL,($1EB0)                    ; $0874  2A B0 1E
         EX DE,HL                         ; $0877  EB
         LD C,$0F                         ; $0878  0E 0F
-        CALL BDOS_VEC                    ; $087A  CD 05 00
+        CALL BDOS                    ; $087A  CD 05 00
         LD ($1EAE),A                     ; $087D  32 AE 1E
         RET                              ; $0880  C9
 ; [AI] CLOSE_FILE: BDOS fn 16 -- close file (BC = FCB ptr). Result -> $1EAE.
@@ -709,7 +704,7 @@ CLOSE_FILE:
         LD HL,($1EB2)                    ; $0887  2A B2 1E
         EX DE,HL                         ; $088A  EB
         LD C,$10                         ; $088B  0E 10
-        CALL BDOS_VEC                    ; $088D  CD 05 00
+        CALL BDOS                    ; $088D  CD 05 00
         LD ($1EAE),A                     ; $0890  32 AE 1E
         RET                              ; $0893  C9
 ; [AI] SEARCH_FIRST: BDOS fn 17 -- find first directory match (BC = FCB ptr). Index/-1 -> $1EAE.
@@ -721,14 +716,14 @@ SEARCH_FIRST:
         LD HL,($1EB4)                    ; $089A  2A B4 1E
         EX DE,HL                         ; $089D  EB
         LD C,$11                         ; $089E  0E 11
-        CALL BDOS_VEC                    ; $08A0  CD 05 00
+        CALL BDOS                    ; $08A0  CD 05 00
         LD ($1EAE),A                     ; $08A3  32 AE 1E
         RET                              ; $08A6  C9
 ; [AI] SEARCH_NEXT: BDOS fn 18 -- find next directory match. Index/-1 -> $1EAE.
 SEARCH_NEXT:
-        LD DE,WBOOT_VEC                  ; $08A7  11 00 00
+        LD DE,WBOOTV                  ; $08A7  11 00 00
         LD C,$12                         ; $08AA  0E 12
-        CALL BDOS_VEC                    ; $08AC  CD 05 00
+        CALL BDOS                    ; $08AC  CD 05 00
         LD ($1EAE),A                     ; $08AF  32 AE 1E
         RET                              ; $08B2  C9
 ; [AI] DELETE_FILE: BDOS fn 19 -- delete file(s) matching FCB (BC = FCB ptr).
@@ -740,7 +735,7 @@ DELETE_FILE:
         LD HL,($1EB6)                    ; $08B9  2A B6 1E
         EX DE,HL                         ; $08BC  EB
         LD C,$13                         ; $08BD  0E 13
-        CALL BDOS_VEC                    ; $08BF  CD 05 00
+        CALL BDOS                    ; $08BF  CD 05 00
         RET                              ; $08C2  C9
 ; [AI] READ_SEQ: BDOS fn 20 -- read next 128-byte record into DMA (BC = FCB ptr). 0=ok, 1=EOF.
 READ_SEQ:
@@ -751,7 +746,7 @@ READ_SEQ:
         LD HL,($1EB8)                    ; $08C9  2A B8 1E
         EX DE,HL                         ; $08CC  EB
         LD C,$14                         ; $08CD  0E 14
-        CALL BDOS_VEC                    ; $08CF  CD 05 00
+        CALL BDOS                    ; $08CF  CD 05 00
         RET                              ; $08D2  C9
 ; [AI] WRITE_SEQ: BDOS fn 21 -- write next 128-byte record from DMA (BC = FCB ptr). 0=ok else err.
 WRITE_SEQ:
@@ -762,7 +757,7 @@ WRITE_SEQ:
         LD HL,($1EBA)                    ; $08D9  2A BA 1E
         EX DE,HL                         ; $08DC  EB
         LD C,$15                         ; $08DD  0E 15
-        CALL BDOS_VEC                    ; $08DF  CD 05 00
+        CALL BDOS                    ; $08DF  CD 05 00
         RET                              ; $08E2  C9
 ; [AI] MAKE_FILE: BDOS fn 22 -- create file (BC = FCB ptr). Result -> $1EAE ($FF = dir full).
 MAKE_FILE:
@@ -773,7 +768,7 @@ MAKE_FILE:
         LD HL,($1EBC)                    ; $08E9  2A BC 1E
         EX DE,HL                         ; $08EC  EB
         LD C,$16                         ; $08ED  0E 16
-        CALL BDOS_VEC                    ; $08EF  CD 05 00
+        CALL BDOS                    ; $08EF  CD 05 00
         LD ($1EAE),A                     ; $08F2  32 AE 1E
         RET                              ; $08F5  C9
 ; [AI] RENAME_FILE: BDOS fn 23 -- rename (BC = FCB ptr; old name in first 16 bytes, new in second).
@@ -785,7 +780,7 @@ RENAME_FILE:
         LD HL,($1EBE)                    ; $08FC  2A BE 1E
         EX DE,HL                         ; $08FF  EB
         LD C,$17                         ; $0900  0E 17
-        CALL BDOS_VEC                    ; $0902  CD 05 00
+        CALL BDOS                    ; $0902  CD 05 00
         RET                              ; $0905  C9
 ; [AI] SET_FILE_ATTR: BDOS fn 30 -- set file attributes (R/O, SYS) from FCB (BC = FCB ptr).
 SET_FILE_ATTR:
@@ -796,13 +791,13 @@ SET_FILE_ATTR:
         LD HL,($1EC2)                    ; $090C  2A C2 1E
         EX DE,HL                         ; $090F  EB
         LD C,$1E                         ; $0910  0E 1E
-        CALL BDOS_VEC                    ; $0912  CD 05 00
+        CALL BDOS                    ; $0912  CD 05 00
         RET                              ; $0915  C9
 ; [AI] GET_DPB: BDOS fn 32 with E=$FF -- query (don't change) the current user number. Returns it in A.
 GET_DPB:
         LD DE,$00FF                      ; $0916  11 FF 00
         LD C,$20                         ; $0919  0E 20
-        CALL BDOS_VEC                    ; $091B  CD 05 00
+        CALL BDOS                    ; $091B  CD 05 00
         RET                              ; $091E  C9
 ; [AI] SET_USER: BDOS fn 32 -- set current user number to C (0..15).
 SET_USER:
@@ -812,7 +807,7 @@ SET_USER:
         LD H,$00                         ; $0926  26 00
         EX DE,HL                         ; $0928  EB
         LD C,$20                         ; $0929  0E 20
-        CALL BDOS_VEC                    ; $092B  CD 05 00
+        CALL BDOS                    ; $092B  CD 05 00
         RET                              ; $092E  C9
 ; [AI] RESTORE_USER0: switch back to the invocation user number (saved at $1EC0).
 RESTORE_USER0:
@@ -836,7 +831,7 @@ SET_DMA:
         LD HL,($1EC5)                    ; $0945  2A C5 1E
         EX DE,HL                         ; $0948  EB
         LD C,$21                         ; $0949  0E 21
-        CALL BDOS_VEC                    ; $094B  CD 05 00
+        CALL BDOS                    ; $094B  CD 05 00
         RET                              ; $094E  C9
 ; [AI] (in-line relocatable stub: another fn 34 write-random-style BDOS wrapper)
         DEFB    $21,$C8,$1E,$70,$2B,$71,$2A,$C7,$1E              ; $094F
@@ -851,20 +846,20 @@ SET_RANDOM_REC:
         LD HL,($1EC9)                    ; $0965  2A C9 1E
         EX DE,HL                         ; $0968  EB
         LD C,$24                         ; $0969  0E 24
-        CALL BDOS_VEC                    ; $096B  CD 05 00
+        CALL BDOS                    ; $096B  CD 05 00
         RET                              ; $096E  C9
 READ_CON_BUF_SETUP:
         LD HL,$1ECB                      ; $096F  21 CB 1E
         LD (HL),$80                      ; $0972  36 80      [AI] buffer max length 128
         LD DE,$1ECB                      ; $0974  11 CB 1E  [AI] console read buffer @ $1ECB
         LD C,$0A                         ; $0977  0E 0A      [AI] fn 10 read-console-buffer
-        CALL BDOS_VEC                    ; $0979  CD 05 00
+        CALL BDOS                    ; $0979  CD 05 00
         RET                              ; $097C  C9
 ; [AI] GET_CONSOLE_STATUS: BDOS fn 11 -- returns A=1 if a console key is waiting, else 0.
 GET_CONSOLE_STATUS:
-        LD DE,WBOOT_VEC                  ; $097D  11 00 00
+        LD DE,WBOOTV                  ; $097D  11 00 00
         LD C,$0B                         ; $0980  0E 0B
-        CALL BDOS_VEC                    ; $0982  CD 05 00
+        CALL BDOS                    ; $0982  CD 05 00
         RET                              ; $0985  C9
 ; [AI] SET_DMA_2: BDOS fn 26 -- set DMA buffer to BC (second SET_DMA copy, param cell $1F6A).
 SET_DMA_2:
@@ -875,7 +870,7 @@ SET_DMA_2:
         LD HL,($1F6A)                    ; $098C  2A 6A 1F
         EX DE,HL                         ; $098F  EB
         LD C,$1A                         ; $0990  0E 1A
-        CALL BDOS_VEC                    ; $0992  CD 05 00
+        CALL BDOS                    ; $0992  CD 05 00
         RET                              ; $0995  C9
 ; [AI] AUX_READER_IN: SoftCard serial-reader input. Programs the 6850-style ACIA on
 ; [AI] I/O port $01 (master reset $0C then RTS-low/8N2 config $08), polls the status
@@ -1021,7 +1016,7 @@ BLOCK_COPY_31:
 ; [AI] then read up to RECS_PER_BUF sequential records (fn 20) into successive 128-byte slots.
 ; [AI] On EOF, mark the partial buffer with a CTL-Z ($1A) and record the short count.
 READ_FILE_TO_BUF:
-        LD HL,WBOOT_VEC                  ; $0A4F  21 00 00
+        LD HL,WBOOTV                  ; $0A4F  21 00 00
         LD ($1E9D),HL                    ; $0A52  22 9D 1E  [AI] buffer write offset = 0
         LD HL,($1E03)                    ; $0A55  2A 03 1E
         LD C,L                           ; $0A58  4D
@@ -1062,7 +1057,7 @@ READ_FILE_TO_BUF_2:
         LD ($1F78),A                     ; $0AA7  32 78 1F
         JP READ_FILE_TO_BUF_4                    ; $0AAA  C3 B7 0A
 READ_FILE_TO_BUF_3:
-        LD DE,DEFAULT_DMA                ; $0AAD  11 80 00
+        LD DE,TBUFF                ; $0AAD  11 80 00
         LD HL,($1E9D)                    ; $0AB0  2A 9D 1E
         ADD HL,DE                        ; $0AB3  19
         LD ($1E9D),HL                    ; $0AB4  22 9D 1E
@@ -1071,7 +1066,7 @@ READ_FILE_TO_BUF_4:
         INC (HL)                         ; $0ABA  34
         JP NZ,READ_FILE_TO_BUF_1                 ; $0ABB  C2 64 0A
 READ_FILE_TO_BUF_5:
-        LD HL,WBOOT_VEC                  ; $0ABE  21 00 00
+        LD HL,WBOOTV                  ; $0ABE  21 00 00
         LD ($1E9D),HL                    ; $0AC1  22 9D 1E
         CALL RESTORE_USER0                    ; $0AC4  CD 2F 09
         RET                              ; $0AC7  C9
@@ -1090,7 +1085,7 @@ WRITE_BUF_TO_FILE:
         JP NZ,WRITE_BUF_TO_FILE_1                 ; $0AD7  C2 DB 0A
         RET                              ; $0ADA  C9        [AI] nothing buffered -> return
 WRITE_BUF_TO_FILE_1:
-        LD HL,WBOOT_VEC                  ; $0ADB  21 00 00
+        LD HL,WBOOTV                  ; $0ADB  21 00 00
         LD ($1EA1),HL                    ; $0ADE  22 A1 1E
         LD HL,($1E4B)                    ; $0AE1  2A 4B 1E
         LD C,L                           ; $0AE4  4D
@@ -1119,7 +1114,7 @@ WRITE_BUF_TO_FILE_2:
         LD BC,MSG_DISK_WRITE_ERR                     ; $0B1A  01 A4 02
         CALL FATAL_ERROR                    ; $0B1D  CD AF 09
 WRITE_BUF_TO_FILE_3:
-        LD DE,DEFAULT_DMA                ; $0B20  11 80 00
+        LD DE,TBUFF                ; $0B20  11 80 00
         LD HL,($1EA1)                    ; $0B23  2A A1 1E
         ADD HL,DE                        ; $0B26  19
         LD ($1EA1),HL                    ; $0B27  22 A1 1E
@@ -1130,9 +1125,9 @@ WRITE_BUF_TO_FILE_4:
         LD A,($1F65)                     ; $0B31  3A 65 1F
         RRA                              ; $0B34  1F
         JP NC,WRITE_BUF_TO_FILE_10                ; $0B35  D2 C9 0B
-        LD HL,WBOOT_VEC                  ; $0B38  21 00 00
+        LD HL,WBOOTV                  ; $0B38  21 00 00
         LD ($1EA1),HL                    ; $0B3B  22 A1 1E
-        LD BC,DEFAULT_DMA                ; $0B3E  01 80 00
+        LD BC,TBUFF                ; $0B3E  01 80 00
         CALL SET_DMA_2                    ; $0B41  CD 86 09
         LD HL,$1F7A                      ; $0B44  21 7A 1F
         LD (HL),$00                      ; $0B47  36 00
@@ -1162,7 +1157,7 @@ WRITE_BUF_TO_FILE_6:
         JP NC,WRITE_BUF_TO_FILE_7                 ; $0B78  D2 A2 0B
         LD HL,($1F7B)                    ; $0B7B  2A 7B 1F
         LD H,$00                         ; $0B7E  26 00
-        LD BC,DEFAULT_DMA                ; $0B80  01 80 00
+        LD BC,TBUFF                ; $0B80  01 80 00
         ADD HL,BC                        ; $0B83  09
         LD A,($1F7B)                     ; $0B84  3A 7B 1F
         LD DE,$1EA1                      ; $0B87  11 A1 1E
@@ -1180,7 +1175,7 @@ WRITE_BUF_TO_FILE_6:
         INC (HL)                         ; $0B9E  34
         JP WRITE_BUF_TO_FILE_6                    ; $0B9F  C3 6D 0B
 WRITE_BUF_TO_FILE_7:
-        LD DE,DEFAULT_DMA                ; $0BA2  11 80 00
+        LD DE,TBUFF                ; $0BA2  11 80 00
         LD HL,($1EA1)                    ; $0BA5  2A A1 1E
         ADD HL,DE                        ; $0BA8  19
         LD ($1EA1),HL                    ; $0BA9  22 A1 1E
@@ -1198,7 +1193,7 @@ WRITE_BUF_TO_FILE_9:
         CALL WRITE_SEQ                    ; $0BC3  CD D3 08  [AI] write final (short) record
         LD ($1F7F),A                     ; $0BC6  32 7F 1F
 WRITE_BUF_TO_FILE_10:
-        LD HL,WBOOT_VEC                  ; $0BC9  21 00 00
+        LD HL,WBOOTV                  ; $0BC9  21 00 00
         LD ($1EA1),HL                    ; $0BCC  22 A1 1E  [AI] reset buffer fill pointer
         RET                              ; $0BCF  C9
 ; [AI] === PUT_OUTPUT_CHAR (C = char) ===
@@ -1224,7 +1219,7 @@ PUT_OUTPUT_CHAR:
         JP NC,PUT_OUTPUT_CHAR_1                 ; $0BF0  D2 F4 0B  [AI] within width -> emit
         RET                              ; $0BF3  C9        [AI] past width -> drop char
 PUT_OUTPUT_CHAR_1:
-        LD A,(IOBYTE)                    ; $0BF4  3A 03 00  [AI] save IOBYTE
+        LD A,(IOBYTE_ADDR)                    ; $0BF4  3A 03 00  [AI] save IOBYTE
         LD ($1F81),A                     ; $0BF7  32 81 1F
         LD HL,($1EA3)                    ; $0BFA  2A A3 1E  [AI] device id index
         LD C,L                           ; $0BFD  4D
@@ -1274,19 +1269,19 @@ PUT_OUTPUT_CHAR_11:
         CALL CALL_AUX_PUNCH                    ; $0C4A  CD E6 07
         JP PUT_OUTPUT_CHAR_24                   ; $0C4D  C3 05 0D
 PUT_OUTPUT_CHAR_12:
-        LD HL,IOBYTE                     ; $0C50  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C50  21 03 00
         LD (HL),$80                      ; $0C53  36 80
         JP PUT_OUTPUT_CHAR_15                   ; $0C55  C3 71 0C
         DEFW    TPA_START_29             ; $0C58
         DEFB    $0D                                              ; $0C5A
 PUT_OUTPUT_CHAR_13:
-        LD HL,IOBYTE                     ; $0C5B  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C5B  21 03 00
         LD (HL),$C0                      ; $0C5E  36 C0
         JP PUT_OUTPUT_CHAR_15                   ; $0C60  C3 71 0C
         DEFW    TPA_START_29             ; $0C63
         DEFB    $0D                                              ; $0C65
 PUT_OUTPUT_CHAR_14:
-        LD HL,IOBYTE                     ; $0C66  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C66  21 03 00
         LD (HL),$80                      ; $0C69  36 80
         JP PUT_OUTPUT_CHAR_15                   ; $0C6B  C3 71 0C
         DEFW    TPA_START_29             ; $0C6E
@@ -1296,22 +1291,22 @@ PUT_OUTPUT_CHAR_15:
         LD H,$00                         ; $0C74  26 00
         EX DE,HL                         ; $0C76  EB
         LD C,$05                         ; $0C77  0E 05
-        CALL BDOS_VEC                    ; $0C79  CD 05 00
+        CALL BDOS                    ; $0C79  CD 05 00
         JP PUT_OUTPUT_CHAR_24                   ; $0C7C  C3 05 0D
 PUT_OUTPUT_CHAR_16:
-        LD HL,IOBYTE                     ; $0C7F  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C7F  21 03 00
         LD (HL),$10                      ; $0C82  36 10
         JP PUT_OUTPUT_CHAR_19                   ; $0C84  C3 A0 0C
         DEFW    TPA_START_29             ; $0C87
         DEFB    $0D                                              ; $0C89
 PUT_OUTPUT_CHAR_17:
-        LD HL,IOBYTE                     ; $0C8A  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C8A  21 03 00
         LD (HL),$20                      ; $0C8D  36 20
         JP PUT_OUTPUT_CHAR_19                   ; $0C8F  C3 A0 0C
         DEFW    TPA_START_29             ; $0C92
         DEFB    $0D                                              ; $0C94
 PUT_OUTPUT_CHAR_18:
-        LD HL,IOBYTE                     ; $0C95  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0C95  21 03 00
         LD (HL),$30                      ; $0C98  36 30
         JP PUT_OUTPUT_CHAR_19                   ; $0C9A  C3 A0 0C
         DEFW    TPA_START_29             ; $0C9D
@@ -1321,22 +1316,22 @@ PUT_OUTPUT_CHAR_19:
         LD H,$00                         ; $0CA3  26 00
         EX DE,HL                         ; $0CA5  EB
         LD C,$04                         ; $0CA6  0E 04
-        CALL BDOS_VEC                    ; $0CA8  CD 05 00
+        CALL BDOS                    ; $0CA8  CD 05 00
         JP PUT_OUTPUT_CHAR_24                   ; $0CAB  C3 05 0D
 PUT_OUTPUT_CHAR_20:
-        LD HL,IOBYTE                     ; $0CAE  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CAE  21 03 00
         LD (HL),$00                      ; $0CB1  36 00
         JP PUT_OUTPUT_CHAR_23                   ; $0CB3  C3 CF 0C
         DEFW    TPA_START_29             ; $0CB6
         DEFB    $0D                                              ; $0CB8
 PUT_OUTPUT_CHAR_21:
-        LD HL,IOBYTE                     ; $0CB9  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CB9  21 03 00
         LD (HL),$01                      ; $0CBC  36 01
         JP PUT_OUTPUT_CHAR_23                   ; $0CBE  C3 CF 0C
         DEFW    TPA_START_29             ; $0CC1
         DEFB    $0D                                              ; $0CC3
 PUT_OUTPUT_CHAR_22:
-        LD HL,IOBYTE                     ; $0CC4  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0CC4  21 03 00
         LD (HL),$03                      ; $0CC7  36 03
         JP PUT_OUTPUT_CHAR_23                   ; $0CC9  C3 CF 0C
         DEFW    TPA_START_29             ; $0CCC
@@ -1346,7 +1341,7 @@ PUT_OUTPUT_CHAR_23:
         LD H,$00                         ; $0CD2  26 00
         EX DE,HL                         ; $0CD4  EB
         LD C,$02                         ; $0CD5  0E 02
-        CALL BDOS_VEC                    ; $0CD7  CD 05 00
+        CALL BDOS                    ; $0CD7  CD 05 00
         JP PUT_OUTPUT_CHAR_24                   ; $0CDA  C3 05 0D
 ; [AI] OUTPUT_DISPATCH_TBL: per-destination-device handler addresses, indexed by device id*2.
 ; [AI]   0=disk-file 1..5=spare-err 6=err 7=aux-punch 8..11=LPT/PRN/LST(IOBYTE list-dev via fn 5)
@@ -1374,7 +1369,7 @@ OUTPUT_DISPATCH_TBL:
         DEFW    PUT_OUTPUT_CHAR_23              ; $0D03
 PUT_OUTPUT_CHAR_24:
         LD A,($1F81)                     ; $0D05  3A 81 1F
-        LD (IOBYTE),A                    ; $0D08  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $0D08  32 03 00
         RET                              ; $0D0B  C9
 ; [AI] === EMIT_CHAR (C = char) ===
 ; [AI] Emit one char to the destination, expanding a TAB ($09) into spaces to the next
@@ -1716,7 +1711,7 @@ GET_SOURCE_CHAR_1:
 GET_SOURCE_CHAR_2:
         LD HL,$1F90                      ; $0F6D  21 90 1F
         LD (HL),$01                      ; $0F70  36 01
-        LD A,(IOBYTE)                    ; $0F72  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $0F72  3A 03 00
         LD ($1F8E),A                     ; $0F75  32 8E 1F
         LD HL,($1EA4)                    ; $0F78  2A A4 1E
         LD C,L                           ; $0F7B  4D
@@ -1755,27 +1750,27 @@ GET_SOURCE_CHAR_6:
         LD ($1F8F),A                     ; $0FB9  32 8F 1F
         JP GET_SOURCE_CHAR_24                   ; $0FBC  C3 6D 10
 GET_SOURCE_CHAR_7:
-        LD HL,IOBYTE                     ; $0FBF  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FBF  21 03 00
         LD (HL),$04                      ; $0FC2  36 04
         JP GET_SOURCE_CHAR_10                   ; $0FC4  C3 E0 0F
         DEFB    $C3                                              ; $0FC7
         DEFW    GET_SOURCE_CHAR_24              ; $0FC8
 GET_SOURCE_CHAR_8:
-        LD HL,IOBYTE                     ; $0FCA  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FCA  21 03 00
         LD (HL),$08                      ; $0FCD  36 08
         JP GET_SOURCE_CHAR_10                   ; $0FCF  C3 E0 0F
         DEFB    $C3                                              ; $0FD2
         DEFW    GET_SOURCE_CHAR_24              ; $0FD3
 GET_SOURCE_CHAR_9:
-        LD HL,IOBYTE                     ; $0FD5  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $0FD5  21 03 00
         LD (HL),$0C                      ; $0FD8  36 0C
         JP GET_SOURCE_CHAR_10                   ; $0FDA  C3 E0 0F
         DEFB    $C3                                              ; $0FDD
         DEFW    GET_SOURCE_CHAR_24              ; $0FDE
 GET_SOURCE_CHAR_10:
-        LD DE,WBOOT_VEC                  ; $0FE0  11 00 00
+        LD DE,WBOOTV                  ; $0FE0  11 00 00
         LD C,$03                         ; $0FE3  0E 03
-        CALL BDOS_VEC                    ; $0FE5  CD 05 00
+        CALL BDOS                    ; $0FE5  CD 05 00
         AND $7F                          ; $0FE8  E6 7F
         LD ($1F8F),A                     ; $0FEA  32 8F 1F
         JP GET_SOURCE_CHAR_24                   ; $0FED  C3 6D 10
@@ -1800,19 +1795,19 @@ GET_SOURCE_CHAR_19:
         CALL FATAL_ERROR                    ; $100B  CD AF 09
         JP GET_SOURCE_CHAR_24                   ; $100E  C3 6D 10
 GET_SOURCE_CHAR_20:
-        LD HL,IOBYTE                     ; $1011  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $1011  21 03 00
         LD (HL),$00                      ; $1014  36 00
         JP GET_SOURCE_CHAR_23                   ; $1016  C3 32 10
         DEFB    $C3                                              ; $1019
         DEFW    GET_SOURCE_CHAR_24              ; $101A
 GET_SOURCE_CHAR_21:
-        LD HL,IOBYTE                     ; $101C  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $101C  21 03 00
         LD (HL),$01                      ; $101F  36 01
         JP GET_SOURCE_CHAR_23                   ; $1021  C3 32 10
         DEFB    $C3                                              ; $1024
         DEFW    GET_SOURCE_CHAR_24              ; $1025
 GET_SOURCE_CHAR_22:
-        LD HL,IOBYTE                     ; $1027  21 03 00
+        LD HL,IOBYTE_ADDR                     ; $1027  21 03 00
         LD (HL),$03                      ; $102A  36 03
         JP GET_SOURCE_CHAR_23                   ; $102C  C3 32 10
         DEFB    $C3                                              ; $102F
@@ -1820,9 +1815,9 @@ GET_SOURCE_CHAR_22:
 GET_SOURCE_CHAR_23:
         LD HL,$1F90                      ; $1032  21 90 1F
         LD (HL),$00                      ; $1035  36 00
-        LD DE,WBOOT_VEC                  ; $1037  11 00 00
+        LD DE,WBOOTV                  ; $1037  11 00 00
         LD C,$01                         ; $103A  0E 01
-        CALL BDOS_VEC                    ; $103C  CD 05 00
+        CALL BDOS                    ; $103C  CD 05 00
         LD ($1F8F),A                     ; $103F  32 8F 1F
         JP GET_SOURCE_CHAR_24                   ; $1042  C3 6D 10
 ; [AI] INPUT_DISPATCH_TBL: per-source-device read handlers, indexed by device id*2.
@@ -1851,7 +1846,7 @@ INPUT_DISPATCH_TBL:
         DEFW    GET_SOURCE_CHAR_23              ; $106B
 GET_SOURCE_CHAR_24:
         LD A,($1F8E)                     ; $106D  3A 8E 1F
-        LD (IOBYTE),A                    ; $1070  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $1070  32 03 00
         LD A,($1F54)                     ; $1073  3A 54 1F
         RRA                              ; $1076  1F
         JP NC,GET_SOURCE_CHAR_25                ; $1077  D2 92 10
@@ -3006,7 +3001,7 @@ OPEN_SOURCE:
 OPEN_SOURCE_1:
         LD HL,$1E47                      ; $18B2  21 47 1E
         LD (HL),$00                      ; $18B5  36 00
-        LD HL,WBOOT_VEC                  ; $18B7  21 00 00
+        LD HL,WBOOTV                  ; $18B7  21 00 00
         LD ($1EA1),HL                    ; $18BA  22 A1 1E  [AI] reset dest buffer pointer
         RET                              ; $18BD  C9
 ; [AI] ===== OPEN_DEST =====
@@ -3377,7 +3372,7 @@ AT_BUFFER_END:
 ; [AI] SEARCH_FIRST/SEARCH_NEXT (fn 17/18), and for every matching file build a concrete source
 ; [AI] FCB, print "COPYING - name", and run DO_COPY on it. Reports "NOT FOUND" if none matched.
 EXPAND_WILDCARD_COPY:
-        LD HL,WBOOT_VEC                  ; $1B78  21 00 00
+        LD HL,WBOOTV                  ; $1B78  21 00 00
         LD ($1FC0),HL                    ; $1B7B  22 C0 1F
         LD ($1FC4),HL                    ; $1B7E  22 C4 1F  [AI] match count = 0
 EXPAND_WILDCARD_COPY_1:
@@ -3385,11 +3380,11 @@ EXPAND_WILDCARD_COPY_1:
         LD HL,($1E03)                    ; $1B84  2A 03 1E
         LD C,L                           ; $1B87  4D
         CALL SELECT_DISK                    ; $1B88  CD 5E 08
-        LD BC,DEFAULT_DMA                ; $1B8B  01 80 00
+        LD BC,TBUFF                ; $1B8B  01 80 00
         CALL SET_DMA_2                    ; $1B8E  CD 86 09
-        LD BC,DEFAULT_FCB                ; $1B91  01 5C 00
+        LD BC,TFCB                ; $1B91  01 5C 00
         CALL SEARCH_FIRST                    ; $1B94  CD 94 08
-        LD HL,WBOOT_VEC                  ; $1B97  21 00 00
+        LD HL,WBOOTV                  ; $1B97  21 00 00
         LD ($1FC2),HL                    ; $1B9A  22 C2 1F
 EXPAND_WILDCARD_COPY_2:
         LD A,($1EAE)                     ; $1B9D  3A AE 1E
@@ -3439,7 +3434,7 @@ EXPAND_WILDCARD_COPY_5:
         ADD A,A                          ; $1BF5  87
         LD E,A                           ; $1BF6  5F
         LD D,$00                         ; $1BF7  16 00
-        LD HL,DEFAULT_DMA                ; $1BF9  21 80 00
+        LD HL,TBUFF                ; $1BF9  21 80 00
         ADD HL,DE                        ; $1BFC  19
         PUSH HL                          ; $1BFD  E5
         LD E,$10                         ; $1BFE  1E 10
