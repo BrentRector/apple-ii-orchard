@@ -49,6 +49,35 @@ def test_opcode_sizes_match_their_addressing_modes():
             f"${i:02X} {name}: size {size} but mode implies {MODE_SIZE[mode]}"
 
 
+def test_opcode_table_agrees_with_the_repo_disassembler():
+    """Cross-check against disasm6502.OPCODES, an independently written table.
+
+    The emulator's dispatch table and the disassembler's opcode table were
+    built separately, so any disagreement means one of them is wrong. There
+    was exactly one before $AB was added: the emulator called it a 1-byte
+    '?AB' filler while the disassembler correctly had ('LAX', 'IMM', 2).
+    """
+    from disasm6502.opcodes import OPCODES
+
+    # The undocumented opcodes have more than one accepted name; these pairs
+    # are the same instruction, not a disagreement. Listing them explicitly
+    # keeps the check sharp -- any OTHER mismatch still fails.
+    synonyms = {("AHX", "SHA"), ("ISB", "ISC")}
+
+    cpu = CPU6502()
+    size_diffs, name_diffs = [], []
+    for opcode in range(256):
+        _, _, size, name, _ = cpu.optable[opcode]
+        disasm_name, _disasm_mode, disasm_size = OPCODES[opcode]
+        if size != disasm_size:
+            size_diffs.append(f"${opcode:02X}: emu {size} vs disasm {disasm_size}")
+        if name != disasm_name and (name, disasm_name) not in synonyms:
+            name_diffs.append(f"${opcode:02X}: emu {name!r} vs disasm {disasm_name!r}")
+
+    assert size_diffs == [], f"instruction size disagreements: {size_diffs}"
+    assert name_diffs == [], f"mnemonic disagreements: {name_diffs}"
+
+
 def test_kil_opcodes_are_the_twelve_real_ones():
     cpu = CPU6502()
     kils = [i for i, e in enumerate(cpu.optable) if e[3] == "KIL"]
