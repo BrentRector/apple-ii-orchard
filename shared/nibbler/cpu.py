@@ -131,6 +131,18 @@ class CPU6502:
         self.brk_count = 0                    # Number of BRK instructions encountered
         self.max_brk = 5                      # Threshold (informational, not enforced)
 
+        # ── Interrupt Lines ───────────────────────────────────────
+        # ``nmi_pending`` is an EDGE latch: set it once per high-to-low
+        # transition of the /NMI pin (see set_nmi()).  step() consumes it.
+        # ``irq_line`` is a LEVEL: hold it True for as long as a device
+        # asserts /IRQ; step() re-checks it every instruction and honors
+        # the I mask.  Both are False on a machine with no interrupt
+        # sources wired up, which is the case for the Apple II boot traces
+        # and the SoftCard emulator, so step() pays one test per
+        # instruction and nothing else.
+        self.nmi_pending = False
+        self.irq_line = False
+
         # ── Breakpoint System ─────────────────────────────────────
         # Maps address -> callback(cpu).
         # If callback returns True, run() stops after this instruction.
@@ -154,6 +166,108 @@ class CPU6502:
     def remove_breakpoint(self, addr):
         """Remove a PC breakpoint (no-op if addr has no breakpoint)."""
         self.on_pc.pop(addr, None)
+
+    # ── Interrupts and Reset ─────────────────────────────────────
+    #
+    # Besides BRK, the 6502 has three hardware entry points. Each vectors
+    # through a fixed little-endian pointer at the top of memory:
+    #
+    #     $FFFA/$FFFB   NMI     non-maskable, edge-triggered
+    #     $FFFC/$FFFD   RESET   pushes nothing (see reset())
+    #     $FFFE/$FFFF   IRQ     maskable by the I flag -- shared with BRK
+    #
+    # Because IRQ and BRK land on the same vector, the handler's only way
+    # to tell them apart is the B bit (bit 4) in the status byte on the
+    # stack: BRK pushes it SET, IRQ and NMI push it CLEAR. The 6502 has no
+    # B storage at all -- bit 4 exists solely in pushed copies of P, which
+    # is why _set_p() ignores it on the way back in.
+    #
+    # There is no pin-level timing model here: an interrupt is taken
+    # between instructions, never mid-instruction, and the sequence costs
+    # 7 cycles.
+
+    def set_nmi(self):
+        """Latch one NMI edge; step() services it before the next instruction.
+
+        /NMI is edge-triggered on real hardware -- the CPU responds to the
+        high-to-low transition, not the level -- so a pin held low yields
+        exactly one interrupt. Calling this twice before step() runs still
+        produces one NMI, which is the same collapsing the hardware latch
+        does.
+        """
+        self.nmi_pending = True
+
+    def set_irq(self, asserted=True):
+        """Assert or release the /IRQ line (level-triggered).
+
+        Unlike NMI this is a level, not an edge: while it is True and the
+        I flag is clear, step() takes an interrupt before *every*
+        instruction. Real devices hold /IRQ low until the handler services
+        them, so the handler is expected to call set_irq(False).
+        """
+        self.irq_line = bool(asserted)
+
+    def reset(self):
+        """Perform a hardware RESET: vector through $FFFC/$FFFD.
+
+        RESET runs the same 7-cycle sequence as an interrupt, but the R/W
+        line is held in the read state during the three "push" cycles, so
+        nothing is actually stored -- SP merely ends up 3 lower. Modelling
+        that (rather than forcing SP=$FF) is what makes code that inspects
+        SP after reset behave as it does on hardware.
+
+        The I flag is set. D is deliberately NOT cleared: clearing D on
+        reset is 65C02 behavior. On NMOS silicon D is undefined across
+        reset, which is exactly why Apple II ROM entry points start with
+        CLD. Leaving it untouched is the honest NMOS model.
+
+        RESET is also the only way out of a KIL/JAM, so ``halted`` clears.
+        """
+        self.sp = (self.sp - 3) & 0xFF     # Three suppressed pushes
+        self.I = 1
+        self.halted = False
+        self.nmi_pending = False
+        self.pc = self._read_vector(0xFFFC)
+
+    def irq(self):
+        """Service a maskable interrupt now. Returns True if it was taken.
+
+        Returns False with no state change when the I flag is set (masked)
+        or the CPU is halted -- a jammed 6502 never finishes an instruction
+        fetch, so it cannot acknowledge an interrupt either.
+        """
+        if self.I or self.halted:
+            return False
+        self._enter_interrupt(0xFFFE)
+        return True
+
+    def nmi(self):
+        """Service a non-maskable interrupt now. Returns True if it was taken.
+
+        Never masked by the I flag -- that is the whole point of NMI. It
+        does SET I on entry, so a pending IRQ is held off until the handler
+        re-enables interrupts or returns via RTI. Returns False only when
+        the CPU is halted by KIL.
+        """
+        if self.halted:
+            return False
+        self._enter_interrupt(0xFFFA)
+        return True
+
+    def _enter_interrupt(self, vector):
+        """Push PC and P (with B CLEAR), set I, and jump through ``vector``.
+
+        Note that PC is pushed unmodified: a hardware interrupt resumes at
+        the instruction it interrupted, whereas BRK pushes PC+2.
+        """
+        pc = self.pc
+        self.push((pc >> 8) & 0xFF)
+        self.push(pc & 0xFF)
+        # Bit 4 (B) CLEAR marks a hardware interrupt; bit 5 always reads 1.
+        # _get_p() sets both, so mask bit 4 back off here.
+        self.push(self._get_p() & ~0x10)
+        self.I = 1
+        self.pc = self._read_vector(vector)
 
     # ── Run Loop ─────────────────────────────────────────────────
 
@@ -349,6 +463,16 @@ class CPU6502:
         """Increment SP, then pull (read) a byte from the stack at $0100+SP."""
         self.sp = (self.sp + 1) & 0xFF
         return self.mem[0x0100 + self.sp]
+
+    def _read_vector(self, addr):
+        """Read a 16-bit little-endian vector at ``addr`` (used by RESET/IRQ/NMI/BRK).
+
+        Goes through read() rather than indexing mem[] directly, so a host
+        that banks memory over the vector page -- an Apple language card
+        maps RAM or ROM over $D000-$FFFF, which includes all three vectors
+        -- supplies the bytes the hardware would really see.
+        """
+        return self.read(addr) | (self.read((addr + 1) & 0xFFFF) << 8)
 
     def _fetchb(self, addr):
         """Fetch an instruction-stream byte (opcode or pc-relative operand).
@@ -760,8 +884,13 @@ class CPU6502:
         """Software interrupt (BRK).
 
         Pushes PC+2 (skipping the padding byte after BRK), pushes P with
-        the B flag (bit 4) set, sets the I flag, and jumps to the IRQ/BRK
+        the B flag (bit 4) SET, sets the I flag, and jumps to the IRQ/BRK
         vector at $FFFE/$FFFF.
+
+        BRK and IRQ share that vector, so the handler cannot tell them
+        apart by where it landed.  The B bit in the pushed status byte is
+        the only distinguishing signal: SET here, CLEAR in the byte
+        _enter_interrupt() pushes.  See the Interrupts section below.
         """
         self.brk_count += 1
         ret = (self.pc + 2) & 0xFFFF       # Skip BRK + padding byte
@@ -769,9 +898,7 @@ class CPU6502:
         self.push(ret & 0xFF)
         self.push(self._get_p() | 0x10)    # 0x10 = B flag (bit 4) set
         self.I = 1                         # Disable further interrupts
-        lo = self.mem[0xFFFE]              # IRQ/BRK vector low byte
-        hi = self.mem[0xFFFF]              # IRQ/BRK vector high byte
-        self.pc = lo | (hi << 8)
+        self.pc = self._read_vector(0xFFFE)
 
     # ── Stack / Flag / Transfer / NOP ────────────────────────────
 
@@ -1309,6 +1436,9 @@ class CPU6502:
     def step(self):
         """Execute a single instruction and advance PC.
 
+        A pending NMI edge or an asserted (and unmasked) IRQ line is
+        serviced first, before the instruction at PC is fetched.
+
         Returns:
             bool: True if an instruction was executed, False if CPU is halted.
 
@@ -1326,6 +1456,19 @@ class CPU6502:
         """
         if self.halted:
             return False
+
+        # Interrupts are recognised between instructions, never mid-one.
+        # NMI wins over IRQ when both are waiting, and is not maskable.
+        # The 7-cycle interrupt sequence IS this step: no instruction runs
+        # during it, so exec_count does not move and step() returns here.
+        if self.nmi_pending or self.irq_line:
+            if self.nmi_pending:
+                self.nmi_pending = False   # Consume the edge
+                self.nmi()
+                return True
+            if not self.I:
+                self.irq()                 # Level stays asserted until released
+                return True
 
         opc = self._fetchb(self.pc)
         entry = self.optable[opc]
