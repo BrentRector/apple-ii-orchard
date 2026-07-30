@@ -139,7 +139,22 @@ DISK_PARAM_TBL:
         DEFS    8, $00    ; $FA63  fill
         DEFB    $FD,$FE,$73,$FA,$E9,$FF                          ; $FA6B
         DEFW    BANNER_RESTORE_A               ; $FA71
-        DEFB    $20,$00,$03,$07,$00,$8B,$00,$2F,$00,$C0,$00,$0C,$00,$03,$00 ; $FA73
+; DPB -- the shared Disk Parameter Block; all four DPH entries above point here (the
+;   $73,$FA pointer byte pair in each). Byte-for-byte the same 15 bytes as the 2.23-44K
+;   twin's DPB, DSM included. Field names are Digital Research's CP/M 2.2 DPB names;
+;   NOT [DOC]-citable from this archive, which documents only BDOS fn 31 (the call that
+;   RETURNS a DPB pointer), not the block's layout. [RE]
+DPB:
+SPT:    DEFW    $0020                    ; $FA73  records per track: 32 x 128-byte records
+BSH:    DEFB    $03                      ; $FA75  block shift: log2(records per block) -> 8
+BLM:    DEFB    $07                      ; $FA76  block mask: (records per block) - 1 -> 1 KB
+EXM:    DEFB    $00                      ; $FA77  extent mask
+DSM:    DEFW    $008B                    ; $FA78  highest allocation block number: 139 -> 140
+DRM:    DEFW    $002F                    ; $FA7A  highest directory entry number: 47 -> 48
+AL0:    DEFB    $C0                      ; $FA7C  directory-reserved blocks, bitmap, high byte
+AL1:    DEFB    $00                      ; $FA7D  ditto, low byte
+CKS:    DEFW    $000C                    ; $FA7E  directory checksum bytes
+OFF:    DEFW    $0003                    ; $FA80  reserved tracks before the file area
 ; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. The Card Type
 ;       Table (SLTTYP) starts at $F3B9, entry = $F3B8+S for slot S; $F3B8 itself is the Disk Count
 ;       Byte. The loop walks $F3B8+DE (DE=7..1 -> $F3BF..$F3B9), reading each slot's detected card
