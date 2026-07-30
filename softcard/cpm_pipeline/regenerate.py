@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .annotate_ai import insert_comments
+from .os_listing import strip_listing_comments
 
 # A column-0 label (ca65 / sjasmplus): NAME or NAME:.
 _LABEL_RE = re.compile(r"^([A-Za-z_.][A-Za-z0-9_.]*):")
@@ -691,6 +692,12 @@ def regenerate_60k_bios(*, write: bool = False, ai_names=None, extra_seeds=None)
     # noticed it was working on a malformed file.
     src = _guard_link_directives(src)            # keep the CPM60.COM master-link guards
     merged, mig, drop = migrate_comments(old, src)
+    # The disassembler emits a "; $XXXX" address on every line; these sources keep
+    # their addresses in a tracked .lst instead, as the 44K trees do. Strip them
+    # here so a regeneration cannot quietly put them back. Nothing downstream reads
+    # them any more -- parse_label_addrs asks the assembler -- and comments emit no
+    # bytes, so the verification below is still of exactly what gets written.
+    merged, _stripped = strip_listing_comments(merged)
     rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
     linked = _assemble_link_mode(merged, _BIOS_60K_ORG, _BIOS_60K_LEN)  # as the master INCLUDEs it
     ok = rebuilt == bios and linked == bios
@@ -802,6 +809,12 @@ def regenerate_60k_bdos(*, write: bool = False, ai_names=None, extra_seeds=None)
     # noticed it was working on a malformed file.
     src = _guard_link_directives(src)            # keep the CPM60.COM master-link guards
     merged, mig, drop = migrate_comments(old, src)
+    # The disassembler emits a "; $XXXX" address on every line; these sources keep
+    # their addresses in a tracked .lst instead, as the 44K trees do. Strip them
+    # here so a regeneration cannot quietly put them back. Nothing downstream reads
+    # them any more -- parse_label_addrs asks the assembler -- and comments emit no
+    # bytes, so the verification below is still of exactly what gets written.
+    merged, _stripped = strip_listing_comments(merged)
     rebuilt = _assemble_savebin(merged)          # standalone (CPM60_LINK unset)
     linked = _assemble_link_mode(merged, _BDOS_60K_ORG, _BDOS_60K_LEN)  # as the master INCLUDEs it
     ok = rebuilt == bdos and linked == bdos

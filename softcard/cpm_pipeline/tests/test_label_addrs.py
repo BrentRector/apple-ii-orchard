@@ -30,17 +30,59 @@ pytestmark = pytest.mark.skipif(shutil.which("sjasmplus") is None,
 SOURCES = {"60K BIOS": _BIOS_60K, "60K BDOS": _BDOS_60K}
 
 
+def _with_bogus_addresses(text):
+    """Append a lying ``; $DEAD`` address comment to every code line."""
+    out = []
+    for line in text.split("\n"):
+        if line.strip() and not line.lstrip().startswith(";"):
+            out.append(line + "   ; $DEAD")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+@pytest.mark.parametrize("name", sorted(SOURCES))
+def test_address_comments_cannot_influence_the_result(name):
+    """The whole point, stated as a lie the code must ignore.
+
+    Stamp ``; $DEAD`` on every code line. A comment-scraping implementation
+    would report every label at $DEAD; an assembler-derived one is unmoved.
+    Comments emit no bytes, so the assembled output is identical either way.
+    """
+    text = SOURCES[name].read_text(encoding="utf-8")
+    honest = parse_label_addrs(text)
+    lying = parse_label_addrs(_with_bogus_addresses(text))
+    assert honest, "expected some labels"
+    assert 0xDEAD not in set(lying.values()), \
+        f"{name}: an address comment leaked into the result"
+    assert honest == lying, \
+        f"{name}: label addresses changed when the address comments lied"
+
+
 @pytest.mark.parametrize("name", sorted(SOURCES))
 def test_addresses_survive_stripping_every_address_comment(name):
-    """The whole point: remove all the ``; $XXXX`` comments, get the same map."""
-    text = SOURCES[name].read_text(encoding="utf-8")
-    stripped, changed = strip_listing_comments(text)
-    assert changed > 0, "expected this source to carry inline address comments"
+    """Removing address comments entirely also leaves the map unchanged.
 
-    with_comments = parse_label_addrs(text)
-    without = parse_label_addrs(stripped)
-    assert with_comments == without, (
+    These sources are already stripped -- their addresses live in the tracked
+    .lst -- so this stamps addresses on and then takes them off again, which
+    exercises the same property from the other direction.
+    """
+    text = SOURCES[name].read_text(encoding="utf-8")
+    stamped = _with_bogus_addresses(text)
+    stripped, changed = strip_listing_comments(stamped)
+    assert changed > 0, "expected the stamped source to carry address comments"
+    assert parse_label_addrs(stamped) == parse_label_addrs(stripped), (
         f"{name}: label addresses changed when the address comments were removed"
+    )
+
+
+@pytest.mark.parametrize("name", sorted(SOURCES))
+def test_source_carries_no_inline_addresses(name):
+    """The 60K OS modules keep their addresses in the .lst, as the 44K trees do."""
+    _, changed = strip_listing_comments(SOURCES[name].read_text(encoding="utf-8"))
+    assert changed == 0, (
+        f"{name}: {changed} inline '; $XXXX' address comments are back; they belong "
+        f"in the tracked .lst (regenerate_60k_* strips them on the way out)"
     )
 
 

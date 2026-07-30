@@ -408,12 +408,17 @@ def test_os_listings_are_fresh():
     not drift from the source. Regenerate each and compare to the committed file."""
     import tempfile
     from pathlib import Path
-    from cpm_pipeline.chunk_map import SOURCES_220_44K, SOURCES_223
+    from cpm_pipeline.chunk_map import (SOURCES_220_44K, SOURCES_223,
+                                        SOURCES_223_60K_LISTING)
     from cpm_pipeline.os_listing import emit_listing
     chunks = [SOURCES_220_44K[k] for k in
               ("CPM220_44K_BootLoader", "CPM220_44K_CCP", "CPM220_44K_BDOS", "CPM220_44K_BIOS_Disk")]
     chunks += [SOURCES_223[k] for k in
                ("CPM223_BootLoader", "CPM223_44K_CCP", "CPM223_44K_BDOS", "CPM223_BIOS_Disk")]
+    # The 60K OS modules now keep their addresses here too, having dropped their
+    # inline "; $XXXX" comments; the .lst is the only place to read a 60K address.
+    chunks += [SOURCES_223_60K_LISTING[k] for k in
+               ("CPM223_60K_BIOS", "CPM223_60K_BDOS")]
     stale = []
     for cs in chunks:
         committed = cs.asm_path.with_suffix(".lst")

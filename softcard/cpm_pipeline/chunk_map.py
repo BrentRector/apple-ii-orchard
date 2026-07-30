@@ -34,6 +34,7 @@ INVEST = REPO_ROOT / "cpm-investigation"
 OS223_44K = REPO_ROOT / "CPMV223-44K" / "os"   # canonical 2.23 OS source tree (disk build reads here)
 OS220 = REPO_ROOT / "CPMV220" / "os"           # canonical 2.20B-56K OS source tree
 OS220_44K = REPO_ROOT / "CPMV220-44K" / "os"   # canonical 2.20-44K OS source tree (clean-room decompile)
+OS223_60K = REPO_ROOT / "CPMV223-60K" / "os"   # 2.23-60K OS source tree (separate build, bank-woven BDOS)
 INCLUDE_DIR = REPO_ROOT / "include"            # shared single-source-of-truth EQU includes
 SOFTCARD_INC = INCLUDE_DIR / "apple_softcard.inc"   # Apple/SoftCard external-address names
 CPM22_INC = INCLUDE_DIR / "cpm22.inc"               # CP/M 2.2 ABI EQUs (BDOS, F_*/DRV_*, base page, FCB)
@@ -444,3 +445,20 @@ def os_module_sources(variant: str) -> dict:
     _, sources = get_variant(variant)
     return {e.asm_path.name: e for e in sources.values()
             if isinstance(e, ChunkSource) and e.asm_path.name in _OS_MODULE_NAMES}
+
+
+# ── 2.23-60K listing sources ─────────────────────────────────────────────
+# The 60K OS is built by build_cpm60 / regenerate_60k_*, not from a disk chunk
+# map, so its two Z-80 modules have no entry above. They still need ChunkSources
+# for one purpose: emitting the tracked .lst. Those sources carry no inline
+# "; $XXXX" address comments -- the addresses live in the listing, exactly as in
+# the 44K trees -- so the listing is the only place to read an address off the
+# 60K OS, and it has to stay fresh.
+SOURCES_223_60K_LISTING: dict[str, ChunkSource] = {
+    "CPM223_60K_BIOS": ChunkSource(
+        asm_path=OS223_60K / "CPM_BIOS.asm", cpu="z80", org=0xFA00, size=0x0600,
+    ),
+    "CPM223_60K_BDOS": ChunkSource(
+        asm_path=OS223_60K / "CPM_BDOS.asm", cpu="z80", org=0xDC00, size=0x0E00,
+    ),
+}
