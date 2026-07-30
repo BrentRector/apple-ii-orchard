@@ -2373,10 +2373,10 @@ F_ATTRIB_LOOP:
 ; ----------------------------------------------------------------------
 ; FILE_OPEN_SEARCH -- search-first for the FCB's extent and merge the directory entry into the FCB.
 ;   In: current FCB at $DF11. Core of BDOS_F_OPEN (fn 15) and the random-record extent-positioning path.
-;   Out: on match, the matched entry is merged into the FCB (record-count fields filled, FCB_MERGE_ENTRY);
+;   Out: on match, the matched entry is merged into the FCB (record-count fields filled, FILE_SIZE_FROM_EXTENT);
 ;        on no match returns Z with no merge.  Clobbers: A,B,C,D,E,H,L,flags.
 ;   Algorithm: DIR_SEARCH_FIRST on 15 bytes (name+type+extent); CUR_RECORD_BYTES_EQUAL; if not found
-;       return Z; otherwise fall through into FCB_MERGE_ENTRY to copy the entry into the FCB and set the
+;       return Z; otherwise fall through into FILE_SIZE_FROM_EXTENT to copy the entry into the FCB and set the
 ;       record count.
 ;   [RE] CP/M 2.2 F_OPEN core / extent locate-and-merge.
 ; ----------------------------------------------------------------------
@@ -2386,7 +2386,7 @@ FILE_OPEN_SEARCH:
         CALL CUR_RECORD_BYTES_EQUAL                    ; $BAAC  CD 6B B8
         RET Z                            ; $BAAF  C8
 ; ----------------------------------------------------------------------
-; FCB_MERGE_ENTRY -- merge a matched directory entry into the FCB and update its record count.
+; FILE_SIZE_FROM_EXTENT -- merge a matched directory entry into the FCB and update its record count.
 ;   In: HL positioned via FCB_PTR_EXTENT on the FCB extent byte; current FCB at $DF11; the matched dir entry.
 ;   Out: the 32-byte entry copied into the FCB image; the FCB's record-count byte (offset $0F) set to $00
 ;        if this extent is below the current one, RC if equal, $80 if above; S2 'written' bit set.
@@ -2396,7 +2396,7 @@ FILE_OPEN_SEARCH:
 ;       against the saved FCB extent, and store the chosen record-count byte at FCB+$0F.
 ;   [RE] used by both F_OPEN (FILE_OPEN_SEARCH) and F_SIZE. Twin of the 44K FILE_SIZE_FROM_EXTENT.
 ; ----------------------------------------------------------------------
-FCB_MERGE_ENTRY:
+FILE_SIZE_FROM_EXTENT:
         CALL FCB_PTR_EXTENT                    ; $BAB0  CD 1C B7
         LD A,(HL)                        ; $BAB3  7E
         PUSH AF                          ; $BAB4  F5
@@ -2592,7 +2592,7 @@ DIR_ZERO_ALLOC:
 ;   Algorithm: clear the dir-changed flag (DIR_DIRTY_FLAG), flush the current extent (F_CLOSE_HND), bump the FCB
 ;       extent byte (offset $0C) mod 32; on wrap step the S2 module (offset $0E); otherwise use the EXM
 ;       mask (DPB_EXM) and the dir-changed flag to decide between re-opening the current extent
-;       (FILE_OPEN_SEARCH / DIR_MAKE_ENTRY) or merging the just-flushed one (FCB_MERGE_ENTRY).
+;       (FILE_OPEN_SEARCH / DIR_MAKE_ENTRY) or merging the just-flushed one (FILE_SIZE_FROM_EXTENT).
 ;   [RE] sequential-access record/extent advance.
 ; ----------------------------------------------------------------------
 FCB_ADVANCE_RECORD:
@@ -2636,7 +2636,7 @@ FCB_ADVANCE_RECORD_2:
         JR Z,FCB_ADVANCE_RECORD_5                  ; $BBEA  28 0C
         JR FCB_ADVANCE_RECORD_4                    ; $BBEC  18 03
 FCB_ADVANCE_RECORD_3:
-        CALL FCB_MERGE_ENTRY                    ; $BBEE  CD B0 BA
+        CALL FILE_SIZE_FROM_EXTENT                    ; $BBEE  CD B0 BA
 FCB_ADVANCE_RECORD_4:
         CALL FCB_PRIME_FIELDS                    ; $BBF1  CD 31 B7
         XOR A                            ; $BBF4  AF
@@ -3002,7 +3002,7 @@ F_WRITERAND_BODY:
         CALL Z,BDOS_WRITE                  ; $BDC7  CC 41 BC
         RET                              ; $BDCA  C9
 ; ----------------------------------------------------------------------
-; FCB_RECNUM_FROM_FIELDS -- compute the 24-bit absolute record number from an FCB's record byte plus its extent (EX) and S2 fields.
+; FCB_ALLOC_PREP -- compute the 24-bit absolute record number from an FCB's record byte plus its extent (EX) and S2 fields.
 ;   In: HL = base pointer to the FCB (or directory entry); DE = byte offset within it of the low record
 ;       byte to read (e.g. $20 = CR for Set Random Record, $0F for the per-extent record count in Compute File Size).
 ;   Out: C = low byte, B = mid byte, A = high byte of the record number; A AND $01 leaves Z/NZ on the
@@ -3014,7 +3014,7 @@ F_WRITERAND_BODY:
 ;   [RE] builds the linear absolute record index (record + ex*128 + S2*...) used by Set Random Record (fn 36)
 ;       and Compute File Size (fn 35). Twin of the 44K FCB_ALLOC_PREP.
 ; ----------------------------------------------------------------------
-FCB_RECNUM_FROM_FIELDS:
+FCB_ALLOC_PREP:
         EX DE,HL                         ; $BDCB  EB
         ADD HL,DE                        ; $BDCC  19
         LD C,(HL)                        ; $BDCD  4E
@@ -3058,7 +3058,7 @@ FCB_RECNUM_FROM_FIELDS:
 ;        highest record across all matching directory extents).  Clobbers: A,BC,DE,HL.
 ;   Algorithm: C := $0C, DIR_SEARCH_FIRST over the first 12 FCB bytes (drive+name+type; extent NOT matched);
 ;       point HL at FCB+$21 and zero the three random-record bytes. Loop over every matching entry: compute
-;       its record number via FCB_RECNUM_FROM_FIELDS at offset $0F and keep the running maximum in r0/r1/r2;
+;       its record number via FCB_ALLOC_PREP at offset $0F and keep the running maximum in r0/r1/r2;
 ;       when the search exhausts, the largest record number remains stored.
 ;   [RE][DOC CP/M 2.2 BDOS fn 35] result is a record count (next free record), one past the highest used record.
 ; ----------------------------------------------------------------------
@@ -3079,7 +3079,7 @@ COMPSIZE_SCAN_LOOP:
         JR Z,FCB_RECNUM_FROM_FIELDS_4                  ; $BE0D  28 20
         CALL FCB_BUF_PTR_ADD_OFFSET                    ; $BE0F  CD CD B7
         LD DE,$000F                      ; $BE12  11 0F 00
-        CALL FCB_RECNUM_FROM_FIELDS                    ; $BE15  CD CB BD
+        CALL FCB_ALLOC_PREP                    ; $BE15  CD CB BD
         POP HL                           ; $BE18  E1
         PUSH HL                          ; $BE19  E5
         LD E,A                           ; $BE1A  5F
@@ -3108,16 +3108,16 @@ FCB_RECNUM_FROM_FIELDS_4:
 ;   In: current FCB at $DF11 (whose sequential extent/CR fields are to be converted).
 ;   Out: bytes r0/r1/r2 (FCB offsets $21..$23) written with the 24-bit record number derived from the FCB's
 ;        extent and current-record fields.  Clobbers: A,BC,DE,HL.
-;   Algorithm: RANDREC_FIELD_RESET stages the FCB into the scratch, then FCB_RECNUM_FROM_FIELDS with HL=FCB
+;   Algorithm: RANDREC_FIELD_RESET stages the FCB into the scratch, then FCB_ALLOC_PREP with HL=FCB
 ;       base and DE=$0020 folds the CR (FCB+$20), extent number and extent-high bit into a record count in
 ;       C(low)/B(high)/A(overflow); then HL = FCB+$0021 and store C,B,A into FCB[$21],[$22],[$23].
-;   [RE] dispatch fn 36 ($DC9B->$BE31); FCB_RECNUM_FROM_FIELDS is the standard extent->record-count fold.
+;   [RE] dispatch fn 36 ($DC9B->$BE31); FCB_ALLOC_PREP is the standard extent->record-count fold.
 ; ----------------------------------------------------------------------
 BDOS_F_RANDREC:
         CALL RANDREC_FIELD_RESET                    ; $BE31  CD A3 BF
         LD HL,(BDOS_PARAM_PTR)                    ; $BE34  2A 11 DF
         LD DE,$0020                      ; $BE37  11 20 00
-        CALL FCB_RECNUM_FROM_FIELDS                    ; $BE3A  CD CB BD
+        CALL FCB_ALLOC_PREP                    ; $BE3A  CD CB BD
         LD HL,$0021                      ; $BE3D  21 21 00
         ADD HL,DE                        ; $BE40  19
         LD (HL),C                        ; $BE41  71
