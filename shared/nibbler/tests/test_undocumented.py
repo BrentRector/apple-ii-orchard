@@ -44,7 +44,7 @@ def test_every_opcode_slot_is_a_named_instruction():
 def test_opcode_sizes_match_their_addressing_modes():
     from nibbler.cpu import MODE_SIZE
     cpu = CPU6502()
-    for i, (_, mode, size, name) in enumerate(cpu.optable):
+    for i, (_, mode, size, name, _cycles) in enumerate(cpu.optable):
         assert size == MODE_SIZE[mode], \
             f"${i:02X} {name}: size {size} but mode implies {MODE_SIZE[mode]}"
 

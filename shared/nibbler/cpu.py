@@ -37,9 +37,13 @@ Breakpoint API::
 Decimal (BCD) mode IS implemented, following the NMOS 6502 algorithm rather
 than 65C02 semantics -- see ``_adc_value`` / ``_sbc_value``.
 
-Cycle counts are incremented by 1 per instruction (used only as a rough
-measure of progress, not for hardware-accurate timing); ``exec_count`` is
-the instruction counter.
+``cycles`` counts real clock cycles: a per-opcode base cost plus the +1 for
+an indexed READ that crosses a page, +1 for a taken branch and +1 more when
+that branch crosses a page, and 7 for an interrupt or reset sequence. It is
+instruction-level accurate, not sub-instruction accurate: cycles are added
+once per instruction rather than as each bus access happens, so there is no
+model of WHEN within an instruction a given access occurs. ``exec_count``
+is the separate instruction counter.
 """
 
 from collections import defaultdict
@@ -58,6 +62,76 @@ MODE_SIZE = {
     ABS: 3, ABX: 3, ABY: 3, IND: 3, IZX: 2, IZY: 2, REL: 2,
 }
 
+# ── Instruction Cycle Counts ──────────────────────────────────────────
+# Base counts are DERIVED from an instruction's access class and its
+# addressing mode rather than written out as 256 hand-copied numbers.
+# That is how the counts arise on hardware -- they are the length of the
+# address-generation and data phases -- and it leaves ~30 rule entries to
+# review instead of 256 opportunities for a transcription slip.
+#
+#   READ   operand is fetched and used         (LDA, AND, CMP, BIT, LAX...)
+#   WRITE  a value is stored, none read        (STA, STX, SAX, SHY...)
+#   RMW    read, modify, write back            (INC, ASL, SLO, DCP...)
+#   OTHER  no memory operand                   (implied, branches, flags)
+#
+# The two runtime penalties are NOT in this table because they depend on
+# operand values, not on the opcode:
+#
+#   * A READ through an indexed mode (abs,X / abs,Y / (zp),Y) speculatively
+#     uses the un-carried high byte and costs +1 ONLY when the index
+#     carries into the next page. A WRITE or RMW always performs that fixup
+#     cycle, so its count is constant. That asymmetry is exactly why the
+#     penalty is applied in _resolve_read() and not in the addressing
+#     helpers, which both paths share.
+#   * A taken branch costs +1, and +1 more when the target is in a
+#     different page from the instruction after the branch.
+READ, WRITE, RMW, OTHER = 'r', 'w', 'm', 'o'
+
+CYCLES_BY_CLASS_AND_MODE = {
+    (READ,  IMM): 2, (READ,  ZP): 3, (READ,  ZPX): 4, (READ,  ZPY): 4,
+    (READ,  ABS): 4, (READ,  ABX): 4, (READ,  ABY): 4,
+    (READ,  IZX): 6, (READ,  IZY): 5,
+
+    (WRITE, ZP): 3, (WRITE, ZPX): 4, (WRITE, ZPY): 4,
+    (WRITE, ABS): 4, (WRITE, ABX): 5, (WRITE, ABY): 5,
+    (WRITE, IZX): 6, (WRITE, IZY): 6,
+
+    (RMW,   ZP): 5, (RMW,   ZPX): 6, (RMW,   ZPY): 6,
+    (RMW,   ABS): 6, (RMW,   ABX): 7, (RMW,   ABY): 7,
+    (RMW,   IZX): 8, (RMW,   IZY): 8,
+}
+
+# Instructions whose timing does not follow from class x mode: the stack
+# and control-transfer operations, which spend their cycles on stack
+# traffic and vector fetches rather than on addressing.
+CYCLE_OVERRIDES = {
+    0x00: 7,   # BRK      push PC+P, fetch vector
+    0x08: 3,   # PHP
+    0x28: 4,   # PLP
+    0x48: 3,   # PHA
+    0x68: 4,   # PLA
+    0x20: 6,   # JSR abs
+    0x40: 6,   # RTI
+    0x60: 6,   # RTS
+    0x4C: 3,   # JMP abs  (no data phase at all)
+    0x6C: 5,   # JMP (ind)
+}
+
+# An interrupt or reset sequence costs 7 cycles: two address pushes, the
+# status push, and the two-byte vector fetch.
+INTERRUPT_CYCLES = 7
+
+
+def base_cycles(access_class, mode):
+    """Return the base cycle count for an access class and addressing mode.
+
+    IMP, ACC and REL are always 2: there is no address to generate and no
+    external data phase, so the class does not matter.
+    """
+    if mode in (IMP, ACC, REL):
+        return 2
+    return CYCLES_BY_CLASS_AND_MODE[(access_class, mode)]
+
 
 class CPU6502:
     """NMOS 6502 CPU emulator with Apple II I/O support.
@@ -75,8 +149,12 @@ class CPU6502:
         pc: 16-bit program counter.
         C, Z, I, D, V, N: Individual processor status flags.
         mem: 64 KB flat address space as a bytearray.
-        cycles: Rough instruction counter (incremented by 1 per instruction).
+        cycles: Elapsed clock cycles (base cost plus page-crossing and
+                branch penalties); exec_count is the instruction count.
         halted: True after a KIL opcode or manual halt.
+        nmi_pending, irq_line: interrupt inputs; see set_nmi()/set_irq().
+        magic_constant: value modelled for the unstable XAA/LAX#imm bus
+                float (see __init__).
         disk: Optional disk controller object for Apple II I/O.
         slot: Apple II peripheral slot number (0-7) for disk I/O base address.
         trace: When True, each executed instruction is printed/logged.
@@ -108,8 +186,13 @@ class CPU6502:
         # ── Memory ────────────────────────────────────────────────
         self.mem = bytearray(65536)  # 64 KB flat address space
 
-        self.cycles = 0       # Rough per-instruction cycle counter
+        self.cycles = 0       # Elapsed clock cycles (see the cycle notes above)
         self.halted = False   # Set True by KIL opcode to stop execution
+
+        # Set by the indexed addressing helpers when the index carries into
+        # a new page; consumed by _resolve_read() as the +1 read penalty.
+        # step() clears it before every instruction.
+        self._page_crossed = 0
 
         # ── Hardware I/O ──────────────────────────────────────────
         self.disk = None      # Disk controller object (e.g., DiskII)
@@ -239,6 +322,7 @@ class CPU6502:
         self.I = 1
         self.halted = False
         self.nmi_pending = False
+        self.cycles += INTERRUPT_CYCLES
         self.pc = self._read_vector(0xFFFC)
 
     def irq(self):
@@ -279,6 +363,7 @@ class CPU6502:
         # _get_p() sets both, so mask bit 4 back off here.
         self.push(self._get_p() & ~0x10)
         self.I = 1
+        self.cycles += INTERRUPT_CYCLES
         self.pc = self._read_vector(vector)
 
     # ── Run Loop ─────────────────────────────────────────────────
@@ -524,16 +609,27 @@ class CPU6502:
         return lo | (hi << 8)
 
     def _addr_abx(self):
-        """Absolute,X: 16-bit base address + X register."""
+        """Absolute,X: 16-bit base address + X register.
+
+        Records whether the index carried into a new page; _resolve_read()
+        turns that into the +1 cycle penalty (reads only -- see the cycle
+        commentary at the top of the module).
+        """
         lo = self._fetchb((self.pc + 1) & 0xFFFF)
         hi = self._fetchb((self.pc + 2) & 0xFFFF)
-        return ((lo | (hi << 8)) + self.x) & 0xFFFF
+        base = lo | (hi << 8)
+        addr = (base + self.x) & 0xFFFF
+        self._page_crossed = 1 if (base & 0xFF00) != (addr & 0xFF00) else 0
+        return addr
 
     def _addr_aby(self):
         """Absolute,Y: 16-bit base address + Y register."""
         lo = self._fetchb((self.pc + 1) & 0xFFFF)
         hi = self._fetchb((self.pc + 2) & 0xFFFF)
-        return ((lo | (hi << 8)) + self.y) & 0xFFFF
+        base = lo | (hi << 8)
+        addr = (base + self.y) & 0xFFFF
+        self._page_crossed = 1 if (base & 0xFF00) != (addr & 0xFF00) else 0
+        return addr
 
     def _addr_izx(self):
         """Indexed indirect (X): pointer at zero-page address (operand + X).
@@ -550,7 +646,10 @@ class CPU6502:
         base = self._fetchb((self.pc + 1) & 0xFFFF)
         lo = self.read(base)
         hi = self.read((base + 1) & 0xFF)  # Wraps within zero page
-        return ((lo | (hi << 8)) + self.y) & 0xFFFF
+        ptr = lo | (hi << 8)
+        addr = (ptr + self.y) & 0xFFFF
+        self._page_crossed = 1 if (ptr & 0xFF00) != (addr & 0xFF00) else 0
+        return addr
 
     def _addr_ind(self):
         """Indirect (JMP only): 16-bit pointer with NMOS page-crossing bug.
@@ -588,10 +687,23 @@ class CPU6502:
 
     def _resolve_read(self, mode):
         """Resolve the operand value: for IMM mode, return the literal byte;
-        for all other modes, read from the resolved address."""
+        for all other modes, read from the resolved address.
+
+        This is also where the indexed page-crossing cycle penalty is
+        charged.  It belongs here rather than in the addressing helpers
+        because it applies to READS only: a read speculatively uses the
+        un-carried high byte and needs a repair cycle only when the index
+        actually carried, whereas a write or read-modify-write always
+        performs that cycle and so has a constant cost.  Write and RMW
+        instructions reach the same helpers via _resolve_addr(), which does
+        not charge it.
+        """
         if mode == IMM:
             return self._fetchb((self.pc + 1) & 0xFFFF)
-        return self.read(self._resolve_addr(mode))
+        addr = self._resolve_addr(mode)
+        if self._page_crossed:
+            self.cycles += 1
+        return self.read(addr)
 
     # ── Instruction Implementations ──────────────────────────────
     # Simple load/store/transfer instructions set N and Z flags from the
@@ -851,14 +963,22 @@ class CPU6502:
         The offset byte is treated as signed (-128 to +127).  The branch
         target is calculated relative to the address of the NEXT instruction
         (PC + 2), not the branch instruction itself.
+
+        Timing: 2 cycles when not taken, 3 when taken, 4 when taken across
+        a page boundary.  The page comparison is between the target and the
+        instruction AFTER the branch, which is the value the PC actually
+        holds when the offset is added.
         """
         offset = self._fetchb((self.pc + 1) & 0xFFFF)
         if offset > 127:                   # Convert unsigned byte to signed
             offset -= 256
+        next_pc = (self.pc + 2) & 0xFFFF
         if cond:
-            self.pc = (self.pc + 2 + offset) & 0xFFFF  # Branch taken
+            target = (next_pc + offset) & 0xFFFF       # Branch taken
+            self.cycles += 2 if (next_pc & 0xFF00) != (target & 0xFF00) else 1
+            self.pc = target
         else:
-            self.pc = (self.pc + 2) & 0xFFFF           # Branch not taken (skip operand)
+            self.pc = next_pc              # Branch not taken (skip operand)
 
     def _op_bcc(self, mode): self._do_branch(self.C == 0)
     def _op_bcs(self, mode): self._do_branch(self.C == 1)
@@ -1279,25 +1399,77 @@ class CPU6502:
 
     def _op_nop_undoc(self, mode):
         """Undocumented NOP -- no operation, but consumes the operand bytes
-        indicated by its addressing mode (useful for skipping 1-2 bytes)."""
-        pass
+        indicated by its addressing mode (useful for skipping 1-2 bytes).
+
+        The abs,X forms ($1C/$3C/$5C/$7C/$DC/$FC) perform a dummy read on
+        hardware and therefore take the page-crossing penalty, so the
+        address is resolved here purely to determine whether the index
+        carried.  The read itself is deliberately NOT performed: it would
+        be observable if the address landed on a soft switch, and this is a
+        timing fix, not a behaviour change.
+        """
+        if mode == ABX:
+            self._resolve_addr(mode)
+            self.cycles += self._page_crossed
 
     # ── Opcode Dispatch Table ────────────────────────────────────
 
     def _build_opcodes(self):
         """Build the 256-entry opcode dispatch table.
 
-        Each entry is a tuple: (handler_func, addressing_mode, byte_size, name).
+        Each entry is a tuple:
+            (handler_func, addressing_mode, byte_size, name, base_cycles)
+
         All 256 byte values are mapped -- official opcodes to their documented
         handlers, and the remaining slots to undocumented opcode handlers
         (LAX, SAX, DCP, ISB, SLO, RLA, SRE, RRA, KIL, etc.).  Any opcode
         not explicitly assigned is filled with a 1-byte undocumented NOP.
+
+        ``base_cycles`` comes from the instruction's access class (below)
+        combined with its addressing mode, so no per-opcode cycle count is
+        written by hand; see CYCLES_BY_CLASS_AND_MODE.  The value excludes
+        the two operand-dependent penalties, which are added at run time.
         """
         self.optable = [None] * 256
 
+        # Access class per handler.  A handler's class is a property of the
+        # instruction, not of the opcode, so classifying here keeps the ~250
+        # op() calls below free of timing detail.
+        read_ops = {
+            self._op_lda, self._op_ldx, self._op_ldy, self._op_and,
+            self._op_ora, self._op_eor, self._op_adc, self._op_sbc,
+            self._op_cmp, self._op_cpx, self._op_cpy, self._op_bit,
+            self._op_lax, self._op_lax_imm, self._op_las, self._op_anc,
+            self._op_alr, self._op_arr, self._op_xaa, self._op_axs,
+            # The undocumented NOPs perform a dummy read of their operand
+            # address on hardware, so they time as reads.
+            self._op_nop_undoc,
+        }
+        write_ops = {
+            self._op_sta, self._op_stx, self._op_sty, self._op_sax,
+            self._op_shy, self._op_shx, self._op_ahx, self._op_tas,
+        }
+        rmw_ops = {
+            self._op_inc, self._op_dec, self._op_asl, self._op_lsr,
+            self._op_rol, self._op_ror, self._op_slo, self._op_rla,
+            self._op_sre, self._op_rra, self._op_dcp, self._op_isb,
+        }
+
+        def access_class(handler):
+            if handler in read_ops:
+                return READ
+            if handler in write_ops:
+                return WRITE
+            if handler in rmw_ops:
+                return RMW
+            return OTHER
+
         def op(code, handler, mode, name=""):
             size = MODE_SIZE.get(mode, 1)
-            self.optable[code] = (handler, mode, size, name)
+            cycles = CYCLE_OVERRIDES.get(code)
+            if cycles is None:
+                cycles = base_cycles(access_class(handler), mode)
+            self.optable[code] = (handler, mode, size, name, cycles)
 
         # ── Official Opcodes ─────────────────────────────────────
         # LDA
@@ -1476,10 +1648,13 @@ class CPU6502:
         for opc in [0x02, 0x12, 0x22, 0x32, 0x42, 0x52, 0x62, 0x72,
                      0x92, 0xB2, 0xD2, 0xF2]:
             op(opc, self._op_kil, IMP, "KIL")
-        # Fill any remaining unassigned slots with 1-byte NOPs
+        # Fill any remaining unassigned slots with 1-byte NOPs.  As of the
+        # addition of $AB (LAX #imm) there are none left, and a test in
+        # tests/test_undocumented.py keeps it that way -- an unassigned slot
+        # is a gap, not a decision, and it gets the length wrong too.
         for i in range(256):
             if self.optable[i] is None:
-                self.optable[i] = (self._op_nop_undoc, IMP, 1, f"?{i:02X}")
+                self.optable[i] = (self._op_nop_undoc, IMP, 1, f"?{i:02X}", 2)
 
     # ── Execution / Single-Step ──────────────────────────────────
 
@@ -1505,7 +1680,7 @@ class CPU6502:
         """
         opc = self.mem[self.pc]
         entry = self.optable[opc]
-        handler, mode, size, name = entry
+        handler, mode, size, name = entry[:4]
         if size == 1:
             return f"${self.pc:04X}: {opc:02X}       {name}"
         elif size == 2:
@@ -1564,7 +1739,7 @@ class CPU6502:
 
         opc = self._fetchb(self.pc)
         entry = self.optable[opc]
-        handler, mode, size, name = entry
+        handler, mode, size, name, cycles = entry
 
         # Optional trace output: print/log disassembly + register state
         if self.trace:
@@ -1575,6 +1750,10 @@ class CPU6502:
                 print(line)
 
         old_pc = self.pc
+        # Cleared per instruction so a page crossing recorded by a store's
+        # address calculation cannot leak into the next instruction's read.
+        self._page_crossed = 0
+        self.cycles += cycles          # Base cost; handlers add any penalty
 
         # Identify instructions that set PC themselves (branches and jumps).
         # For these, step() must NOT auto-advance PC after the handler runs.
@@ -1592,5 +1771,4 @@ class CPU6502:
             self.pc = (old_pc + size) & 0xFFFF
 
         self.exec_count += 1
-        self.cycles += 1                   # Simplified: 1 cycle per instruction
         return True
