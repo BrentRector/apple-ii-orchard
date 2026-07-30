@@ -1194,8 +1194,13 @@ SIGNON_BANNER:
         DEFB    $0A,$0D,$0A                                      ; $FFFB
         DEFW    BOOT                     ; $FFFE
 
+BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
+
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
-    SAVEBIN "CPM_BIOS.bin", $FA00, $0600
+    ; Image size from its bracketing labels, not a magic length, as in the 2.23-44K twin:
+    ; an overrun fails the build here instead of being silently truncated by SAVEBIN.
+    ; $FA00 = the ORG base; the subtraction wraps because the image ends at $10000.
+    SAVEBIN "CPM_BIOS.bin", $FA00, BIOS_IMAGE_END - $FA00
     ENDIF
 
 ; ----------------------------------------------------------------------

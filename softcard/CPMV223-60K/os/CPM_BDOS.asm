@@ -3629,10 +3629,14 @@ DMA_ADDR:
         DEFB    $80,$00                                          ; $BFBE
     ENT
 ; -------------------- end lower LC bank (back to $EA00 image top) --------------------
-
+BDOS_IMAGE_END:                          ; first byte past the BDOS image ($EA00)
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
-    SAVEBIN "CPM_BDOS.bin", $DC00, $0E00
+    ; Image size from its bracketing labels, not a magic length, as in the 2.23-44K twin.
+    ; The ENT above has closed the lower-bank DISP, so BDOS_IMAGE_END is the physical top
+    ; of the image rather than a $Bxxx run address.
+    ASSERT BDOS_IMAGE_END == $EA00
+    SAVEBIN "CPM_BDOS.bin", $DC00, BDOS_IMAGE_END - $DC00
     ENDIF
 
 ; ----------------------------------------------------------------------
