@@ -467,14 +467,20 @@ class CPU6502:
         self.write_ranges[addr] += 1       # Track write frequency per address
 
     def push(self, val):
-        """Push a byte onto the hardware stack at $0100+SP, then decrement SP."""
-        self.mem[0x0100 + self.sp] = val & 0xFF   # Stack page is $0100-$01FF
+        """Push a byte onto the hardware stack at $0100+SP, then decrement SP.
+
+        Goes through write() like every other store. The stack page is
+        plain RAM on both machines this core drives, so nothing intercepts
+        it -- but routing it here is what makes "all memory access goes
+        through read()/write()" true rather than nearly true.
+        """
+        self.write(0x0100 + self.sp, val)          # Stack page is $0100-$01FF
         self.sp = (self.sp - 1) & 0xFF             # SP wraps within 0x00-0xFF
 
     def pull(self):
         """Increment SP, then pull (read) a byte from the stack at $0100+SP."""
         self.sp = (self.sp + 1) & 0xFF
-        return self.mem[0x0100 + self.sp]
+        return self.read(0x0100 + self.sp)
 
     def _read_vector(self, addr):
         """Read a 16-bit little-endian vector at ``addr`` (used by RESET/IRQ/NMI/BRK).
@@ -530,17 +536,20 @@ class CPU6502:
         return ((lo | (hi << 8)) + self.y) & 0xFFFF
 
     def _addr_izx(self):
-        """Indexed indirect (X): pointer at zero-page address (operand + X)."""
+        """Indexed indirect (X): pointer at zero-page address (operand + X).
+
+        The pointer fetch goes through read(), like any other data access.
+        """
         base = (self._fetchb((self.pc + 1) & 0xFFFF) + self.x) & 0xFF
-        lo = self.mem[base]
-        hi = self.mem[(base + 1) & 0xFF]   # Wraps within zero page
+        lo = self.read(base)
+        hi = self.read((base + 1) & 0xFF)  # Wraps within zero page
         return lo | (hi << 8)
 
     def _addr_izy(self):
         """Indirect indexed (Y): pointer at zero-page address, then + Y."""
         base = self._fetchb((self.pc + 1) & 0xFFFF)
-        lo = self.mem[base]
-        hi = self.mem[(base + 1) & 0xFF]   # Wraps within zero page
+        lo = self.read(base)
+        hi = self.read((base + 1) & 0xFF)  # Wraps within zero page
         return ((lo | (hi << 8)) + self.y) & 0xFFFF
 
     def _addr_ind(self):
@@ -550,13 +559,17 @@ class CPU6502:
         the high byte is fetched from $xx00 instead of $(xx+1)00.  For
         example, JMP ($10FF) reads the low byte from $10FF and the high
         byte from $1000, NOT $1100.
+
+        Unlike the zero-page indirect modes, this pointer can be anywhere
+        in the address space, including a bank-switched or memory-mapped
+        region, so the two fetches go through read().
         """
         lo = self._fetchb((self.pc + 1) & 0xFFFF)
         hi = self._fetchb((self.pc + 2) & 0xFFFF)
         ptr = lo | (hi << 8)
-        lo2 = self.mem[ptr]
+        lo2 = self.read(ptr)
         # NMOS page-crossing bug: high byte wraps within the same page
-        hi2 = self.mem[(ptr & 0xFF00) | ((ptr + 1) & 0xFF)]
+        hi2 = self.read((ptr & 0xFF00) | ((ptr + 1) & 0xFF))
         return lo2 | (hi2 << 8)
 
     def _resolve_addr(self, mode):
@@ -1482,6 +1495,13 @@ class CPU6502:
         """Return a disassembly string for the instruction at the current PC.
 
         Format: "$ADDR: XX [XX [XX]] MNEMONIC operand"
+
+        Deliberately reads mem[] directly rather than going through read()
+        or _fetchb(): this is the only place in the class that does, and it
+        does so because a disassembler must not perturb the machine it is
+        inspecting. Routing it through read() would make turning on ``trace``
+        fire soft switches -- toggling disk latches and clearing the keyboard
+        strobe -- and change the very execution being traced.
         """
         opc = self.mem[self.pc]
         entry = self.optable[opc]
