@@ -34,9 +34,12 @@ Breakpoint API::
     cpu.add_breakpoint(0x0800, my_hook)
     cpu.run()
 
-The emulator does NOT model cycle-accurate timing or decimal mode arithmetic.
+Decimal (BCD) mode IS implemented, following the NMOS 6502 algorithm rather
+than 65C02 semantics -- see ``_adc_value`` / ``_sbc_value``.
+
 Cycle counts are incremented by 1 per instruction (used only as a rough
-measure of progress, not for hardware-accurate timing).
+measure of progress, not for hardware-accurate timing); ``exec_count`` is
+the instruction counter.
 """
 
 from collections import defaultdict
@@ -454,41 +457,122 @@ class CPU6502:
     def _op_stx(self, mode): self.write(self._resolve_addr(mode), self.x)
     def _op_sty(self, mode): self.write(self._resolve_addr(mode), self.y)
 
-    def _op_adc(self, mode):
-        """Add with carry: A = A + M + C.
+    # ── Arithmetic Core ──────────────────────────────────────────
+    # ADC and SBC share their ALU path with the undocumented read-modify-write
+    # pairs RRA (ROR+ADC) and ISB (INC+SBC), so the arithmetic lives in these
+    # two helpers and all four instructions call them.  That also means RRA
+    # and ISB honor the D flag, exactly as the silicon does.
 
-        Overflow flag (V) detection uses the standard two's-complement formula:
-          V is set when both operands have the same sign (bit 7) but the
-          result has a different sign.  Expressed as a bitmask:
+    def _adc_value(self, val):
+        """Core add-with-carry: A = A + val + C, honoring the D (decimal) flag.
+
+        Binary mode (D=0) is plain 8-bit addition.  Overflow (V) uses the
+        standard two's-complement formula:
             ~(A ^ M)   -- bits where A and M have the SAME sign
-            (A ^ R)    -- bits where A and result have DIFFERENT signs
+            (A ^ R)    -- bits where A and the result have DIFFERENT signs
             & 0x80     -- isolate bit 7 (the sign bit)
-          If that expression is non-zero, signed overflow occurred.
+        A non-zero result means signed overflow occurred.
+
+        Decimal mode (D=1) reproduces the NMOS 6502's BCD adjust as the
+        silicon performs it (per "64doc", John West & Marko Makela).  This is
+        NOT the same as computing a decimal sum and then deriving flags from
+        it -- the flags are taken at three different points in the sequence:
+
+            AL = (A & $0F) + (M & $0F) + C
+            if AL >= $0A:  AL = ((AL + $06) & $0F) + $10   # low-nibble fixup
+            S  = (A & $F0) + (M & $F0) + AL                # partial result
+            if S >= $A0:   S += $60                        # high-nibble fixup
+            A  = S & $FF,  C = 1 if S >= $100
+
+          * Z comes from the BINARY sum (A + M + C) & $FF -- it is computed
+            before any decimal adjust at all.
+          * N and V come from S, i.e. AFTER the low-nibble correction but
+            BEFORE the high-nibble correction.  This is why decimal-mode N
+            and V look "wrong" for decimal arithmetic: they are side effects
+            of a half-corrected binary value.
+          * C is the true decimal carry.
+
+        Operands whose nibbles are outside 0-9 are not valid BCD.  The result
+        then follows this algorithm rather than any decimal meaning -- the
+        hardware has no notion of "invalid", it just runs the sequence above.
+
+        This is NMOS behavior.  A 65C02 fixes N/V/Z in decimal mode (and
+        spends an extra cycle doing it); that is deliberately NOT emulated.
         """
-        val = self._resolve_read(mode)
-        result = self.a + val + self.C
-        # Overflow: set if sign of A and val match, but sign of result differs
-        self.V = 1 if (~(self.a ^ val) & (self.a ^ result) & 0x80) else 0
-        self.C = 1 if result > 0xFF else 0  # Unsigned carry out of bit 7
-        self.a = self._set_nz(result)
+        a = self.a
+        carry_in = self.C
+        binary = a + val + carry_in        # Z always comes from this
+
+        if not self.D:
+            self.V = 1 if (~(a ^ val) & (a ^ binary) & 0x80) else 0
+            self.C = 1 if binary > 0xFF else 0   # Unsigned carry out of bit 7
+            self.a = self._set_nz(binary)
+            return
+
+        al = (a & 0x0F) + (val & 0x0F) + carry_in
+        if al >= 0x0A:
+            al = ((al + 0x06) & 0x0F) + 0x10     # Fixup, and carry into bit 4
+        s = (a & 0xF0) + (val & 0xF0) + al       # High nibbles still uncorrected
+
+        self.Z = 1 if (binary & 0xFF) == 0 else 0
+        self.N = (s >> 7) & 1
+        self.V = 1 if (~(a ^ val) & (a ^ s) & 0x80) else 0
+
+        if s >= 0xA0:
+            s += 0x60                            # High-nibble fixup
+        self.C = 1 if s >= 0x100 else 0
+        self.a = s & 0xFF
+
+    def _sbc_value(self, val):
+        """Core subtract-with-borrow: A = A - val - (1-C), honoring the D flag.
+
+        Overflow (V) uses the subtraction variant of the formula:
+            (A ^ M)     -- bits where A and M have DIFFERENT signs
+            (A ^ R)     -- bits where A and the result have DIFFERENT signs
+            & 0x80      -- isolate bit 7
+        Subtraction overflow occurs when the operands have different signs and
+        the result's sign matches the subtrahend rather than the minuend.
+
+        Decimal mode is asymmetric with ADC on the NMOS 6502: N, V, Z and C
+        are ALL set exactly as in binary mode, and only the value that lands
+        in A is decimal-adjusted:
+
+            AL = (A & $0F) - (M & $0F) - borrow
+            if AL < 0:  AL = ((AL - $06) & $0F) - $10
+            S  = (A & $F0) - (M & $F0) + AL
+            if S < 0:   S -= $60
+            A  = S & $FF
+
+        As with ADC, operands outside valid BCD simply follow this algorithm.
+        """
+        a = self.a
+        borrow = 1 - self.C                # Borrow is the inverted carry
+        binary = a - val - borrow
+
+        # Flags come from the binary result in BOTH modes.
+        self.V = 1 if ((a ^ val) & (a ^ (binary & 0xFF)) & 0x80) else 0
+        self.C = 0 if binary < 0 else 1    # C=0 means a borrow occurred
+        self._set_nz(binary)
+
+        if not self.D:
+            self.a = binary & 0xFF
+            return
+
+        al = (a & 0x0F) - (val & 0x0F) - borrow
+        if al < 0:
+            al = ((al - 0x06) & 0x0F) - 0x10     # Fixup, and borrow from bit 4
+        s = (a & 0xF0) - (val & 0xF0) + al
+        if s < 0:
+            s -= 0x60                            # High-nibble fixup
+        self.a = s & 0xFF
+
+    def _op_adc(self, mode):
+        """Add with carry: A = A + M + C (see _adc_value for the flag rules)."""
+        self._adc_value(self._resolve_read(mode))
 
     def _op_sbc(self, mode):
-        """Subtract with borrow: A = A - M - (1-C).
-
-        Overflow flag (V) uses the subtraction variant of the formula:
-          (A ^ M)     -- bits where A and M have DIFFERENT signs
-          (A ^ R)     -- bits where A and result have DIFFERENT signs
-          & 0x80      -- isolate bit 7
-        Subtraction overflow occurs when operands have different signs and
-        the result's sign matches the subtrahend rather than the minuend.
-        """
-        val = self._resolve_read(mode)
-        result = self.a - val - (1 - self.C)   # Borrow is inverted carry
-        # Overflow: set when subtracting a negative from a positive (or vice
-        # versa) produces a result whose sign doesn't match the minuend (A).
-        self.V = 1 if ((self.a ^ val) & (self.a ^ (result & 0xFF)) & 0x80) else 0
-        self.C = 0 if result < 0 else 1        # Borrow: C=0 means borrow occurred
-        self.a = self._set_nz(result)
+        """Subtract with borrow: A = A - M - (1-C) (see _sbc_value)."""
+        self._sbc_value(self._resolve_read(mode))
 
     def _op_and(self, mode): self.a = self._set_nz(self.a & self._resolve_read(mode))
     def _op_ora(self, mode): self.a = self._set_nz(self.a | self._resolve_read(mode))
@@ -785,16 +869,13 @@ class CPU6502:
 
         Undocumented. Equivalent to INC + SBC with the same address.
         Increments the memory value, then subtracts it from A (with borrow).
-        Sets V and C flags using the same overflow formula as SBC.
+        The SBC half goes through the shared ALU helper, so it honors the
+        D (decimal) flag exactly as the real chip does.
         """
         addr = self._resolve_addr(mode)
         val = (self.read(addr) + 1) & 0xFF     # INC
         self.write(addr, val)
-        result = self.a - val - (1 - self.C)   # SBC
-        # Overflow: same formula as _op_sbc (see SBC docstring)
-        self.V = 1 if ((self.a ^ val) & (self.a ^ (result & 0xFF)) & 0x80) else 0
-        self.C = 0 if result < 0 else 1
-        self.a = self._set_nz(result)
+        self._sbc_value(val)                   # SBC (decimal-aware)
 
     def _op_slo(self, mode):
         """SLO -- Shift Left memory, then OR with A.
@@ -844,7 +925,8 @@ class CPU6502:
 
         Undocumented. Equivalent to ROR + ADC with the same address.
         Rotates the memory value right through carry, then adds the
-        result to A.  Sets V and C using the same overflow formula as ADC.
+        result to A.  The ADC half goes through the shared ALU helper, so
+        it honors the D (decimal) flag exactly as the real chip does.
         """
         addr = self._resolve_addr(mode)
         val = self.read(addr)
@@ -852,13 +934,9 @@ class CPU6502:
         self.C = val & 1                       # ROR: old bit 0 -> new Carry
         val = ((val >> 1) | (old_c << 7)) & 0xFF  # Old Carry -> new bit 7
         self.write(addr, val)
-        # ADC phase: add rotated value to A with carry (which is the bit
-        # that just fell out of the ROR)
-        result = self.a + val + self.C
-        # Overflow: same formula as _op_adc (see ADC docstring)
-        self.V = 1 if (~(self.a ^ val) & (self.a ^ result) & 0x80) else 0
-        self.C = 1 if result > 0xFF else 0
-        self.a = self._set_nz(result)
+        # ADC phase: add the rotated value to A with the carry that just
+        # fell out of the ROR.
+        self._adc_value(val)
 
     def _op_anc(self, mode):
         """ANC -- AND immediate, then copy N flag into C.
@@ -885,17 +963,45 @@ class CPU6502:
         """ARR -- AND immediate, then Rotate Right A (with quirky flag behavior).
 
         Undocumented. ANDs the immediate with A, then rotates right through
-        carry.  Unlike normal ROR, the flag behavior is unusual:
+        carry.  Unlike a normal ROR, the flags come out of the ADC half of
+        the ALU rather than the shifter, so:
           C := bit 6 of the result (not bit 0)
           V := bit 6 XOR bit 5 of the result
-        This is due to internal bus conflicts in the NMOS silicon.
+
+        In decimal mode the BCD fixup logic also runs, which changes both the
+        stored value and the carry (per "64doc"):
+          * N is the OLD carry (it becomes bit 7 of the rotated value).
+          * Z is taken from the rotated value before any BCD fixup.
+          * V is bit 6 of (AND-result XOR rotated-value).
+          * If (low nibble + its bit 0) > 5, the low nibble gets +6 -- but
+            WITHOUT carrying into the high nibble.
+          * C, and the high-nibble +$60 fixup, come from the same test on the
+            high nibble of the AND result.
         """
-        self.a &= self._resolve_read(mode)     # AND
+        val = self.a & self._resolve_read(mode)   # AND
         old_c = self.C
-        self.a = self._set_nz((self.a >> 1) | (old_c << 7))  # ROR
-        # Quirky flag setting (not the normal ROR flags):
-        self.C = (self.a >> 6) & 1             # C from bit 6 (not bit 0)
-        self.V = ((self.a >> 6) ^ (self.a >> 5)) & 1  # V from bit 6 XOR bit 5
+        rotated = ((val >> 1) | (old_c << 7)) & 0xFF   # ROR
+
+        if not self.D:
+            self.a = self._set_nz(rotated)
+            self.C = (rotated >> 6) & 1        # C from bit 6 (not bit 0)
+            self.V = ((rotated >> 6) ^ (rotated >> 5)) & 1   # bit 6 XOR bit 5
+            return
+
+        self.N = old_c                          # Old carry rotated into bit 7
+        self.Z = 1 if rotated == 0 else 0
+        self.V = 1 if ((val ^ rotated) & 0x40) else 0
+
+        result = rotated
+        if (val & 0x0F) + (val & 0x01) > 0x05:
+            # Low-nibble fixup does NOT carry into the high nibble here.
+            result = (result & 0xF0) | ((result + 0x06) & 0x0F)
+        if (val & 0xF0) + (val & 0x10) > 0x50:
+            result = (result + 0x60) & 0xFF
+            self.C = 1
+        else:
+            self.C = 0
+        self.a = result
 
     def _op_xaa(self, mode):
         """XAA (ANE) -- Transfer X to A, then AND with immediate.
