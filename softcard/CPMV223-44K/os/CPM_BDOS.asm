@@ -2267,13 +2267,14 @@ ALLOC_GET_BLOCK:
         LD D,B
         LD E,C
 ; ----------------------------------------------------------------------
-; ALLOC_SCAN_DOWN -- scan downward for an in-use block in the run.
+; ALLOC_SCAN_DOWN -- scan downward for a FREE block in the run.
 ;   In: BC = block counter; DE = candidate block; allocation vector via ALLOC_BIT_GET.
-;   Out: on an in-use block -> ALLOC_MARK_DONE; otherwise falls into ALLOC_SCAN_UP.  Clobbers:
+;   Out: on a free block -> ALLOC_MARK_DONE; otherwise falls into ALLOC_SCAN_UP.  Clobbers:
 ;        A,B,C,D,E,flags.
-;   Algorithm: while BC != 0, decrement, test the block's bit; if set (in use), finish; else keep
-;              scanning down.
-;   [RE]
+;   Algorithm: while BC != 0, decrement, test the block's allocation bit; if CLEAR (free), go
+;              claim it; else keep scanning down.
+;   In the CP/M allocation vector a SET bit means the block is in use, so the free block this
+;   scan is looking for is the one whose bit is clear -- hence the `JP NC` below. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_DOWN:
         LD A,C
@@ -2282,19 +2283,22 @@ ALLOC_SCAN_DOWN:
         DEC BC
         PUSH DE
         PUSH BC
+        ; test this block's allocation-vector bit (returned in A bit 0)
         CALL ALLOC_BIT_GET
+        ; rotate that bit into carry: SET = block in use, CLEAR = block free
         RRA
+        ; carry clear -> the block is FREE, so go claim it
         JP NC,ALLOC_MARK_DONE
         POP BC
         POP DE
 ; ----------------------------------------------------------------------
-; ALLOC_SCAN_UP -- scan upward (toward MAX_BLOCK_DSM) for an in-use block.
+; ALLOC_SCAN_UP -- scan upward (toward MAX_BLOCK_DSM) for a FREE block.
 ;   In: DE = candidate block; MAX_BLOCK_DSM (MAX_BLOCK_DSM) = highest block number on the drive.
-;   Out: at/past the disk limit -> ALLOC_SCAN_FINISH; on an in-use block -> ALLOC_MARK_DONE. 
+;   Out: at/past the disk limit -> ALLOC_SCAN_FINISH; on a free block -> ALLOC_MARK_DONE.
 ;        Clobbers: A,B,C,D,E,H,L,flags.
 ;   Algorithm: compare DE against DSM; if past it, stop; else increment and test the next block's
-;              bit (ALLOC_BIT_GET),
-;       looping back to the downward scan.
+;              bit (ALLOC_BIT_GET); a CLEAR bit means free, so claim it,
+;       otherwise loop back to the downward scan.
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_UP:
@@ -2309,8 +2313,11 @@ ALLOC_SCAN_UP:
         PUSH DE
         LD B,D
         LD C,E
+        ; test the next block's allocation bit (returned in A bit 0)
         CALL ALLOC_BIT_GET
+        ; rotate into carry: SET = in use, CLEAR = free
         RRA
+        ; carry clear -> free block found, go claim it
         JP NC,ALLOC_MARK_DONE
         POP DE
         POP BC
@@ -2318,16 +2325,21 @@ ALLOC_SCAN_UP:
 ; ----------------------------------------------------------------------
 ; ALLOC_MARK_DONE -- set the chosen block's allocation bit and return it.
 ;   In: A = the block's current allocation byte (rotated by the scan); the block number tracked by
-;       ALLOC_BIT_RESTORE.
+;       ALLOC_BIT_RESTORE.  Reached only from a scan that found a FREE block, so the bit about to
+;       be written is currently CLEAR.
 ;   Out: allocation vector updated; HL/DE restored from the stack; returns to ALLOC_GET_BLOCK's
 ;        caller.  Clobbers: A,H,L,D,E,flags.
-;   Algorithm: rotate the in-use bit back into place, force it set (INC A), write it through
-;              ALLOC_BIT_RESTORE,
+;   Algorithm: rotate the (clear) allocation bit back into place, set it with INC A, write it
+;              through ALLOC_BIT_RESTORE,
 ;       restore the saved registers, and return.
-;   [RE]
+;   INC A is what marks the block used, and it works only because bit 0 is known clear on entry:
+;   incrementing a value whose low bit is already 0 sets that bit and carries nowhere. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_MARK_DONE:
+        ; rotate the bit back to its position in the allocation byte (carry was clear, so
+        ; bit 0 comes back clear)
         RLA
+        ; bit 0 was clear, so INC A sets it: mark this block USED
         INC A
         CALL ALLOC_BIT_RESTORE
         POP HL
