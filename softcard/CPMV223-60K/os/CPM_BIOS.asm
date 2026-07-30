@@ -40,14 +40,14 @@
     ENDIF
 
 ; -- External symbols --
-WBOOT_VEC            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE               EQU $0003               ; [DOC S&HD 2-18] IOBYTE: logical-to-physical device map at $0003 -- four 2-bit fields,
+WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
+IOBYTE_ADDR               EQU $0003               ; [DOC S&HD 2-18] IOBYTE_ADDR: logical-to-physical device map at $0003 -- four 2-bit fields,
                                               ; CONSOLE (bits 0-1), READER (bits 2-3), PUNCH (bits 4-5), LIST (bits 6-7); set via STAT or
                                               ; BDOS funcs 7/8. Each field's value selects which I/O Vector Table entry (#1 vs #2) is used.
-CDISK                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS_VEC             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-DEFAULT_DMA          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
-TPA_START            EQU $0100               ; Start of Transient Program Area. .COM files load here and execute starting at $0100.
+CDISK_ADDR                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
+BDOS             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
+TBUFF          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
+TPA            EQU $0100               ; Start of Transient Program Area. .COM files load here and execute starting at $0100.
 SLOT_INFO_BASE       EQU $F3B8               ; [DOC S&HD 2-26/2-27] $F3B8 is the Disk Count Byte (number of disk controller cards x2);
                                               ; the Card Type Table (SLTTYP) proper starts at $F3B9, with slot S's entry at $F3B8+S
                                               ; (S=1..7). The cold-boot scan indexes this base by E (E=1..7) to read each slot's detected
@@ -162,7 +162,7 @@ OFF:    DEFW    $0003                    ; $FA80  reserved tracks before the fil
 ; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. The Card Type
 ;       Table (SLTTYP) starts at $F3B9, entry = $F3B8+S for slot S; $F3B8 itself is the Disk Count
 ;       Byte. The loop walks $F3B8+DE (DE=7..1 -> $F3BF..$F3B9), reading each slot's detected card
-;       type and dispatching on it. (This is NOT the IOBYTE table -- IOBYTE is a single byte at $0003.)
+;       type and dispatching on it. (This is NOT the IOBYTE_ADDR table -- IOBYTE_ADDR is a single byte at $0003.)
 ; ----------------------------------------------------------------------
 ; SLOT_SCAN_INIT -- cold/warm-boot per-device init loop over the Card Type Table.
 ;   In:  none (walks the SoftCard Card Type Table at z80 $F3B8..).
@@ -247,7 +247,7 @@ RET_VECTOR:
 ;     do not read a manual address into them. Twin of the 2.23-44K WBOOT (there $9C08/$9300). [RE]
 ; ----------------------------------------------------------------------
 BIOS_WBOOT:
-        LD SP,DEFAULT_DMA                ; $FAB8  31 80 00
+        LD SP,TBUFF                ; $FAB8  31 80 00
         LD A,($E051)                     ; $FABB  3A 51 E0
         LD HL,$0E00                      ; $FABE  21 00 0E
         CALL RPC_DISPATCH                ; $FAC1  CD 45 FB
@@ -286,25 +286,25 @@ BIOS_WBOOT_2:
         LD (BIOS_BOOT_5),A               ; $FAE4  32 F6 FE
         LD (BIOS_BOOT_3),A               ; $FAE7  32 F1 FE
         LD A,$C3                         ; $FAEA  3E C3
-        LD (WBOOT_VEC),A                 ; $FAEC  32 00 00
+        LD (WBOOTV),A                 ; $FAEC  32 00 00
         LD HL,WBOOT                      ; $FAEF  21 03 FA
         LD ($0001),HL                    ; $FAF2  22 01 00
-        LD (BDOS_VEC),A                  ; $FAF5  32 05 00
+        LD (BDOS),A                  ; $FAF5  32 05 00
         LD HL,$DC06                      ; $FAF8  21 06 DC
         LD ($0006),HL                    ; $FAFB  22 06 00
-        LD BC,DEFAULT_DMA                ; $FAFE  01 80 00
+        LD BC,TBUFF                ; $FAFE  01 80 00
         CALL BIOS_SETDMA                 ; $FB01  CD F9 FB
 ; ----------------------------------------------------------------------
 ; BIOS_WBOOT_3 -- final warm/cold-boot tail: set the CCP entry flag, enter the CCP.
 ;   In:  none.  Out: JP $D300 (CCP entry); no return.  Clobbers: A,C.
 ;   Algorithm: store a CCP-mode flag ($01) into $D74E (self-modified operand at
-;     BIOS_WBOOT_3+1), pass the current default drive (CDISK, $0004) in C, and jump
+;     BIOS_WBOOT_3+1), pass the current default drive (CDISK_ADDR, $0004) in C, and jump
 ;     to the 60K CCP at $D300 (the 44K twin CCP_LAUNCH entered $9300). [RE]
 ; ----------------------------------------------------------------------
 BIOS_WBOOT_3:
         LD A,$01                         ; $FB04  3E 01
         LD ($D74E),A                     ; $FB06  32 4E D7
-        LD A,(CDISK)                     ; $FB09  3A 04 00
+        LD A,(CDISK_ADDR)                     ; $FB09  3A 04 00
         LD C,A                           ; $FB0C  4F
         JP $D300                         ; $FB0D  C3 00 D3
 ; [DOC S&HD 2-18/2-19] CONST (console status) BIOS entry: jumps through I/O Vector Table cell 1,
@@ -332,7 +332,7 @@ CONST_VEC_PATCH:
 ; ----------------------------------------------------------------------
 ; BIOS_CONIN (CONIN) -- read a console character: dispatch, then remap the key.
 ;   In:  none.  Out: A = (translated) key.  Clobbers: A,B,C,HL.
-;   Algorithm: CALL CONIN_DISPATCH to fetch a raw key (routed by the IOBYTE CONSOLE
+;   Algorithm: CALL CONIN_DISPATCH to fetch a raw key (routed by the IOBYTE_ADDR CONSOLE
 ;     field); AND $7F to 7-bit; then walk the Keyboard Character Redefinition Table.
 ;     Per the manual the table is at $F3AC; the code seeds HL=$F3AB and INC HL's to the
 ;     first entry. Up to six 2-byte entries (from-ASCII, to-ASCII); a high-bit-set byte
@@ -380,7 +380,7 @@ CONIN_HANDLER_VEC:
 RPC_DISPATCH:
         LD ($F3D0),HL                    ; $FB45  22 D0 F3
 RPC_DISPATCH_1:
-        LD (WBOOT_VEC),A                 ; $FB48  32 00 00
+        LD (WBOOTV),A                 ; $FB48  32 00 00
         RET                              ; $FB4B  C9
 ; ----------------------------------------------------------------------
 ; CONOUT_SET_C -- console-output entry that first saves the char into C.
@@ -392,20 +392,20 @@ RPC_DISPATCH_1:
 ; ----------------------------------------------------------------------
 CONOUT_SET_C:
         LD C,A                           ; $FB4C  4F
-; [DOC S&HD 2-18/2-19] CONOUT (console output) dispatch: masks the IOBYTE CONSOLE field (bits 0-1).
+; [DOC S&HD 2-18/2-19] CONOUT (console output) dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1).
 ;       Value 2 = BAT: (RDR: in / LST: out), so console output is routed through I/O Vector Table
 ;       List Output #1 ($F392); any other value falls through to the screen-function escape processor.
 ; ----------------------------------------------------------------------
-; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE.
+; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE_ADDR.
 ;   In:  C = character (from CONOUT_SET_C; the +1 jump-vector entry skips the LD C,A).
 ;   Out: none.  Clobbers: A,C,HL.
-;   Algorithm: read IOBYTE ($0003), mask the 2-bit CONSOLE field (AND $03). Value 2 =
+;   Algorithm: read IOBYTE_ADDR ($0003), mask the 2-bit CONSOLE field (AND $03). Value 2 =
 ;     BAT: (RDR: in / LST: out), so output routes through I/O Vector Table List Output
 ;     #1 ($F392) via CONOUT_UC1; any other value falls into the screen-function escape
 ;     processor. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONOUT_DISPATCH. [RE]
 ; ----------------------------------------------------------------------
 CONOUT_DISPATCH:
-        LD A,(IOBYTE)                    ; $FB4D  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $FB4D  3A 03 00
         AND $03                          ; $FB50  E6 03
         CP $02                           ; $FB52  FE 02
         JR NZ,CONOUT_ESC_PROC         ; $FB54  20 4B
@@ -421,20 +421,20 @@ CONOUT_DISPATCH:
 CONOUT_UC1:
         LD HL,($F392)                    ; $FB56  2A 92 F3
         JP (HL)                          ; $FB59  E9
-; [DOC S&HD 2-18/2-19] CONIN dispatch: masks the IOBYTE CONSOLE field (bits 0-1). Value 2 (BAT:)
+; [DOC S&HD 2-18/2-19] CONIN dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1). Value 2 (BAT:)
 ;       -> Reader Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
 ;       (TTY:/CRT:) -> Console Input #1 cell $F382. Each is a user-patchable I/O Vector Table cell.
 ; ----------------------------------------------------------------------
-; CONIN_DISPATCH -- read a console character, routed by the IOBYTE CONSOLE field.
+; CONIN_DISPATCH -- read a console character, routed by the IOBYTE_ADDR CONSOLE field.
 ;   In:  none.  Out: A = character.  Clobbers: A,HL.
-;   Algorithm: read IOBYTE, mask the CONSOLE field (AND $03). Value 2 (BAT:) -> Reader
+;   Algorithm: read IOBYTE_ADDR, mask the CONSOLE field (AND $03). Value 2 (BAT:) -> Reader
 ;     Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
 ;     (TTY:/CRT:) -> Console Input #1 cell $F382; then JP (HL). Each is a user-patchable
 ;     I/O Vector Table cell. Called by BIOS_CONIN and reused by BIOS_READER.
 ;     [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONIN_DISPATCH_IOBYTE. [RE]
 ; ----------------------------------------------------------------------
 CONIN_DISPATCH:
-        LD A,(IOBYTE)                    ; $FB5A  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $FB5A  3A 03 00
         AND $03                          ; $FB5D  E6 03
         CP $02                           ; $FB5F  FE 02
         LD HL,($F384)                    ; $FB61  2A 84 F3
@@ -461,38 +461,38 @@ CONIN_UC1:
         LD HL,($F38A)                    ; $FB6C  2A 8A F3
 CONIN_VEC_JP:
         JP (HL)                          ; $FB6F  E9
-; [DOC S&HD 2-18/2-19] LIST (printer) output: masks the IOBYTE LIST field (bits 6-7; 0=TTY:, 1=CRT:,
+; [DOC S&HD 2-18/2-19] LIST (printer) output: masks the IOBYTE_ADDR LIST field (bits 6-7; 0=TTY:, 1=CRT:,
 ;       2=LPT:, 3=UL1:). TTY:/CRT: return null; LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps
 ;       through the List Output #2 cell ($F394). (List Output #1 is $F392.) Char in C -> list device.
 ; ----------------------------------------------------------------------
-; BIOS_LIST (LIST) -- printer output, routed by the IOBYTE LIST field (bits 6-7).
+; BIOS_LIST (LIST) -- printer output, routed by the IOBYTE_ADDR LIST field (bits 6-7).
 ;   In:  C = character.  Out: none.  Clobbers: A,HL.
-;   Algorithm: read IOBYTE, mask the LIST field (AND $C0). TTY:/CRT: (<$80) return null
+;   Algorithm: read IOBYTE_ADDR, mask the LIST field (AND $C0). TTY:/CRT: (<$80) return null
 ;     (DEV_NULL_RET); LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps through List
 ;     Output #2 ($F394). (List Output #1 is $F392.) [DOC S&HD 2-18/2-19] Twin of the
 ;     2.23-44K LIST. [RE]
 ; ----------------------------------------------------------------------
 BIOS_LIST:
-        LD A,(IOBYTE)                    ; $FB70  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $FB70  3A 03 00
         AND $C0                          ; $FB73  E6 C0
         CP $80                           ; $FB75  FE 80
         JR C,DEV_NULL_RET                  ; $FB77  38 27
         JR Z,CONOUT_UC1                  ; $FB79  28 DB
         LD HL,($F394)                    ; $FB7B  2A 94 F3
         JP (HL)                          ; $FB7E  E9
-; [DOC S&HD 2-18/2-19] PUNCH output: masks the IOBYTE PUNCH field (bits 4-5). Value 1 (PTP:) ->
+; [DOC S&HD 2-18/2-19] PUNCH output: masks the IOBYTE_ADDR PUNCH field (bits 4-5). Value 1 (PTP:) ->
 ;       Punch Output #1 cell ($F38E); higher values -> Punch Output #2 cell ($F390); value 0 (TTY:)
 ;       returns null. The char in C is sent to the selected paper-tape-punch device.
 ; ----------------------------------------------------------------------
-; BIOS_PUNCH (PUNCH) -- punch output, routed by the IOBYTE PUNCH field (bits 4-5).
+; BIOS_PUNCH (PUNCH) -- punch output, routed by the IOBYTE_ADDR PUNCH field (bits 4-5).
 ;   In:  C = character.  Out: none.  Clobbers: A,HL.
-;   Algorithm: read IOBYTE, mask the PUNCH field (AND $30). TTY: (0) returns null
+;   Algorithm: read IOBYTE_ADDR, mask the PUNCH field (AND $30). TTY: (0) returns null
 ;     (DEV_NULL_RET); PTP: ($10) -> Punch Output #1 ($F38E) via CONIN_VEC_JP; higher
 ;     values -> Punch Output #2 ($F390). The char in C goes to the paper-tape-punch
 ;     device. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K PUNCH. [RE]
 ; ----------------------------------------------------------------------
 BIOS_PUNCH:
-        LD A,(IOBYTE)                    ; $FB7F  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $FB7F  3A 03 00
         AND $30                          ; $FB82  E6 30
         CP $10                           ; $FB84  FE 10
         JR C,DEV_NULL_RET                  ; $FB86  38 18
@@ -500,18 +500,18 @@ BIOS_PUNCH:
         JR Z,CONIN_VEC_JP                  ; $FB8B  28 E2
         LD HL,($F390)                    ; $FB8D  2A 90 F3
         JP (HL)                          ; $FB90  E9
-; [DOC S&HD 2-18/2-19] READER input: masks the IOBYTE READER field (bits 2-3; 0=TTY:, 1=CRT:,
+; [DOC S&HD 2-18/2-19] READER input: masks the IOBYTE_ADDR READER field (bits 2-3; 0=TTY:, 1=CRT:,
 ;       2=PTR:, 3=UR2:). TTY:/CRT: -> CONIN_TTY (console input); PTR: ($08) -> CONIN_UC1; UR2: ($0C)
 ;       jumps through the Reader Input #2 cell ($F38C). (Reader Input #1 is $F38A.) Char returned in A.
 ; ----------------------------------------------------------------------
-; BIOS_READER (READER) -- reader input, routed by the IOBYTE READER field (bits 2-3).
+; BIOS_READER (READER) -- reader input, routed by the IOBYTE_ADDR READER field (bits 2-3).
 ;   In:  none.  Out: A = character.  Clobbers: A,HL.
-;   Algorithm: read IOBYTE, mask the READER field (AND $0C). TTY:/CRT: (<$08) -> CONIN_TTY;
+;   Algorithm: read IOBYTE_ADDR, mask the READER field (AND $0C). TTY:/CRT: (<$08) -> CONIN_TTY;
 ;     PTR: ($08) -> CONIN_UC1; UR2: ($0C) jumps through Reader Input #2 ($F38C). (Reader
 ;     Input #1 is $F38A.) [DOC S&HD 2-18/2-19] Twin of the 2.23-44K READER. [RE]
 ; ----------------------------------------------------------------------
 BIOS_READER:
-        LD A,(IOBYTE)                    ; $FB91  3A 03 00
+        LD A,(IOBYTE_ADDR)                    ; $FB91  3A 03 00
         AND $0C                          ; $FB94  E6 0C
         CP $08                           ; $FB96  FE 08
         JR C,CONIN_TTY                  ; $FB98  38 CE
@@ -519,7 +519,7 @@ BIOS_READER:
         LD HL,($F38C)                    ; $FB9C  2A 8C F3
         JP (HL)                          ; $FB9F  E9
 ; ----------------------------------------------------------------------
-; DEV_NULL_RET -- IOBYTE field selects no physical device: fall into the filter.
+; DEV_NULL_RET -- IOBYTE_ADDR field selects no physical device: fall into the filter.
 ;   In:  reached with carry set (no-device).  Out: enters the screen-function processor
 ;     (CONOUT_ESC_PROC) with the carry folded into a flag.  Clobbers: A,HL.
 ;   Algorithm: SCF, then CONOUT_ESC_PROC's SBC A,A turns carry into a 0/$FF flag stored
@@ -939,7 +939,7 @@ SLOT_IOBASE_CALC:
 ; ----------------------------------------------------------------------
 SELDSK_IMPL_1:
         LD DE,BIOS_BOOT_2                ; $FE97  11 EE FE
-        LD HL,CDISK                      ; $FE9A  21 04 00
+        LD HL,CDISK_ADDR                      ; $FE9A  21 04 00
         LD A,(SLOT_INFO_BASE)            ; $FE9D  3A B8 F3
         DEC A                            ; $FEA0  3D
         CP C                             ; $FEA1  B9
@@ -957,7 +957,7 @@ SELDSK_IMPL_1:
         LD E,(HL)                        ; $FEB4  5E
         INC HL                           ; $FEB5  23
         LD D,(HL)                        ; $FEB6  56
-        LD HL,BDOS_VEC                   ; $FEB7  21 05 00
+        LD HL,BDOS                   ; $FEB7  21 05 00
         ADD HL,DE                        ; $FEBA  19
         LD A,(HL)                        ; $FEBB  7E
         LD (BIOS_BOOT_7+1),A             ; $FEBC  32 FC FE
@@ -1008,8 +1008,8 @@ COL_STATE:
 ; BIOS_BOOT -- Z-80 cold-boot init: runs ONCE, then self-modifies ~a few dozen bytes.
 ;   In:  entered once at cold start (the 60K reset-plant JPs here).  Out: enters the CCP
 ;     via the sign-on tail; never re-executed.  Clobbers: all.
-;   Algorithm: set SP=$0100; NOP the $FA00 cold JP; load the default IOBYTE ($95) into
-;     $0003; bind Z$CPU ($F3DE) into RPC_DISPATCH_1+1; clear CDISK; install console/list/
+;   Algorithm: set SP=$0100; NOP the $FA00 cold JP; load the default IOBYTE_ADDR ($95) into
+;     $0003; bind Z$CPU ($F3DE) into RPC_DISPATCH_1+1; clear CDISK_ADDR; install console/list/
 ;     punch/reader handlers by Card Type Table class (device-6=Pascal-1.1, 5=parallel,
 ;     4=Videx patches the status vector); re-run SLOT_SCAN_INIT; clear screen; print banner.
 ;   DUAL USE: the 'LD SP,$0100' operand bytes are reused post-boot as sektrk (BIOS_BOOT),
@@ -1018,7 +1018,7 @@ COL_STATE:
 ;     [DOC S&HD 2-24/2-25, 2-26/2-27] Twin of the 2.23-44K install engine. [RE]
 ; ----------------------------------------------------------------------
 BIOS_BOOT:
-        LD SP,TPA_START                  ; $FEEA  31 00 01
+        LD SP,TPA                  ; $FEEA  31 00 01
 BIOS_BOOT_1:
         XOR A                            ; $FEED  AF
 BIOS_BOOT_2:
@@ -1033,7 +1033,7 @@ BIOS_BOOT_4:
 BIOS_BOOT_5:
         LD A,$95                         ; $FEF6  3E 95
 BIOS_BOOT_6:
-        LD (IOBYTE),A                    ; $FEF8  32 03 00
+        LD (IOBYTE_ADDR),A                    ; $FEF8  32 03 00
 ; [DOC S&HD 2-24/2-25] Loads the SoftCard location from Z$CPU=$F3DE and binds it into the RPC
 ;       dispatcher (patching RPC_DISPATCH_1+1) so subsequent 6502 calls switch via the right slot.
 BIOS_BOOT_7:
@@ -1041,7 +1041,7 @@ BIOS_BOOT_7:
 BIOS_BOOT_8:
         LD (RPC_DISPATCH_1+1),HL         ; $FEFE  22 49 FB
         XOR A                            ; $FF01  AF
-        LD (CDISK),A                     ; $FF02  32 04 00
+        LD (CDISK_ADDR),A                     ; $FF02  32 04 00
 ; [DOC S&HD 2-26/2-27] Reads the slot-3 (console) Card Type Table entry at $F3BB ($F3B8+3). [AI] The
 ;       CP $06 test selects the POST-1980 device-6 / Pascal-1.1 console class (a 2.23 extension the
 ;       2.20 manual does NOT document; in 2.20 the Videx is type 4). On a match it points the
