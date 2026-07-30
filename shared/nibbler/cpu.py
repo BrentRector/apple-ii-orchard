@@ -279,7 +279,19 @@ class CPU6502:
     #
     # There is no pin-level timing model here: an interrupt is taken
     # between instructions, never mid-instruction, and the sequence costs
-    # 7 cycles.
+    # 7 cycles. Two real NMOS behaviours are therefore NOT modelled, and
+    # are listed rather than quietly omitted:
+    #
+    #   * Interrupt hijacking. On silicon, an NMI asserted during a BRK's
+    #     first cycles makes the BRK vector through $FFFA while still
+    #     pushing B set. Here BRK always completes as a BRK.
+    #   * Delayed I-flag effect. CLI, SEI and PLP change I one instruction
+    #     later than they appear to, because the interrupt poll happens
+    #     before the flag write lands. Here the change is immediate.
+    #
+    # Neither matters for the machines this core drives (the Apple Panic
+    # boot and the SoftCard emulator wire up no interrupt sources at all),
+    # and both would need a sub-instruction timing model to do properly.
 
     def set_nmi(self):
         """Latch one NMI edge; step() services it before the next instruction.

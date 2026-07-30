@@ -24,6 +24,19 @@ The oracle strategy, in decreasing order of independence:
     documented algorithm matches silicon.
 
 Plus a handful of published worked examples as fixed anchors.
+
+On the two well-known external decimal suites:
+
+  * Klaus Dormann's functional test (see test_functional_suite.py) is built
+    with ``disable_decimal = 0`` and DOES exercise decimal ADC/SBC. It
+    passes. Its own comment notes the limits: "only valid BCD operands are
+    tested, N V Z flags are ignored".
+  * Bruce Clark's standalone 6502 decimal test ships only as AS65 source
+    (6502_decimal_test.a65), so running it would mean obtaining and driving
+    that assembler. It was not done. Its default configuration is
+    ``chk_a = 1, chk_c = 1`` with ``chk_n``/``chk_v``/``chk_z`` all 0, so
+    it checks strictly less than the sweeps in this file, which cover A, C,
+    N, V and Z across the whole operand space including invalid BCD.
 """
 
 import pytest

@@ -43,3 +43,9 @@ testpaths = [
     "softcard",
     "apple-ii",
 ]
+markers = [
+    # Tests that take tens of seconds. Currently just the Klaus Dormann
+    # 6502 functional suite (~30M emulated instructions), which also skips
+    # unless its binary has been placed alongside the test.
+    "slow: long-running; deselect with -m 'not slow'",
+]
