@@ -1,5 +1,222 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
+## >> 2026-07-30: 6502 core completed; CP/M annotation fixes; 60K brought to the 44K standard
+
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` =
+1110 passed, 1 skipped. Tree CLEAN, HEAD `a0adf8b`. 19 commits from `9fcccfb`.**
+The one skip is Klaus Dormann's functional-test binary, deliberately not vendored (see A4).
+
+Everything below is byte-identical: no emitted byte of any disk image or `.COM` changed. Every
+step was verified by assembling each affected chunk before and after and comparing SHA256, and
+for the 60K also under the CPM60.COM master link (`DISP $FA00`), not just standalone.
+
+---
+
+### A. The shared 6502 core (`shared/nibbler/cpu.py`) — five real gaps closed
+
+Separate workstream from CP/M, but the SoftCard emulator runs this core, so the CP/M boot tests
+are its regression gate. All CP/M boot tests unchanged and green throughout.
+
+**A1. There is now ONE 6502 in the repo** (`b84b282`). `apple-ii/scripts/emu6502.py` carried its
+own 1,038-line near-copy of `CPU6502`, so the Apple Panic boot scripts ran a *different* CPU from
+the SoftCard emulator. Diffed before deciding: all 256 opcode-table slots matched exactly; 66 of
+99 shared methods were AST-identical. Real differences ran both ways — the fork had a decimal
+ADC/SBC the shared core lacked; the shared core had `run()`, breakpoints and `fetch_hook` the fork
+lacked. The fork is deleted; `emu6502.py` re-exports the shared core and keeps only WOZDisk and
+the GCR decoders. `shared/nibbler/tests/test_single_core.py` fails if a second core reappears.
+
+**A2. NMOS decimal mode** (`09c951e`). ADC/SBC were binary regardless of D. Now `_adc_value` /
+`_sbc_value` hold the ALU path and ADC, SBC, RRA (ROR+ADC) and ISB (INC+SBC) all route through
+them, so the undocumented RMW pair honours D as the silicon does. NMOS semantics, **not** 65C02:
+ADC decimal takes Z from the binary sum and N/V from the partially-corrected value; SBC decimal
+sets N/V/Z/C exactly as binary and adjusts only A. ARR gained its documented decimal fixup.
+
+**A3. RESET / IRQ / NMI** (`e4d57dd`). The core had only BRK, and `$FFFC` was never read —
+`softcard_emu/machine.py` had to fetch the reset vector itself. `reset()` drops SP by 3 without
+writing (RESET holds R/W in the read state) and does **not** clear D, because that is 65C02
+behaviour; on NMOS D is undefined across reset, which is why Apple II entry points begin with CLD.
+`irq()`/`nmi()` push P with B **clear**; BRK pushes it set — the only way a handler tells them
+apart. Vector reads moved from `mem[]` to `read()`, so a language card banked over `$FFFA-$FFFF`
+supplies them.
+
+**A4. Unstable undocumented opcodes + `$AB`** (`a8475a4`, `909c906`). `$AB` (LAX #imm) was never
+assigned and fell through to the "unassigned" 1-byte NOP filler — wrong behaviour *and* wrong
+length. It was the only such slot; coverage was really 255/256, not 256/256. The SH* family
+(SHY/SHX/AHX/TAS) now shares one `_unstable_store` implementing the value AND (high byte of the
+BASE address + 1) **and** the page-crossing case where the stored value replaces the target's high
+byte. Not emulated, and said so in a comment: the `& (H+1)` term can drop out entirely on real
+silicon. XAA and LAX #imm use a settable `magic_constant`, default `$FF`.
+**Verification:** Klaus Dormann's 6502 functional test PASSES (trap `$3469`, test_case 240,
+30,646,177 instructions). The binary is GPL-3.0 and this repo is MIT, so it is NOT vendored;
+`test_functional_suite.py` skips with the URL. That is the one skip in the gate.
+Also found: `disasm6502/opcodes.py` already had `$AB` right, so the emulator and the repo's own
+disassembler disagreed about one instruction's length. Now a permanent cross-check test.
+
+**A5. Real cycle counts** (`771d5e5`) and **A6. the memory seam** (`4cddb03`). Base counts are
+derived from access class x addressing mode (~30 rule entries) rather than 256 hand-copied
+numbers, plus both operand-dependent penalties. The page-cross +1 is charged in `_resolve_read`,
+NOT in the addressing helpers, because it applies to reads only — STA abs,X is always 5 and ASL
+abs,X always 7. `_addr_izx/_addr_izy/_addr_ind`, `push`/`pull` and the vectors now go through
+`read()`/`write()`; `_addr_ind` was the one real bug (its pointer can land in the LC window, and
+JMP (ind) runs 11 times in the Apple Panic boot). `format_instr()` deliberately still reads
+`mem[]` so enabling `trace` cannot perturb the machine.
+
+**Apple Panic figure UNCHANGED: 69,807,121 instructions to `JMP $4000`**, final state
+A=0D X=60 Y=0D SP=FD P=33. **This is quoted in an article in another repo — treat any change to
+it as a reportable event.** Re-verify with `cd apple-ii/scripts && python boot_emulate_full.py`
+(~65s). Core tests went 0 -> 840 (`shared/nibbler/tests/`).
+
+**Deliberately NOT done:** a conditional 65C02 variant. Scoped at
+`shared/docs/6502_65C02_Variant_Plan.md` (`79fe863`). Key finding: all 61 slots the 65C02 family
+redefines are NMOS-*undocumented* slots, so the table splits cleanly. Do not start it without a
+target machine (enhanced //e or //c). See also memory `project_6502_core_completion`.
+
+---
+
+### B. CP/M annotation corrections
+
+**B1. The DPB is a labelled structure in all three trees** (`5dee80a`). Ten Digital Research field
+names, bare and unprefixed (`SPT BSH BLM EXM DSM DRM AL0 AL1 CKS OFF`); sjasmplus accepts `OFF`,
+tested before editing. **There is a THIRD DPB** — the 60K has one at `$FA73` that a `DPB` grep
+could not see because it was an unlabelled `DEFB` run inside a data blob.
+**Provenance CAUTION: NOT `[DOC]`-citable.** All five transcribed SoftCard manuals were checked;
+they document BDOS fn 31 (which *returns* a DPB pointer), not the block's layout.
+
+**B2. The 2.23 DSM anomaly is recorded** on the DSM line: 140 blocks / 4 per track = 35 file
+tracks, which with OFF=3 implies a 38-track disk against a 35-track medium; the 2.20 twin's `$7F`
+gives 32+3=35 exactly. A directory entry on every 2.23 disk (user byte `$1F`, `cp/m    sys`,
+allocation list exactly blocks 128-139) absorbs the surplus because the BDOS rebuild skips only
+`$E5` entries and does not range-check the user number. **The comment states the arithmetic and
+declines to assert intent, deliberately. Keep it that way.**
+
+**B3. Inverted allocation-bit comments FIXED in both 44K trees** (`1f4f29d`). The block allocator
+said "carry = the tested block's in-use bit" on a branch taken when the block is FREE. The
+instructions settle it: `RRA` then `JP NC` (taken on carry clear), and `ALLOC_MARK_DONE` does
+`RLA`/`INC A`, which only reliably sets bit 0 on a value whose bit 0 was already clear. 10 comment
+lines. **If any published piece quoted those comments it needs an Update note.**
+**Scope of the defect class, measured:** two heuristic audits over all 54 `.asm` files, both
+validated by re-running against the pre-fix sources where they flag exactly the fixed lines.
+12 sites remain flagged; all 12 read individually; **none is a genuine inversion** (11 describe
+the loop-exit or fall-through case correctly, or are vocabulary coincidences). The 12th,
+`STAT.asm:208`, is unresolved and already `[AI]`-marked. So: one clustered defect, not a pattern.
+Worth noting the bad comments were `[RE]`-marked (hand-reviewed), not `[AI]`.
+
+**B4. The DPH table decoded, and a mis-decode fixed** (`1167a60`). Three 60K DPH pointers rendered
+as *code labels* (`DEFW BIOS_BOOT_17`, `HANDLER_TBL_FETCH`, `BANNER_RESTORE_A`), so the source read
+as though a Disk Parameter Header pointed at executable code. They are the per-drive ALV buffer
+bases; they collide with routine labels only because the buffers OVERLAY the one-shot cold-boot
+code. Each of the three labels had no other referent in the file. Confirmed by arithmetic that
+cross-validates against the DPB: CSV stride = CKS = 12, ALV stride = DSM/8+1 = 18, and the regions
+close exactly (DIRBUF+128 = ALV base, ALV+4*18 = CSV base).
+The scratch vectors are now declared as a **layout** — one ORG at the base, a label per field with
+its extent in the arithmetic, ASSERTs pinning it. Labels emit no bytes, so the region is named
+without being written. **This ORG idiom is safe under the master link**: inside `DISP`, sjasmplus
+moves only the displacement address (probed both modes before editing).
+
+---
+
+### C. The 60K tree brought to the 44K standard
+
+**DECISION (Brent): the 60K BDOS/BIOS stay SEPARATE source, NOT folded onto the 44K base.** Their
+*structure* mimics the 44K files, with the 60K deltas (relocation code, different ORGs) as the
+visible difference. This reaffirms the "60K BDOS permanently separate" line in
+`softcard/docs/CPM_Unified_Build_Plan.md`.
+
+**The unlock (Brent's framing): CPM60.COM relocates the 44K routines, so most of the 60K
+difference is ORG, not code.** Measured: **80.4% of the 60K BDOS instruction stream is the
+2.23-44K sequence**, identical once address operands are normalised; the remaining 333 sit in 217
+small blocks, largest 29, and are bank switching + block-copy code. Work cells resolve to exactly
+**two constant offsets, one per bank, zero exceptions**: upper `+$3FCE` (`$9F41`->`$DF0F`), lower
+`+$160D` (`$A9B3`->`$BFC0`).
+**CAUTION for anyone re-deriving this: do NOT compare the two images at the same FILE OFFSET.**
+98.2% of bytes differ there and it means nothing — a different ORG changes every absolute operand
+and the code is not even in the same order. Align the instruction streams instead.
+
+Done (`057188c`, `2daa680`, `6ca2e1a`, `733d4bc`, `a0adf8b`):
+- 38 lower-bank work cells declared as an ORG'd layout with ASSERTs; `BDOS_STACK_TOP`'s two-byte
+  DEFB split so `$DF10` gets its own `BDOS_CUR_DRIVE`. **60K BDOS raw `($XXXX)` operands: 297 -> 41**
+  (2.23-44K twin: 30).
+- The eight missing BIOS jump-table EQUs added (HOME/SELDSK/SETTRK/SETSEC/SETDMA/READ/WRITE/SECTRAN).
+- **77 minted `_n` locals given the 44K twin's semantic names**, from two sources: the >=4-instruction
+  alignment, and the files' own "Twin of the 2.23-44K X" header annotations.
+  `SELDSK_IMPL_2 -> SELDSK_BAD_DRIVE` is the confirmation — alignment and comment agree independently.
+  **7 further renames were deliberately NOT applied** (supporting run under 4 instructions); byte
+  identity cannot catch a wrong label, so thin evidence is not enough.
+  **A first pass was reverted before committing**: with no guard on the TARGET name it proposed
+  `CONOUT_SEQ_MATCH -> SETDMA_1`, replacing a semantic name with a minted one. The rule is now
+  explicit — never adopt a name in the minted `FUNCNAME_n` form.
+- `BIOS_IMAGE_END` / `BDOS_IMAGE_END` + label-arithmetic SAVEBIN, replacing magic lengths.
+- **2,332 inline `; $XXXX` addresses stripped**; `CPM_BIOS.lst` / `CPM_BDOS.lst` now tracked beside
+  the sources and covered by `test_os_listings_are_fresh`. `chunk_map` gained
+  `SOURCES_223_60K_LISTING` for the purpose (the 60K OS has no disk chunk map).
+  `regenerate_60k_*` strips on the way out, so a regeneration cannot put them back.
+
+---
+
+### D. Two tooling fixes, both load-bearing
+
+**D1. `regenerate.py::parse_label_addrs` no longer reads addresses from comments** (`d5fc409`).
+It ASSEMBLES the source and reads the **listing** — the same artifact `os_listing.emit_listing`
+produces, so the pipeline has one address mechanism, and it works for the ca65 path too. The
+listing's first column is the SOURCE line number, which makes the join exact.
+**The old way was already wrong**: it only handled labels on their own line, so the DPB fields
+(labelled on the SAME line as their directive) all came back as `$F3B8` instead of `$FA73..` and
+the regeneration overlay was being fed that. The new one agrees on every label the old one got
+right (0 disagreements), fixes those 12, and finds 44 more it could not see, including every label
+from an ORG'd layout. EQU-bound names are excluded using the source's own syntax — the assembler
+cannot tell a constant from a location, and `DRIVES EQU 6` must not become "a label at address 6".
+A source that fails to assemble now raises rather than returning a plausible wrong map.
+That check exposed a **second latent bug**: the regeneration intermediate did not assemble at all
+(`splice_curated_header` copies a header opening an `IFNDEF` whose `ENDIF` is outside the spliced
+range). Guard repair now runs BEFORE `migrate_comments`.
+
+**D2. ONE base-page vocabulary: `cpm22.inc` wins** (`d5fc409`). The tree had two names for each of
+seven cells, and `shared/symbols/cpm_2_2.json` held a third mix that would have reintroduced the
+old names on any regeneration. **298 references converted across 13 files, plus 8 symbol-table
+entries. 34 local EQUs were DELETED rather than renamed** — those files already INCLUDE cpm22.inc,
+so each was a duplicate definition (`feedback_no_duplicate_symbol_definitions`); every local
+value was checked against the include first, zero mismatches, so dropping them is byte-neutral.
+
+    WBOOT_VEC -> WBOOTV        IOBYTE      -> IOBYTE_ADDR   CDISK       -> CDISK_ADDR
+    BDOS_VEC  -> BDOS          DEFAULT_FCB -> TFCB          DEFAULT_FCB2 -> TFCB2
+    DEFAULT_DMA -> TBUFF       TPA_START   -> TPA
+
+All seven old spellings are now at **zero** references.
+**CAUTION: `TPA_START:` survives in 17 files as a code LABEL** (the program entry point). That is a
+different thing from the `$0100` constant and was deliberately left alone.
+
+---
+
+### E. New guards (the byte gate cannot see any of this)
+
+- `shared/nibbler/tests/` — 840 cases, the core's first unit tests. Decimal checked against Python
+  integer arithmetic over 20,000 valid-BCD cases per instruction (a non-circular oracle), plus all
+  131,072 operand pairs against independently-derivable properties.
+- `softcard/cpm_pipeline/tests/test_dpb_dph_labels.py` (20) — field labels, their CP/M 2.2 order,
+  DPH label references, the ORG'd overlay, the shared vocabulary across all three trees, and that
+  the 2.23 pair differ from 2.20 only in DSM. Fails on the pre-fix blob (checked).
+- `softcard/cpm_pipeline/tests/test_label_addrs.py` (12) — stamps `; $DEAD` on every code line and
+  requires the label map to be unmoved, i.e. states the property as a lie the code must ignore.
+
+### F. Documents written
+
+- `softcard/docs/CPM_Source_Changes_For_Narratives.md` — handoff for the wiseowl.com write-up
+  session: what needs an Update note, the exact current DPB text to print, the provenance
+  constraint, and an explicit boundary on what may be claimed about the DSM anomaly.
+- `shared/docs/6502_65C02_Variant_Plan.md` — the 65C02 scoping (status: not started).
+- Memories: `project_6502_core_completion`, `project_cpm_60k_equivalence`.
+
+### G. Still open
+
+- ~44 minted `_n` locals in the 60K the alignment could not support.
+- **Two debris `SAVEBIN "E:/tmp/..."` lines** in `CPMV223-44K/os/CPM_BIOS.asm:1394` and
+  `CPM_BDOS.asm:4849` — unguarded, absolute, and they write outside the repo on every assembly.
+  Flagged three times, left alone each time because nobody asked for them to go.
+- The 60K BDOS could in principle be *generated* from the 44K source (two ORGs + a patch layer) at
+  80.4% overlap. Explicitly declined above; the measurements are here if it is ever revisited.
+
+---
+
 ## >> 2026-07-01 (LIVE): 60K CPM60.COM — fully C-level comment it + publish the installer-run disk
 
 **Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` = 236, tree
