@@ -822,3 +822,155 @@ Both comment-level, gate re-run green, listings regenerated.
    disks."** Part 3 determined it. Replaced in `CPMV223-44K/os/CPM_BIOS.asm` and
    `CPMV223-60K/os/CPM_BIOS.asm` with the resolved statement: `$8B` is an error, and the entry is
    Microsoft's shipped workaround, written by two shipped tools.
+
+---
+
+# Part 5, 2026-07-31: the fold. Blocks 128-139 ARE the system tracks
+
+**Read this before using Part 4.** Part 4 got its headline wrong, and the correct answer is a
+much better story. Gate 1121 passed / 1 skipped, byte-identical.
+
+## 0. Correcting Part 4
+
+Part 4 said the 2.23-44K decode had "a 2 KB hole" containing the disk deblock, and recommended
+decoding it as the next work item. **That was wrong.** The code was already decoded, in
+`CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm`, a Z-80 source ORG'd at its `$BC39` run address and
+INCBIN'd into the 6502 boot loader, reassembling byte-identical. The repo had done exactly what
+its own rule requires for embedded other-CPU code, and I did not find it before writing Part 4.
+
+Two things led me wrong and both are worth knowing:
+
+* I identified 8 track-2 sectors that appear in no `ChunkSpec` and assumed they were the missing
+  code. Tracing the boot loads shows those sectors **are never read at all**. The boot reads 29
+  sectors into a contiguous staging area and copies them out; the 8 odd sectors are unused disk
+  space.
+* I searched the raw disk for the deblock signature and mapped the file offset back to a
+  track/sector without applying the interleave, which pointed at the wrong chunk.
+
+So: **no decode gap.** The whole 44K boot-to-prompt path is accounted for. Please drop that item.
+
+## 1. What the code actually does, and it changes the article
+
+`SM_NOFLUSH` in `CPM_BootLoader_DiskXlate.asm`, at `$BCDA`:
+
+```asm
+        LD A,(REQ_TRACK)     ; requested track
+        CP $23               ; 35 = past the last track of a 35-track medium
+        JR C,SM_SETSEC       ; normal track, use as-is
+        LD L,A
+        LD A,(DPB_DSM)       ; the running DPB's DSM byte
+        CP $8B               ; ONLY the 140-block geometry
+        JR NZ,SM_STORE
+        LD A,L
+        SUB $23              ; fold onto tracks 0-2
+```
+
+Requested track 35 or beyond, **and** the running `DSM` is `$8B`, subtract 35.
+
+The arithmetic lands exactly:
+
+```
+block 128 -> record 1024 -> OFF + 1024/SPT = 3 + 32 = track 35 -> 0
+block 139 -> record 1112 -> 3 + 34                  = track 37 -> 2
+blocks 128..139 = 12 blocks = 12 KB = tracks 0,1,2 = 12,288 bytes
+```
+
+**The twelve surplus blocks are not phantom space. They are the three reserved system tracks,
+made addressable through the ordinary file system.** That is what the `cp/m    sys` entry names,
+and it is why it is called that. Twelve blocks, twelve kilobytes, three tracks, no remainder.
+
+Confirmed at runtime, not just read: instrumenting the requested track and the DSM cell during a
+`SAVE` into block 128 shows `$FED1`=35, `$FEE3`=`$8B`, and the IOB track arriving at RWTS as 0.
+
+### This is deliberate, and the gate is the proof
+
+The test is `CP $8B` against the DPB's own `DSM`. A defensive clamp to keep the head on the medium
+would not need to know `DSM`; it would clamp regardless. Checking for exactly the value that has
+the twelve extra blocks means the author knew those blocks existed and knew where they should
+point. The fold appears in no other tree: 2.20's deblock (with `DSM`=`$7F`) has nothing like it.
+
+That said, separate what is proven from what is inferred:
+
+* **Proven:** the fold exists, is gated on `DSM`=`$8B`, aliases blocks 128-139 onto tracks 0-2,
+  and the `cp/m sys` entry claims exactly those blocks. Two shipped tools create that entry.
+* **Inferred:** that the *purpose* is to expose the system area as a file. It is the only reading
+  that explains the gate, the exact arithmetic, and the file's name together, but no byte says so.
+
+## 2. What this does to the defect narrative
+
+The article's framing needs revising in two directions at once. It gets **less** wrong-looking as
+an arithmetic blunder and **much worse** as a consequence.
+
+**`DSM`=`$8B` is not simply a miscount.** The Alteration Guide's two readings still explain how
+139 could be arrived at, but 139 is also exactly the value that makes the system tracks
+addressable, and the deblock is written to support precisely that value. Presenting it purely as
+"Microsoft misread their own manual" is no longer supportable.
+
+**The failure is far worse than phantom space.** Everything I wrote in Part 4's section 1d about
+RWTS returning `$40` after 48 retries is *irrelevant to this path*: the drive is never asked for
+track 35. It is asked for track 0. So:
+
+* there is no drive error;
+* there is no failed write;
+* the write **succeeds**, onto the boot tracks.
+
+Measured: `SAVE 4 Z.ZZZ` on a 12 KB-free disk reported success, committed a directory entry naming
+block 128, and **changed 689 bytes of track 0**. The file did not read back, because reading it
+returns boot-track bytes rather than what was written to the buffer.
+
+So the exposure is not "twelve kilobytes that do not exist". It is:
+
+> On a 2.23 system, any disk lacking the `cp/m sys` entry will, once blocks 0-127 are full,
+> silently overwrite its own operating system.
+
+Every 2.20-lineage disk qualifies, and they ship 2-3 KB from full. So does any disk a user
+formats with `COPY /F` instead of `/S`. The reservation entry is not bookkeeping; it is the only
+thing standing between a nearly-full 2.20 disk and destruction of its boot tracks under 2.23.
+
+## 3. Re-evaluating every question posed across these briefs
+
+| # | Question | Answer now |
+|---|---|---|
+| Q1 | Fresh bootable disk, step by step | `COPY dest=source/S` (add `/F` to format first). Partly open: `/S` without `/F` not traced |
+| Q2 | Data-only disk | `COPY d:/F`. Formats, `$E5` fill, valid empty directory, **no** reservation |
+| Q3 | `BOOT.COM` writes boot tracks | **No.** Writes nothing; density-selecting re-boot utility |
+| Q4 | What initialises the directory | Nothing does. The `$E5` format fill IS an empty directory |
+| Q5 | `COPY` format-only? | **Yes**, standalone terminal path. Such a disk IS exposed |
+| Q6 | Does a shipped tool write the entry | **Yes, two.** `CPM60.COM` and `COPY.COM /S` |
+| Q7 | What `MFT` does | Third-party file copier; needs an existing filesystem, creates nothing |
+| Q8 | Does FORMAT write `$E5` | **Yes**, both 2.20's `FORMAT.COM` and 2.23's formatter inside `COPY.COM` |
+| item 1 | Run the failure | **Done.** Allocator hands out block 128; STAT offers 12k; SAVE succeeds silently; entry committed; 689 bytes of track 0 overwritten; file unreadable |
+| item 2 | `ALLOC_VECTOR_BUILD` `[?]` branch | **Still not started.** Unchanged from Part 4 |
+| item 3 | Other vendors' disks | **Not run.** Unchanged |
+
+Three earlier answers now need qualifying in light of the fold:
+
+* **The `$7F` vs `$8B` "count error" framing.** `$8B` is the value the deblock is built around.
+  Call it a design with a fatal interaction, not a miscount.
+* **"The twelve blocks map to tracks 35-37, which do not exist."** True of the arithmetic before
+  the fold, and misleading after it. They resolve to tracks 0-2, which very much exist.
+* **Part 4's "no partial write, no torn sector, no neighbouring-file damage."** Correct about what
+  a drive does at track 35, and beside the point: the write never goes there.
+
+The 14 KB figure, the `$E5` proof, the two-tools finding, the free-space table and the
+`BOOT.COM`/`MFT` answers are all unaffected.
+
+## 4. Source corrections in this pass
+
+`CPM_BootLoader_DiskXlate.asm` had four labels wrong, and they are exactly why this region read as
+meaningless. Verified against the shipped RWTS and at runtime. All byte-neutral; the tracked
+`.lst` and the INCBIN listing comment in the host file were regenerated.
+
+| was | is | evidence |
+|---|---|---|
+| `IOB_SECTOR EQU $F3E0` | `IOB_TRACK` | `$03E0` is the track; RWTS_MAIN reads `$03E0`/`$03E1` as track/sector |
+| `IOB_TRACK EQU $F3E4` | `IOB_DRIVE` | `$03E4` is drive select, observed 1 |
+| `SCR_D1` "requested sector (low)" | `REQ_TRACK` | observed 3 for the directory, 35 for block 128 |
+| `SCR_D2` "requested track" | `REQ_RECORD` | observed 0,2,4,6 stepping within a track |
+| `SCR_E3` "deblock flag scratch" | `DPB_DSM` | the fold tests it against `$8B` |
+
+`REQ_TRACK` and `REQ_RECORD` were transposed, and with `DPB_DSM` called a "flag", the fold looked
+like arbitrary arithmetic on a sector number. Named correctly, it reads as what it is.
+
+The fold itself now carries a header block at the site explaining the aliasing, the exact
+arithmetic, and the consequence.

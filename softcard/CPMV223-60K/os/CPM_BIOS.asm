@@ -163,13 +163,17 @@ SPT:    DEFW    $0020                    ; Sectors Per Track: counts 128-byte RE
 BSH:    DEFB    $03                      ; Block SHift: log2(records per block) -> 8 records
 BLM:    DEFB    $07                      ; BLock Mask: (records per block) - 1 -> 1 KB blocks
 EXM:    DEFB    $00                      ; EXtent Mask
-; DSM over-counts: 140 blocks / 4 per track = 35 file tracks, which with OFF=3 implies a
-;   38-track disk; the medium is 35 tracks. The 2.20 twin's $7F gives 32 + 3 = 35 exactly.
-;   Blocks 128-139 map to tracks 35-37 and do not exist. What absorbs them is the directory
-;   entry (user $1F, lowercase "cp/m    sys", block map exactly 128-139) that TWO shipped
-;   Microsoft tools write: CPM60.COM (../CPM60_installer.asm) and COPY.COM on its /S path.
-;   So $8B is an error and the entry is Microsoft's shipped workaround for it. A disk
-;   written without /S carries no entry and IS exposed. See docs/CPM_Disk_Creation.md. [RE]
+; DSM=$8B gives 140 blocks where the file area holds 128; the 2.20 twin's $7F gives 32 + 3 = 35
+;   tracks exactly. The extra twelve are NOT phantom space: the 2.23 deblock
+;   (CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm, SM_NOFLUSH at $BCDA) folds any requested track
+;   >= 35 back by 35, gated on the DPB's DSM byte being $8B. Block 128 -> track 35 -> 0;
+;   block 139 -> track 37 -> 2. Twelve blocks = 12 KB = tracks 0,1,2 exactly, so blocks 128-139
+;   ARE the reserved system tracks, addressable through the ordinary file system. The directory
+;   entry (user $1F, lowercase "cp/m    sys", block map exactly 128-139) is what NAMES them, and
+;   TWO shipped Microsoft tools write it: CPM60.COM (../CPM60_installer.asm) and COPY.COM /S.
+;   CONSEQUENCE: a disk with no such entry lets the allocator hand out those blocks once 0-127
+;   are full, and writing there SILENTLY OVERWRITES TRACKS 0-2 rather than failing.
+;   See docs/CPM_Disk_Creation.md. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2

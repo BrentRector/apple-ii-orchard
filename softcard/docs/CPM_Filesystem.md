@@ -39,13 +39,13 @@ user  name          EX  S1  S2   RC    block map
 $1F   "cp/m    sys"  0   0   0   $60   128 129 130 131 132 133 134 135 136 137 138 139
 ```
 
-It exists to absorb the twelve blocks Microsoft's 2.23 DPB over-counts. `DSM` is `$8B` (139 → 140 blocks) where the 2.20 lineage uses `$7F` (127 → 128); the larger value counts the whole medium without subtracting the three reserved tracks, so blocks 128-139 map to tracks 35-37 on a 35-track disk and do not exist. Reserving them in a file keeps the allocator away.
+**Those twelve blocks are the system tracks.** `DSM` is `$8B` (139 → 140 blocks) where the 2.20 lineage uses `$7F` (127 → 128). The extra twelve are not phantom space: the 2.23 deblock (`CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm`, `SM_NOFLUSH` at `$BCDA`) folds any requested track ≥ 35 back by 35, **gated on the running DPB's `DSM` byte being `$8B`**. Block 128 is record 1024, so `OFF` + 1024/`SPT` = track 35 → 0; block 139 → track 37 → 2. Twelve blocks = 12 KB = tracks 0, 1, 2 = 12,288 bytes, no remainder. So `DSM` = `$8B` extends the disk by exactly the reserved area, making it addressable through the ordinary file system, and this entry is what names it. The gate is the evidence of intent: a defensive clamp would not need to test `DSM`.
 
 Two hiding mechanisms are stacked on it: the **user number is 31**, outside the 0-15 the CCP's `DIR` and `USER` reach, and the **name is lowercase and contains a `/`**, which the CCP's command-line parser cannot produce. Neither is a barrier to a program that supplies its own 11-byte FCB, which is how it gets written.
 
 **Two shipped Microsoft tools write it**, running the same sequence: `CPM60.COM` (`CPMV223-60K/CPM60_installer.asm`) and `COPY.COM` on its `/S` path (`CPMV223-44K/utilities/COPY.asm` `$037F`). Both set user 31, delete any stale entry, verify blocks 128-139 are free in the allocation bitmap, `F_MAKE`, hand-fill the block map with `$80..$8B`, set `RC`=`$60`/`EX`=`$00`, and `F_CLOSE`. It is a designed convention, not a mastering-time patch.
 
-Consequently a disk formatted **without** `/S` has a valid empty directory and no reservation, so its last twelve blocks are addressable and absent. Full trace in [`CPM_Disk_Creation.md`](CPM_Disk_Creation.md).
+**Consequently a disk with no such entry is dangerous on a 2.23 system.** That means every 2.20-lineage disk, and any disk formatted with `COPY /F` rather than `/S`. Once blocks 0-127 are full the allocator hands out 128-139, and writing there does not fail and does not reach a drive error: it silently overwrites tracks 0-2 and destroys the boot pipeline. Verified in the emulator, where a `SAVE` into block 128 reported success, committed its directory entry, and changed 689 bytes of track 0. Full trace in [`CPM_Disk_Creation.md`](CPM_Disk_Creation.md).
 
 ## File inventory
 

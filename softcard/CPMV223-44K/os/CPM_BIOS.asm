@@ -139,15 +139,22 @@ EXM:    DEFB    $00                      ; EXtent Mask
 ;   list exactly blocks 128-139 -- the twelve blocks past the twin's 128. The BDOS's
 ;   allocation-vector rebuild skips only $E5 entries and does not range-check the user
 ;   number, so that entry is honoured and those twelve blocks stay marked in use.
-;   RESOLVED (2026-07-31): the entry is a DELIBERATE CONVENTION, written by two shipped
-;   Microsoft tools -- CPM60.COM (CPMV223-60K/CPM60_installer.asm) and COPY.COM on its /S
-;   path (CPMV223-44K/utilities/COPY.asm $037F). Both set user 31, verify blocks 128-139
-;   are free in the allocation bitmap, F_MAKE the file, hand-fill the block map $80..$8B,
-;   set RC=$60/EX=0 and F_CLOSE. COPY routes the free-space failure to its own shipped
-;   string "Disk space already in use", which names what is being reserved. So $8B is an
-;   error, and the entry is Microsoft's shipped workaround for it -- not a mastering-time
-;   patch. A disk written without /S carries no entry and IS exposed. See
-;   docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Part 4. [RE]
+;   RESOLVED (2026-07-31), and the answer is neither: BLOCKS 128-139 ARE THE SYSTEM TRACKS.
+;   The 2.23 deblock (CPM_BootLoader_DiskXlate.asm, SM_NOFLUSH at $BCDA) folds any requested
+;   track >= 35 back by 35, GATED ON THE DPB's DSM BYTE BEING $8B. The arithmetic is exact:
+;   block 128 -> record 1024 -> OFF + 1024/SPT = track 35 -> 0; block 139 -> track 37 -> 2.
+;   Twelve blocks = 12 KB = tracks 0,1,2 = 12,288 bytes, no remainder. So DSM=$8B deliberately
+;   extends the disk by exactly the reserved area, making it addressable through the ordinary
+;   file system, and "cp/m    sys" is the directory entry that NAMES it. The gate is the proof
+;   of intent: a defensive clamp would not need to test DSM.
+;   That entry is written by two shipped tools -- CPM60.COM (CPMV223-60K/CPM60_installer.asm)
+;   and COPY.COM on its /S path (CPMV223-44K/utilities/COPY.asm $037F).
+;   CONSEQUENCE: a disk with NO such entry (every 2.20-lineage disk; any disk made with
+;   COPY /F rather than /S) lets the allocator hand out blocks 128-139 once 0-127 are full.
+;   Writing there does not fail and does not reach a drive error -- it SILENTLY OVERWRITES
+;   TRACKS 0-2 and destroys the boot pipeline. Verified in the emulator: SAVE into block 128
+;   reported success and changed 689 bytes of track 0. See docs/CPM_Disk_Creation.md and
+;   docs/CPM_Source_Changes_For_Narratives.md Part 5. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2

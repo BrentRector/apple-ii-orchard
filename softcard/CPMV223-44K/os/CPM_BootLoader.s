@@ -500,16 +500,21 @@ CPM_READ_TRACKS_3:
 ;   >>> CPM_BootLoader_DiskXlate.asm -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
 ;
 ; ; -- page-3 IOB mirror (Z-80 $F3xx = Apple $03xx) --
-; IOB_SECTOR  EQU $F3E0        ; IOB sector / load-address cell (Apple $03E0..)
-; IOB_TRACK   EQU $F3E4        ; IOB track cell (Apple $03E4)
+; IOB_TRACK   EQU $F3E0        ; IOB TRACK cell (Apple $03E0); $03E1 = sector. Verified against
+;                              ;   the shipped RWTS (RWTS_MAIN reads $03E0 track / $03E1 sector)
+;                              ;   and at runtime. An earlier EQU called $03E0 the sector.
+; IOB_DRIVE   EQU $F3E4        ; IOB DRIVE-select cell (Apple $03E4), 1 or 2. NOT the track;
+;                              ;   an earlier EQU called it the track cell.
 ; IOB_VOL     EQU $F3E6        ; IOB volume cell (Apple $03E6)
 ; IOB_BUF     EQU $F3E8        ; IOB buffer pointer (Apple $03E8/$03E9)
 ; IOB_CMD     EQU $F3EB        ; IOB command cell (Apple $03EB)
 ; IOB_RETCODE EQU $F3EA        ; IOB return-code cell (Apple $03EA)
 ;
 ; ; -- Z-80 BIOS disk scratch ($FExx) --
-; SCR_D1      EQU $FED1        ; requested sector (low) scratch
-; SCR_D2      EQU $FED2        ; requested track scratch
+; REQ_TRACK   EQU $FED1        ; requested TRACK (observed 3 for the directory, 35 for block 128).
+;                              ;   An earlier EQU called this the requested sector.
+; REQ_RECORD  EQU $FED2        ; requested RECORD index within the track. An earlier EQU called
+;                              ;   this the requested track; they were transposed.
 ; SCR_D6      EQU $FED6        ; current track scratch
 ; SCR_D7      EQU $FED7        ; saved current track
 ; SCR_D8      EQU $FED8        ; first-call flag
@@ -520,7 +525,8 @@ CPM_READ_TRACKS_3:
 ; SCR_DD      EQU $FEDD        ; retry / settle counter (16-bit cell)
 ; SCR_DF      EQU $FEDF        ; last track/sector cache (16-bit cell)
 ; SCR_E1      EQU $FEE1        ; host buffer pointer (16-bit cell)
-; SCR_E3      EQU $FEE3        ; deblock flag scratch
+; DPB_DSM     EQU $FEE3        ; the running DPB's DSM byte ($8B on 2.23, $7F on the 2.20 twin).
+;                              ;   NOT a 'deblock flag': the fold below tests it explicitly.
 ;
 ; ; -- Z-80 BIOS helper routines --
 ; BIOS_SKEW   EQU $AD4A        ; logical->physical sector skew table base
@@ -560,7 +566,7 @@ CPM_READ_TRACKS_3:
 ;         LD A,(SCR_D6)                    ; $BC56  3A D6 FE
 ;         LD H,A                           ; $BC59  67
 ;         LD (SCR_DD),HL                   ; $BC5A  22 DD FE
-;         LD HL,(SCR_D1)                   ; $BC5D  2A D1 FE
+;         LD HL,(REQ_TRACK)                   ; $BC5D  2A D1 FE
 ;         LD (SCR_DF),HL                   ; $BC60  22 DF FE
 ; SM_CHKDD:
 ;         LD HL,SCR_DD                     ; $BC63  21 DD FE
@@ -572,11 +578,11 @@ CPM_READ_TRACKS_3:
 ;         INC HL                           ; $BC6E  23
 ;         CP (HL)                          ; $BC6F  BE
 ;         JR NZ,SM_NEEDSEEK                ; $BC70  20 19
-;         LD A,(SCR_D1)                    ; $BC72  3A D1 FE
+;         LD A,(REQ_TRACK)                    ; $BC72  3A D1 FE
 ;         LD HL,(SCR_DF)                   ; $BC75  2A DF FE
 ;         CP L                             ; $BC78  BD
 ;         JR NZ,SM_NEEDSEEK                ; $BC79  20 10
-;         LD A,(SCR_D2)                    ; $BC7B  3A D2 FE
+;         LD A,(REQ_RECORD)                    ; $BC7B  3A D2 FE
 ;         CP H                             ; $BC7E  BC
 ;         JR NZ,SM_NEEDSEEK                ; $BC7F  20 0A
 ;         INC H                            ; $BC81  24
@@ -589,7 +595,7 @@ CPM_READ_TRACKS_3:
 ;         LD (SCR_DC),HL                   ; $BC8E  22 DC FE   seek needed
 ; ; -- main map: derive physical sector from the skew table, schedule the seek --
 ; SM_MAP:
-;         LD A,(SCR_D2)                    ; $BC91  3A D2 FE   requested track
+;         LD A,(REQ_RECORD)                    ; $BC91  3A D2 FE   requested track
 ;         LD E,A                           ; $BC94  5F
 ;         OR A                             ; $BC95  B7
 ;         RRA                              ; $BC96  1F
@@ -606,8 +612,8 @@ CPM_READ_TRACKS_3:
 ;         LD A,L                           ; $BCA9  7D
 ;         CP H                             ; $BCAA  BC
 ;         JR NZ,SM_DOFLUSH                 ; $BCAB  20 0D
-;         LD HL,(IOB_SECTOR)               ; $BCAD  2A E0 F3
-;         LD A,(SCR_D1)                    ; $BCB0  3A D1 FE
+;         LD HL,(IOB_TRACK)               ; $BCAD  2A E0 F3
+;         LD A,(REQ_TRACK)                    ; $BCB0  3A D1 FE
 ;         CP L                             ; $BCB3  BD
 ;         JR NZ,SM_DOFLUSH                 ; $BCB4  20 04
 ;         LD A,C                           ; $BCB6  79
@@ -623,7 +629,7 @@ CPM_READ_TRACKS_3:
 ;         LD B,A                           ; $BCC7  47
 ;         AND $01                          ; $BCC8  E6 01
 ;         INC A                            ; $BCCA  3C
-;         LD (IOB_TRACK),A                 ; $BCCB  32 E4 F3
+;         LD (IOB_DRIVE),A                 ; $BCCB  32 E4 F3
 ;         LD A,B                           ; $BCCE  78
 ;         AND $0E                          ; $BCCF  E6 0E
 ;         ADD A,A                          ; $BCD1  87
@@ -632,20 +638,49 @@ CPM_READ_TRACKS_3:
 ;         CPL                              ; $BCD4  2F
 ;         ADD A,$61                        ; $BCD5  C6 61
 ;         LD (IOB_VOL),A                   ; $BCD7  32 E6 F3
-;         LD A,(SCR_D1)                    ; $BCDA  3A D1 FE
-;         CP $23                           ; $BCDD  FE 23
-;         JR C,SM_SETSEC                   ; $BCDF  38 0B
+; ; ----------------------------------------------------------------------------
+; ; THE $8B TRACK FOLD -- blocks 128-139 are ALIASED ONTO THE SYSTEM TRACKS 0-2.
+; ;
+; ; This is the mechanism behind the whole DSM=$8B business, and it is deliberate:
+; ; the test is against $8B itself, so it fires only for the geometry that HAS the
+; ; twelve surplus blocks. A merely defensive clamp would not need to know DSM.
+; ;
+; ;   requested track >= 35 (the medium is 35 tracks, 0-34)
+; ;   AND the running DPB's DSM byte == $8B
+; ;   -> subtract 35, and use THAT as the IOB track.
+; ;
+; ; The arithmetic lands exactly:
+; ;   block 128 -> record 1024 -> OFF + 1024/SPT = 3 + 32 = track 35 -> 35-35 = 0
+; ;   block 139 -> record 1112 -> 3 + 34         =       track 37 -> 37-35 = 2
+; ;   blocks 128..139 = 12 blocks = 12 KB = tracks 0,1,2 = 12,288 bytes, EXACTLY.
+; ;
+; ; So the twelve blocks past the 2.20 twin's DSM=$7F are not phantom space. They
+; ; are the three reserved system tracks, made addressable through the ordinary
+; ; file system. That is what the 'cp/m    sys' directory entry (user $1F, block
+; ; map exactly 128-139) names, and why it is called that. [RE]
+; ;
+; ; CONSEQUENCE, and it is severe: on a disk with no such entry -- every 2.20-lineage
+; ; disk, and any disk formatted with COPY /F rather than /S -- the allocator will
+; ; hand out blocks 128-139 once 0-127 are full. Writing into them does NOT fail and
+; ; does NOT hit a drive error. It silently overwrites tracks 0-2, destroying the
+; ; boot pipeline. Verified in the emulator: SAVE into block 128 reported success,
+; ; committed the directory entry, and changed 689 bytes of track 0.
+; ; See docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Part 5.
+; ; ----------------------------------------------------------------------------
+;         LD A,(REQ_TRACK)                 ; $BCDA  3A D1 FE   requested track
+;         CP $23                           ; $BCDD  FE 23      35 = past the last track
+;         JR C,SM_SETSEC                   ; $BCDF  38 0B      normal track, use as-is
 ;         LD L,A                           ; $BCE1  6F
-;         LD A,(SCR_E3)                    ; $BCE2  3A E3 FE
-;         CP $8B                           ; $BCE5  FE 8B
+;         LD A,(DPB_DSM)                   ; $BCE2  3A E3 FE   running DPB's DSM
+;         CP $8B                           ; $BCE5  FE 8B      only the 140-block geometry
 ;         JR NZ,SM_STORE                   ; $BCE7  20 04
 ;         LD A,L                           ; $BCE9  7D
-;         SUB $23                          ; $BCEA  D6 23
+;         SUB $23                          ; $BCEA  D6 23      fold onto tracks 0-2
 ; SM_SETSEC:
 ;         LD L,A                           ; $BCEC  6F
 ; SM_STORE:
 ;         LD H,C                           ; $BCED  61
-;         LD (IOB_SECTOR),HL               ; $BCEE  22 E0 F3
+;         LD (IOB_TRACK),HL               ; $BCEE  22 E0 F3
 ;         LD A,(SCR_DC)                    ; $BCF1  3A DC FE
 ;         OR A                             ; $BCF4  B7
 ;         CALL NZ,BIOS_FLUSH               ; $BCF5  C4 2C AD

@@ -176,6 +176,30 @@ differently:
 
 ---
 
+## 3b. UPDATE 2026-07-31: the twelve blocks are the system tracks
+
+Section 4 below was written before the deblock was read, and its "blocks that are addressable and
+absent" framing is wrong. The 2.23 deblock
+(`CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm`, `SM_NOFLUSH` at `$BCDA`) folds any requested track
+`>= 35` back by 35, gated on the running DPB's `DSM` byte being `$8B`:
+
+```
+block 128 -> record 1024 -> OFF + 1024/SPT = 3 + 32 = track 35 -> 0
+block 139 -> record 1112 -> 3 + 34                  = track 37 -> 2
+12 blocks = 12 KB = tracks 0,1,2 = 12,288 bytes exactly
+```
+
+So blocks 128-139 alias onto the reserved system tracks, and `cp/m    sys` is the entry that
+names them. The `CP $8B` gate is the evidence of intent: a clamp that merely kept the head on the
+medium would not need to know `DSM`.
+
+The exposure is therefore worse, not milder, than section 4 says. On a disk with no reservation
+entry the allocator hands those blocks out once 0-127 are full, and the write does **not** fail:
+it silently overwrites tracks 0-2. Measured in the emulator, `SAVE 4 Z.ZZZ` on a 12 KB-free disk
+reported success, committed a directory entry naming block 128, and changed 689 bytes of track 0.
+Read section 4 with that substitution: "addressable and absent" should read "aliased onto the
+operating system".
+
 ## 4. What this means for the `DSM = $8B` exposure
 
 The reservation exists only on disks a tool put it on. Two populations remain exposed on a 2.23
