@@ -1839,17 +1839,20 @@ ALLOC_BIT_ROTATE:
         JP NZ,ALLOC_BIT_ROTATE
         RET
 ; ----------------------------------------------------------------------
-; ALLOC_BIT_SET -- mark a disk block as allocated in the allocation vector.
-;   In: BC = block (group) number.  Out: the allocation byte for that block is updated in place with
-;       its bit forced to 1.
-;   Clobbers: A,BC,DE,HL,flags.
-;   Algorithm: ALLOC_BIT_GET reads the byte (left-rotated so the bit is in the MSB) and returns the
-;              bit index in D;
-;       clear the rotated LSB and OR in 1 to set the target bit; rotate right D times to restore
-;       alignment; store back.
-;   [RE] canonical CP/M 2.2 setmod: set one allocation bit in the bit-vector.
+; ALLOC_BIT_WRITE -- write one block's allocation-vector bit to a caller-supplied value.
+;   In: BC = block (group) number; E = the bit value to store (1 = in use, 0 = free).
+;   Out: that block's bit in the allocation vector is set to E. Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: PUSH DE saves the caller's value FIRST, because ALLOC_BIT_GET overwrites both
+;       D and E with the bit index. ALLOC_BIT_GET returns the byte left-rotated so the target
+;       bit is the LSB, HL pointing at it, and D = the rotate count. AND $FE clears that bit,
+;       POP BC recovers the saved pair so C is the caller's value, and OR C writes it in;
+;       ALLOC_BIT_RESTORE rotates back D times and stores.
+;   The bit is NOT forced to 1 -- this is the one primitive for both directions, and which
+;   direction it performs is entirely the caller's C. An earlier annotation here read "OR in 1
+;   to set the target bit", which made the delete path look like it contradicted its own
+;   comment. It does not: F_DELETE passes C=0 and frees, ALLOC_VECTOR_BUILD passes C=1. [RE]
 ; ----------------------------------------------------------------------
-ALLOC_BIT_SET:
+ALLOC_BIT_WRITE:
         PUSH DE
         CALL ALLOC_BIT_GET
         AND $FE
@@ -1866,16 +1869,19 @@ ALLOC_BIT_RESTORE:
         LD (HL),A
         RET
 ; ----------------------------------------------------------------------
-; ALLOC_FROM_FCB -- mark every disk block referenced by a directory entry's block map as allocated.
-;   In: DEBLOCK_BYTE_OFF positions HL on the current 32-byte directory entry; BLOCK_WIDTH_FLAG
+; ALLOC_FROM_FCB -- apply a directory entry's block map to the allocation vector.
+;   In: C = the bit value to write for each block (1 = in use, 0 = free); it is stashed by
+;       PUSH BC and recirculated through DE each iteration, reaching ALLOC_BIT_WRITE in E.
+;       In: DEBLOCK_BYTE_OFF positions HL on the current 32-byte directory entry; BLOCK_WIDTH_FLAG
 ;       selects 8-bit
 ;       (non-zero, DSM<256) vs 16-bit (zero) block numbers; entry holds a 16-byte block map at
 ;       offset $10.
-;   Out: the allocation vector has every non-zero, in-range block of this entry marked used. 
-;        Clobbers: A,BC,DE,HL,flags.
+;   Out: every non-zero, in-range block of this entry has its allocation bit set to the
+;        CALLER'S value -- C=1 marks them in use (directory rebuild), C=0 frees them
+;        (F_DELETE). The routine itself is direction-agnostic. Clobbers: A,BC,DE,HL,flags.
 ;   Algorithm: point HL at the block map (entry+$10); iterate 16 (8-bit) or 8 (16-bit) pointers;
 ;              read each block
-;       number; if non-zero and <= MAX_BLOCK_DSM, mark it allocated via ALLOC_BIT_SET.
+;       number; if non-zero and <= MAX_BLOCK_DSM, mark it allocated via ALLOC_BIT_WRITE.
 ;   [RE] canonical CP/M 2.2 directory-entry allocation-map application used when rebuilding the
 ;   allocation vector.
 ; ----------------------------------------------------------------------
@@ -1924,7 +1930,7 @@ ALLOC_FROM_FCB_CHECK:
         SUB C
         LD A,H
         SBC A,B
-        CALL NC,ALLOC_BIT_SET
+        CALL NC,ALLOC_BIT_WRITE
 ; ----------------------------------------------------------------------
 ; ALLOC_FROM_FCB_NEXT -- advance to the next block-map slot and loop. [RE]
 ; ----------------------------------------------------------------------

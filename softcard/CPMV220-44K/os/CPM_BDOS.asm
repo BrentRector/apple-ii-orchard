@@ -2012,7 +2012,7 @@ DIR_CHECKSUM_LOOP:
 ;   Algorithm: INC C / loop { DEC C; ret if zero; ADD HL,HL }.
 ;   [RE] generic unsigned left-shift helper (e.g. building a 1<<n drive-bit mask).
 ; ----------------------------------------------------------------------
-CMD_EXEC_11:
+SHL_HL_C:
         INC C
 SHL_HL_C_LOOP:
         DEC C
@@ -2032,14 +2032,14 @@ SHL_HL_C_LOOP:
 ;   [RE] sets the current drive's bit in whatever vector the caller passes in BC (used by both the
 ;       R/O vector and the login vector setters). [?]
 ; ----------------------------------------------------------------------
-CMD_EXEC_12:
+DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC
         ; current drive number = bit position
         LD A,(BDOS_CUR_DRIVE)
         LD C,A
         LD HL,$0001
         ; HL = 1 << current_drive
-        CALL CMD_EXEC_11
+        CALL SHL_HL_C
         POP BC
         LD A,C
         ; low byte: OR the existing vector (C) with the new drive bit
@@ -2058,7 +2058,7 @@ CMD_EXEC_12:
 ;   Out: A = 1 if the current drive's R/O bit is set, else 0; Z reflects the result.
 ;   Clobbers: A,C,HL.
 ;   Algorithm: load the vector, SHR_HL_C by the drive number to bring its bit to bit 0, AND $01.
-;   [RE] CMD_EXEC_20 (CHECK_DRIVE_READONLY) uses this and raises the R/O error when the bit is set,
+;   [RE] CHECK_DRIVE_READONLY (CHECK_DRIVE_READONLY) uses this and raises the R/O error when the bit is set,
 ;       which proves this vector is the read-only vector, not the login vector. [?] cell-name fix
 ;       deferred.
 ; ----------------------------------------------------------------------
@@ -2095,7 +2095,7 @@ DRV_SETRO_H:
         INC HL
         LD B,(HL)
         ; set the current drive's bit in the R/O vector
-        CALL CMD_EXEC_12
+        CALL DRIVE_BIT_OR_INTO_VECTOR
         ; store the updated R/O vector (cell mislabeled DRV_LOGIN_VECTOR)
         LD (DRV_LOGIN_VECTOR),HL
         ; directory record-count limit for this drive
@@ -2142,7 +2142,7 @@ CHECK_DIRENT_READONLY_INNER:
 ;       the disk-R/O error vector (BDOS_ERRVEC_RODISK at $9C0D) and dispatch via BDOS_VECTOR_JUMP.
 ;   [RE] guards writes against a write-protected disk. [?]
 ; ----------------------------------------------------------------------
-CMD_EXEC_20:
+CHECK_DRIVE_READONLY:
         ; test the current drive's read-only bit
         CALL DRIVE_BIT_TEST
         ; writable: nothing to raise
@@ -2522,7 +2522,7 @@ INVALIDATE_CUR_RECORD:
 ;              end-of-directory via DIR_INVALIDATE_RECORD.
 ; [RE] Canonical CP/M 2.2 BDOS read-next-directory-entry sequencer.
 ; ----------------------------------------------------------------------
-CMD_EXEC_53:
+DIR_READ_NEXT:
         ; DE = number of directory records on the selected drive (from the DPB).
         LD HL,(DPB_REC_PTR)
         EX DE,HL
@@ -2533,7 +2533,7 @@ CMD_EXEC_53:
         ; Compare CUR_RECORD against the directory record count.
         CALL SUB16_DE_HL
         ; Records remain: deblock and read the next directory record.
-        JP NC,CMD_EXEC_54
+        JP NC,DIR_RECORD_DEBLOCK
         ; Directory exhausted: invalidate CUR_RECORD and return end-of-directory.
         JP INVALIDATE_CUR_RECORD
 ; ----------------------------------------------------------------------
@@ -2549,7 +2549,7 @@ CMD_EXEC_53:
 ; [RE] CP/M packs four 32-byte directory entries per 128-byte record; this is the BDOS deblocking
 ; step.
 ; ----------------------------------------------------------------------
-CMD_EXEC_54:
+DIR_RECORD_DEBLOCK:
         LD A,(CUR_RECORD)
         ; Index of this entry within its 4-entry directory record.
         AND $03
@@ -2584,13 +2584,13 @@ DIR_DEBLOCK_SHIFT:
 ;              selected bit ends up in carry/MSB.
 ; [RE] Canonical CP/M 2.2 getmod: read one allocation bit from the bit-vector.
 ; ----------------------------------------------------------------------
-CMD_EXEC_56:
+ALLOC_BIT_GET:
         LD A,C
         ; Low 3 bits = bit position of the block within its allocation byte.
         AND $07
         ; 1-based rotate count to bring the wanted bit into the MSB.
         INC A
-        ; Save the bit index in both D and E (E consumed here; D consumed by ALLOC_BIT_SET on the
+        ; Save the bit index in both D and E (E consumed here; D consumed by ALLOC_BIT_WRITE on the
         ; way back).
         LD E,A
         LD D,A
@@ -2628,24 +2628,28 @@ ALLOC_BIT_ROTATE:
         JP NZ,ALLOC_BIT_ROTATE
         RET
 ; ----------------------------------------------------------------------
-; ALLOC_BIT_SET -- Mark a disk block as allocated in the allocation vector.
-;   In: BC = block (group) number.
-;   Out: the allocation byte for that block is updated in place with its bit forced to 1.
-;   Clobbers: A, BC, DE, HL, flags.
-;   Algorithm: call ALLOC_BIT_GET to read the byte (left-rotated so the bit is in the MSB) and
-;              return the bit index in D; clear the rotated LSB and OR in 1 to set the target bit;
-;              rotate right D times to restore byte alignment; store it back via HL.
-; [RE] Canonical CP/M 2.2 setmod: set one allocation bit in the bit-vector.
+; ALLOC_BIT_WRITE -- write one block's allocation-vector bit to a caller-supplied value.
+;   In: BC = block (group) number; E = the bit value to store (1 = in use, 0 = free).
+;   Out: that block's bit in the allocation vector is set to E. Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: PUSH DE saves the caller's value FIRST, because ALLOC_BIT_GET overwrites both
+;       D and E with the bit index. ALLOC_BIT_GET returns the byte left-rotated so the target
+;       bit is the LSB, HL pointing at it, and D = the rotate count. AND $FE clears that bit,
+;       POP BC recovers the saved pair so C is the caller's value, and OR C writes it in;
+;       ALLOC_BIT_RESTORE rotates back D times and stores.
+;   The bit is NOT forced to 1 -- this is the one primitive for both directions, and which
+;   direction it performs is entirely the caller's C. An earlier annotation here read "OR in 1
+;   to set the target bit", which made the delete path look like it contradicted its own
+;   comment. It does not: F_DELETE passes C=0 and frees, ALLOC_VECTOR_BUILD passes C=1. [RE]
 ; ----------------------------------------------------------------------
-CMD_EXEC_60:
+ALLOC_BIT_WRITE:
         PUSH DE
         ; Read the allocation byte rotated so the target bit is in the MSB (D = bit index).
-        CALL CMD_EXEC_56
-        ; Clear the rotated LSB; the following OR C forces this block's bit to 1.
+        CALL ALLOC_BIT_GET
+        ; Clear the target bit; the OR C below writes the caller's value into it.
         AND $FE
-        ; Recover the saved bit value (in C) to OR into the rotated byte.
+        ; Recover the caller's DE (pushed before ALLOC_BIT_GET clobbered it): C = the value.
         POP BC
-        ; Set the target allocation bit.
+        ; Write the caller's value (1 = in use, 0 = free) into the target bit.
         OR C
 ALLOC_BIT_RESTORE:
         RRCA
@@ -2655,19 +2659,22 @@ ALLOC_BIT_RESTORE:
         LD (HL),A
         RET
 ; ----------------------------------------------------------------------
-; ALLOC_FROM_FCB -- Mark every disk block referenced by a directory entry's block map as allocated.
-;   In: DEBLOCK_BYTE_OFF positions HL on the current 32-byte directory entry; BLOCK_WIDTH_FLAG
+; ALLOC_FROM_FCB -- apply a directory entry's block map to the allocation vector.
+;   In: C = the bit value to write for each block (1 = in use, 0 = free); it is stashed by
+;       PUSH BC and recirculated through DE each iteration, reaching ALLOC_BIT_WRITE in E.
+;       In: DEBLOCK_BYTE_OFF positions HL on the current 32-byte directory entry; BLOCK_WIDTH_FLAG
 ;       selects 8-bit (non-zero, DSM<256) vs 16-bit (zero) block numbers; entry contains a 16-byte
 ;       block-pointer map at offset $10.
-;   Out: the allocation vector has every non-zero, in-range block of this entry marked used.
-;   Clobbers: A, BC, DE, HL, flags.
+;   Out: every non-zero, in-range block of this entry has its allocation bit set to the
+;        CALLER'S value -- C=1 marks them in use (directory rebuild), C=0 frees them
+;        (F_DELETE). The routine itself is direction-agnostic. Clobbers: A,BC,DE,HL,flags.
 ;   Algorithm: point HL at the block map (entry+$10); iterate 16 (8-bit) or 8 (16-bit) pointers;
 ;              read each block number; if non-zero and <= MAX_BLOCK_DSM, mark it allocated via
-;              ALLOC_BIT_SET.
+;              ALLOC_BIT_WRITE.
 ; [RE] Canonical CP/M 2.2 directory-entry allocation-map application used when rebuilding the
 ; allocation vector.
 ; ----------------------------------------------------------------------
-CMD_EXEC_61:
+ALLOC_FROM_FCB:
         ; HL -> start of the current 32-byte directory entry in the buffer.
         CALL FCB_BUF_PTR_ADD_OFFSET
         ; Skip to the 16-byte block-pointer map at offset $10 of the entry.
@@ -2710,8 +2717,8 @@ ALLOC_FROM_FCB_CHECK:
         SUB C
         LD A,H
         SBC A,B
-        ; In range and non-zero: mark this block allocated.
-        CALL NC,CMD_EXEC_60
+        ; In range and non-zero: write this block's bit (E = the caller's value).
+        CALL NC,ALLOC_BIT_WRITE
 ALLOC_FROM_FCB_NEXT:
         POP HL
         INC HL
@@ -2733,7 +2740,7 @@ ALLOC_FROM_FCB_NEXT:
 ; [?] The compare against ($9F41) (BDOS default-FCB area) followed by the $24 ('$') name-byte test
 ; and the ($9F45) flag store is a special-entry path; its exact intent is UNKNOWN.
 ; ----------------------------------------------------------------------
-CMD_EXEC_65:
+ALLOC_VECTOR_BUILD:
         ; DSM = highest block number; +1 gives the block count to clear.
         LD HL,(MAX_BLOCK_DSM)
         ; Shift count 3: (DSM+1)/8 = number of bytes in the allocation vector.
@@ -2774,7 +2781,7 @@ ALLOC_VECTOR_SCAN_LOOP:
         ; Search-all sentinel: advance unconditionally through every directory record.
         LD C,$FF
         ; Advance to and deblock the next directory entry.
-        CALL CMD_EXEC_53
+        CALL DIR_READ_NEXT
         ; Test for end-of-directory; Z => done scanning.
         CALL CUR_RECORD_BYTES_EQUAL
         ; Whole directory scanned: allocation vector is complete.
@@ -2801,10 +2808,11 @@ ALLOC_VECTOR_SCAN_LOOP:
         ; Record the special-entry result flag ($9F45); role UNKNOWN.
         LD (BDOS_RETVAL),A
 ALLOC_VECTOR_SCAN_MARK:
-        ; Select 8-bit-block-map width (BLOCK_WIDTH_FLAG non-zero) for the allocation pass.
+        ; C = 1: mark this entry's blocks IN USE. (The 8/16-bit map width is NOT selected
+        ; here -- it comes from the BLOCK_WIDTH_FLAG cell, read inside the loop.)
         LD C,$01
-        ; Mark every block this directory entry references as allocated.
-        CALL CMD_EXEC_61
+        ; Apply this directory entry's block map to the allocation vector.
+        CALL ALLOC_FROM_FCB
         ; Advance the directory record/scan pointer to the next entry.
         CALL RECPTR_INC_STORE
         ; Continue the directory scan.
@@ -2888,7 +2896,7 @@ DIR_SEARCH_FIRST:
 ;   Out: A=matching entry index (0..3) on success (via DIR_MATCH_DONE); not-found via DIR_NO_MATCH
 ;        ($FF result).
 ;   Clobbers: A,B,C,D,E,H,L,flags
-;   Algorithm: step to the next directory record (CMD_EXEC_53); if the record counter passed the
+;   Algorithm: step to the next directory record (DIR_READ_NEXT); if the record counter passed the
 ;              directory limit -> not found; otherwise treat erased ($E5) entries specially and
 ;              bound-check the record (CMP_CURREC_VS_WORKPTR), then fall into the per-entry compare;
 ;              on full match -> DIR_MATCH_DONE, else loop to the next entry/record.
@@ -2898,7 +2906,7 @@ BDOS_DIR_SCAN_NEXT:
         ; scan mode: plain search-next (no special return)
         LD C,$00
         ; advance to the next directory record
-        CALL CMD_EXEC_53
+        CALL DIR_READ_NEXT
         CALL CUR_RECORD_BYTES_EQUAL
         ; record counter passed the directory limit -> not found
         JP Z,DIR_NO_MATCH
@@ -3048,13 +3056,13 @@ DIR_NO_MATCH:
 ;   Out: matching directory entries marked erased ($E5) and written back; result via the search
 ;        tail.
 ;   Clobbers: A,B,C,D,E,H,L,flags
-;   Algorithm: log in the drive (CMD_EXEC_20), search-first on 12 FCB bytes (name+type), then fall
+;   Algorithm: log in the drive (CHECK_DRIVE_READONLY), search-first on 12 FCB bytes (name+type), then fall
 ;              into F_DELETE_LOOP to erase each match.
 ;   [RE] CP/M 2.2 F_DELETE_HND
 ; ----------------------------------------------------------------------
 F_DELETE_HND:
         ; verify/log in the selected drive
-        CALL CMD_EXEC_20
+        CALL CHECK_DRIVE_READONLY
         ; compare 12 FCB bytes (name + type, ignore extent)
         LD C,$0C
         ; search-first for a matching directory entry
@@ -3066,7 +3074,7 @@ F_DELETE_HND:
 ;   Clobbers: A,B,C,D,E,H,L,flags
 ;   Algorithm: stop when CUR_RECORD_BYTES_EQUAL reports no match; reject if read-only
 ;              (FCB_RO_FLAG_TEST); point at the matched entry, set its first byte to $E5, clear the
-;              entry's allocation map (CMD_EXEC_61), write the directory record (DIR_RECORD_WRITE),
+;              entry's allocation map (ALLOC_FROM_FCB), write the directory record (DIR_RECORD_WRITE),
 ;              search-next, repeat.
 ;   [RE]
 ; ----------------------------------------------------------------------
@@ -3082,7 +3090,7 @@ F_DELETE_LOOP:
         LD (HL),$E5
         LD C,$00
         ; free this entry's allocation-map blocks
-        CALL CMD_EXEC_61
+        CALL ALLOC_FROM_FCB
         ; write the modified directory record back to disk
         CALL DIR_RECORD_WRITE
         ; advance to the next matching entry
@@ -3094,7 +3102,7 @@ F_DELETE_LOOP:
 ;   Out: HL = the block number actually claimed (0 if none free); its allocation-vector bit set.
 ;   Clobbers: A,B,C,D,E,H,L,flags
 ;   Algorithm: copy the start block to DE, scan downward then upward from it testing each block's
-;              allocation bit (CMD_EXEC_56 = BLOCK_BIT_TEST), bounded by MAX_BLOCK_DSM; mark the
+;              allocation bit (ALLOC_BIT_GET = BLOCK_BIT_TEST), bounded by MAX_BLOCK_DSM; mark the
 ;              chosen block used (ALLOC_BIT_RESTORE = ALLOC_VEC_SETBIT) and return it, or 0 when no
 ;              block can be allocated.
 ;   [RE] allocation-vector block search/allocate
@@ -3105,7 +3113,7 @@ ALLOC_GET_BLOCK:
         LD E,C
 ; ----------------------------------------------------------------------
 ; ALLOC_SCAN_DOWN -- scan downward for a FREE block in the run.
-;   In: BC = block counter; DE = candidate block; allocation vector via CMD_EXEC_56
+;   In: BC = block counter; DE = candidate block; allocation vector via ALLOC_BIT_GET
 ;       (BLOCK_BIT_TEST).
 ;   Out: on a free block -> ALLOC_MARK_DONE; otherwise falls into ALLOC_SCAN_UP.
 ;   Clobbers: A,B,C,D,E,flags
@@ -3123,7 +3131,7 @@ ALLOC_SCAN_DOWN:
         PUSH DE
         PUSH BC
         ; test this block's allocation-vector bit (returned in A bit 0)
-        CALL CMD_EXEC_56
+        CALL ALLOC_BIT_GET
         ; rotate that bit into carry: SET = block in use, CLEAR = block free
         RRA
         ; carry clear -> the block is FREE, so go claim it
@@ -3136,7 +3144,7 @@ ALLOC_SCAN_DOWN:
 ;   Out: at/past the disk limit -> ALLOC_SCAN_FINISH; on a free block -> ALLOC_MARK_DONE.
 ;   Clobbers: A,B,C,D,E,H,L,flags
 ;   Algorithm: compare DE against DSM; if past it, stop; else increment and test the next block's
-;              allocation bit (CMD_EXEC_56); a CLEAR bit means free, so claim it.
+;              allocation bit (ALLOC_BIT_GET); a CLEAR bit means free, so claim it.
 ;   [RE]
 ; ----------------------------------------------------------------------
 ALLOC_SCAN_UP:
@@ -3154,7 +3162,7 @@ ALLOC_SCAN_UP:
         LD B,D
         LD C,E
         ; test the next block's allocation bit (returned in A bit 0)
-        CALL CMD_EXEC_56
+        CALL ALLOC_BIT_GET
         ; rotate into carry: SET = in use, CLEAR = free
         RRA
         ; carry clear -> free block found, go claim it
@@ -3268,7 +3276,7 @@ FCB_FLUSH_DIR:
 ; ----------------------------------------------------------------------
 F_RENAME_HND:
         ; verify/log in the selected drive
-        CALL CMD_EXEC_20
+        CALL CHECK_DRIVE_READONLY
         ; search on 12 FCB bytes (old name + type)
         LD C,$0C
         CALL DIR_SEARCH_FIRST
@@ -3658,7 +3666,7 @@ FCB_DEC_RESULT:
 ; ----------------------------------------------------------------------
 DIR_MAKE_ENTRY:
         ; log in the drive
-        CALL CMD_EXEC_20
+        CALL CHECK_DRIVE_READONLY
         LD HL,(BDOS_PARAM_PTR)
         PUSH HL
         ; point at a scratch FCB used to find a free slot
@@ -3949,7 +3957,7 @@ BDOS_WRITE:
         LD A,$00
         LD (RW_DIRECTION_FLAG),A
         ; Drive read-only / select check (raises a BDOS error overlay if the drive is not writable).
-        CALL CMD_EXEC_20
+        CALL CHECK_DRIVE_READONLY
         ; HL = pointer to the active FCB (CURFCB).
         LD HL,(BDOS_PARAM_PTR)
         CALL CHECK_DIRENT_READONLY_INNER
@@ -4782,14 +4790,14 @@ F_RANDREC_H:
 ;   In: BDOS_CUR_DRIVE = requested (current) drive number 0..15; DRV_SELECT_VECTOR = working login/select
 ;       vector.
 ;   Out: if the drive was newly logged in, its directory is scanned (BDOS_ERR_SELECT) and its
-;        allocation vector rebuilt (CMD_EXEC_65); DRV_SELECT_VECTOR updated with the drive's login bit.
+;        allocation vector rebuilt (ALLOC_VECTOR_BUILD); DRV_SELECT_VECTOR updated with the drive's login bit.
 ;   Clobbers: A, BC, DE, HL.
 ;   Algorithm: load the working login vector DRV_SELECT_VECTOR; build a single-bit mask for the requested drive
 ;              (DRV_INSTALL_RWTS_10 shifts); test (BDOS_RANDREC_3) whether the drive's DPB is
 ;              already established; if not yet logged in (Z) call BDOS_ERR_SELECT to log it in /
 ;              scan its directory; if the login bit was already set (RRA -> carry) just return;
-;              otherwise OR this drive's bit into DRV_SELECT_VECTOR (CMD_EXEC_12), store it, and fall into
-;              CMD_EXEC_65 to (re)build the allocation vector.
+;              otherwise OR this drive's bit into DRV_SELECT_VECTOR (DRIVE_BIT_OR_INTO_VECTOR), store it, and fall into
+;              ALLOC_VECTOR_BUILD to (re)build the allocation vector.
 ;   [RE] the standard CP/M 2.2 select-disk login path reached from DRV_SET (fn 14) and DRV_ALLRESET
 ;   (fn 13). [?] the A=L / RRA already-logged-in test is inferred from the surrounding flow, not
 ;   proven from these bytes alone.
@@ -4819,11 +4827,11 @@ DRV_INSTALL_RWTS_17:
         LD C,L
         LD B,H
         ; OR this drive's bit into the working login vector
-        CALL CMD_EXEC_12
+        CALL DRIVE_BIT_OR_INTO_VECTOR
         ; store the updated working login vector
         LD (DRV_SELECT_VECTOR),HL
         ; tail into rebuild-allocation-vector for the freshly logged-in drive
-        JP CMD_EXEC_65
+        JP ALLOC_VECTOR_BUILD
 ; ----------------------------------------------------------------------
 ; DRV_SET_H -- BDOS function 14 (Select Disk): make the drive in DRV_SELECT_ARG the current drive.
 ;   In: DRV_SELECT_ARG = desired drive number; BDOS_CUR_DRIVE = current drive number.
