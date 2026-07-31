@@ -358,3 +358,257 @@ downloading and identifying every applicable candidate. Nothing is missing:
 
 So "the archive holds every Microsoft release for the original Z-80 SoftCard that is known to
 survive on asimov" is now a defensible sentence, where before today it was not checked.
+
+---
+
+# Part 3, 2026-07-31: how a disk gets made, and who writes the `cp/m sys` entry
+
+Answering the eight questions in the disk-creation prompt. Commits `01477bf` and `e368a50`.
+Everything below is traced from instructions, not from the `[AI]` header tier, which was wrong
+in six places here. Full write-up in `docs/CPM_Disk_Creation.md`.
+
+**Read section 1 first if you are holding the article.** It overturns the conclusion.
+
+## 1. THE CONCLUSION CHANGES: `COPY.COM` writes the `cp/m sys` entry
+
+The prompt's question 6 asked whether any shipped 2.23 program writes the pseudo-entry, and said
+that if one does, the article is wrong. Two do.
+
+`CPM60.COM` writes it, which was established in `01477bf`. But so does **`COPY.COM`**, in the
+routine at `$037F` that had been annotated "opens the source CPM*.SYS file, validates it, and
+reads the OS image into the copy buffer". It opens nothing, validates nothing and reads nothing.
+Both programs run the same sequence:
+
+```
+set user 31                    fn $20, E=$1F
+delete "cp/m    sys"           fn $13
+get the allocation bitmap      fn $1B
+  test byte  HL+$10            all 8 bits clear
+  test byte  HL+$11 AND $F0    top 4 bits clear
+make "cp/m    sys"             fn $16
+fill FCB+16 with $80..$8B
+RC = $60, EX = $00
+close                          fn $10
+```
+
+producing exactly the entry on every `$8B` image: user `$1F`, `cp/m    sys`, `EX=$00`, `RC=$60`,
+blocks 128-139.
+
+So a user typing `COPY B:=A:/S` writes the entry. It is not applied by a duplication process
+outside the shipped software.
+
+### The free-space test is what settles intent, and it had been mis-annotated in both files
+
+Both files described the two bitmap tests as a "geometry sanity check" on the DPB. They are
+neither a sanity check nor on the DPB. Function `$1B` is `Get Addr(Alloc)`, which returns the
+allocation **bitmap**; the DPB is fn `$1F`. In that bitmap the MSB of byte 0 is block 0, so:
+
+* byte `$10` covers blocks **128-135**, and all eight must be free;
+* byte `$11` masked `$F0` covers blocks **136-139**, and those four must be free.
+
+Precisely the twelve blocks the code then claims, and nothing else. The code asks "is the surplus
+area still unclaimed?" before reserving it.
+
+`COPY.COM` then names the answer itself: both tests branch to a routine that prints
+**`Disk space already in use`**. That is Microsoft's own shipped string, describing the
+twelve-block region as space that can be occupied. There is no reading of that as accidental.
+
+The hard-coded offset `$10` is worth a sentence in any write-up: it only makes sense for
+`DSM=139`. Under `DSM=127` the allocation vector is 16 bytes and byte `$10` is off its end. The
+code was written for the `$8B` geometry specifically.
+
+### Three supporting points in the article now read differently
+
+Two survive, one does not.
+
+* *"It sits at the first free slot, so it was written after the files."* **Holds, and is now
+  explained.** `COPY /S` creates it after the copy phase, so it lands after whatever is there.
+* *"It reserves the top twelve blocks, not the bottom, and a real whole-medium convention would
+  reserve the bottom and set `OFF`=0. So it is a patch to a symptom, not a design."* **Holds.**
+  It is still a workaround for a `DSM` that counts the whole medium. The correction is only that
+  it is Microsoft's own workaround, shipped in the tools.
+* *"The name is lowercase and contains `/`. The BDOS can write neither."* **This one is wrong and
+  should come out.** The BDOS writes whatever 11 bytes are in the FCB it is handed. It is the
+  **CCP** that upper-cases input and rejects `/` while parsing a command line. Any program
+  supplying its own FCB bypasses that, which is exactly what both tools do. The lowercase name
+  with a slash is a deliberate choice to make the entry unreachable from the command line, not
+  evidence of an external sector editor. Note this is the second half of the same point as the
+  user-31 trick: both hide the entry from the user, by different means.
+
+### What the defect narrative becomes
+
+Not "Microsoft shipped a wrong `DSM` and someone patched the master disks afterwards", but:
+Microsoft shipped a wrong `DSM`, noticed, and shipped a workaround **inside the tools** that
+reserves the phantom blocks on every disk those tools create. The bug is still real and still
+unfixed at its source, the DPB. What changes is that the mitigation is deliberate, documented by
+its own error messages, and applied by the software rather than by hand at mastering.
+
+The exposure argument is unchanged in substance and slightly narrower in framing. Still exposed:
+
+1. **Every 2.20-lineage disk.** Never had the entry, and they ship 2-3 KB from full. The measured
+   twelve phantom kilobytes per disk stand.
+2. **Any disk formatted without `/S`.** The reservation routine returns immediately when the `/S`
+   flag is clear, so a plain `/F` format gives a valid empty directory and no entry.
+
+Case 2 is now clearly the *unsupported* path rather than the only path. Microsoft's answer for
+disks it made, and for disks a user makes with `/S`, is the reservation. Data disks made with
+`/F` alone fall outside that answer.
+
+## 2. The formatter writes `$E5`, which you could not get from the images
+
+This was question 8, and the prompt correctly noted it could not be settled from the archive
+because every free block on every archived disk holds released file data rather than virgin fill.
+
+It is settled from the encoder constants. `FORMAT_TRACK` in `CPMV220-44K/utilities/FORMAT_6502.s`
+fills the two 6-and-2 nibble buffers before writing each data field:
+
+```
+        LDA #$39            ; primary buffer   (256 bytes)
+        LDA #$2A            ; secondary buffer  (86 bytes)
+```
+
+In Apple 6-and-2 the primary holds `byte >> 2` and the secondary packs three 2-bit fields, each
+being the byte's low two bits with the bit order reversed. For `$E5`:
+
+```
+$E5 = 1110 0101  ->  primary  = $E5 >> 2     = $39
+                     low two  = 01 reversed  = 10
+                     three such fields       = %00101010 = $2A
+```
+
+Both match, and no neighbouring value does: `$E6` would need a secondary of `$15`. Every data
+field a format writes decodes to `$E5`.
+
+**2.23 does the same.** `CPMV223-44K/utilities/COPY_6502.s` carries the identical constants at
+`$0CE4`/`$0CEE`, buffers at `$1F00` rather than `$1B00`. The formatter was relocated and
+rewritten, not changed in behaviour. So the 510-of-2,280 shared-window measurement in the prompt
+is consistent: a rewrite that preserved the format.
+
+## 3. Nothing initialises the directory, and nothing needs to
+
+Question 4 asked which program initialises the directory at track 3, and said that if nothing
+does, that is the finding. Nothing does, but the framing should not be "2.23 forgot to".
+
+A CP/M directory slot whose first byte is `$E5` is a free slot. A track of `$E5` is therefore
+already a valid empty directory with all 64 slots free. Since the format fills the whole medium
+with `$E5`, the directory is initialised as a side effect of formatting. There is no separate
+step to find because CP/M's design does not require one.
+
+This is a nice small point for a general audience: the "empty" marker was chosen to be the value
+a freshly formatted disk already has.
+
+## 4. `BOOT.COM` writes nothing at all
+
+Question 3 assumed `BOOT.COM` writes boot tracks and asked where the image comes from. The premise
+is wrong, so the question dissolves. Its whole body is:
+
+1. seed `$77` at `$000B`, the Z-80/6502 hand-off byte;
+2. `LDIR` a 269-byte 6502 read engine into Apple RAM at `$5000`;
+3. choose an entry address, `$C600` for 16-sector, which is the Disk II controller's own boot PROM
+   in slot 6, or `$6000` for 13-sector;
+4. store it in the hand-off slot and `JP $000B`, giving the machine to the 6502.
+
+Its only string is `<3>=13 sector, <CR>=16 sector: $`. It is a **re-boot utility with a density
+selector**, for booting 13-sector media on a 16-sector system. No writes, so no question of which
+OS version it lays down.
+
+## 5. `COPY` can format without copying
+
+Question 5. At `$01EA` the `/F` flag is tested and, if set, control goes to `FORMAT_DEST_DISK` and
+then straight to the `Operation completed` path. No track copying on that branch. A user can
+produce a blank formatted disk.
+
+The four switches, decoded at `$0189`-`$01AF`:
+
+| Switch | Char | Flag | Effect |
+|---|---|---|---|
+| `/S` | `$53` | `$0522` | system copy: write the reservation entry |
+| `/D` | `$44` | `$0523` | second drive / swap handling |
+| `/F` | `$46` | `$0525` | format |
+| `/V` | `$56` | `$0524` | verify: read back and compare |
+
+Also worth knowing: the first thing `COPY` does, at `$0106`, is set user 31. Everything it does
+through the BDOS thereafter happens under a user number the CCP cannot reach.
+
+## 6. `MFT` cannot create a filesystem
+
+Question 7. `Single Drive File Transfer Program (C) 1980 by Mycroft Labs`. It copies **named
+files** one at a time through a single drive, prompting for disk swaps. Its errors are file-level:
+`Not found:`, `Disk read error:`, `Disk or directory full error:`. It writes through the BDOS into
+an existing directory. It requires a filesystem on the destination and creates nothing.
+
+## 7. Six annotation corrections, and what they say about the tiers
+
+All comment-level. Gate 1117 passed / 1 skipped, unchanged, so no assembled byte moved.
+
+`CPMV223-44K/utilities/COPY.asm`
+
+1. `READ_SYSTEM_FILE` headed "opens the source CPM*.SYS file ... reads the OS image into the copy
+   buffer". Wrong in every clause: no open, no read, no source file. It **creates** the
+   reservation. Now documented as `WRITE_SYSTEM_RESERVATION`.
+2. `LD DE,RST2_VEC` at `$038C`. `$0010` here is a byte offset into the allocation bitmap, not the
+   RST 2 vector. A blind `cpm22.inc` rename; restored to a literal with the offset explained.
+3. `FORMAT_DEST_DISK` said to write "a fresh CP/M system image". It does not.
+4. `OPEN_SYSTEM_FCB`'s header, which I added earlier the same day in `01477bf`, said COPY removes
+   the entry and the installer creates it. Incomplete: the delete at `$0384` is the first step of
+   rewriting it. My own correction needed correcting.
+5. `BUILD_RECORD_LIST` described as building a record list for reading a file. It fills the FCB
+   block map with allocation block numbers.
+
+`CPMV223-60K/CPM60_installer.asm`
+
+6. Fn `$1B` documented as "get DPB", the `+$10` as "geometry sanity byte 0", the `AND $F0` as
+   "geometry sanity byte 1". All three wrong, as above. The unused `RST2_VEC EQU $0010` removed.
+
+### The tier lesson, which is now a pattern worth stating in prose
+
+Part 1 section 5 already told you the `[AI]` tier is the least trustworthy. This round sharpens it
+in two ways.
+
+First, **the errors were not random noise, they were plausible-sounding fiction.** "Reads the OS
+image into the copy buffer" is what a routine called from a copy program near a system FCB
+*ought* to do. The annotation described the expected program, not the actual one. That is the
+failure mode to describe: not gibberish, but confident narrative that fits the context and
+contradicts the instructions.
+
+Second, **a correction is not automatically better than what it replaced.** Item 4 above is mine,
+made hours earlier, and it was half right in a way that pointed away from the real finding. If you
+write about the annotation layer, this is the honest shape of it: the `[AI]` tier was wrong, the
+hand-review tier caught it partially, and the thing that finally settled it was neither, but a
+shipped error message.
+
+### What actually settled it
+
+Worth saying plainly because it is a good methodological beat. The decisive evidence was not a
+disassembly insight. It was that `COPY.COM` routes its free-space failure to a string reading
+`Disk space already in use`. The program documents its own intent, in a message Microsoft wrote
+for users in 1982, sitting in the binary the whole time. Cross-validating the two tools against
+each other is what made it visible: the installer alone was ambiguous, and the copier's error
+message disambiguated it.
+
+## 8. Two things left open
+
+State these as open if you write from this; do not round them off.
+
+* **Whether `/S` without `/F` also writes the entry.** The call graph says yes, since the
+  reservation routine is reached from `INIT_FORMAT_DEST` as well as from `FORMAT_DEST_DISK`, but I
+  did not enumerate the flag interlocks at `$01D0`-`$0233` and am not asserting it.
+* **Where the system tracks come from on a `/S` copy.** `CHECK_SOURCE_SYSTEM` reads track 0 of the
+  source through the 6502, and there is a `System not found on source disk` error, so the system
+  appears to travel as raw tracks with the `cp/m sys` entry reserving *file-area* blocks rather
+  than carrying the image. Not fully traced.
+
+`CAT.asm`, `PATCH.asm` and `AUTORUN.asm` were not examined.
+
+## 9. Corrections to the prompt itself
+
+Two premises in the disk-creation prompt were wrong, both flagged above and repeated here so they
+do not survive into prose:
+
+* "`BOOT.COM` is 512 bytes and writes boot tracks." It writes nothing.
+* "The name is lowercase and contains `/`. The BDOS can write neither." The BDOS writes whatever
+  is in the FCB; it is the CCP that cannot.
+
+Everything else in the prompt held up, including the `DSM` arithmetic, the Alteration Guide
+provenance, the count-not-placement point, the block 128-to-track-35 mapping, and the measured
+free-space table.
