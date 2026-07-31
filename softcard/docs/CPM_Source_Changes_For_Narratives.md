@@ -974,3 +974,89 @@ like arbitrary arithmetic on a sector number. Named correctly, it reads as what 
 
 The fold itself now carries a header block at the site explaining the aliasing, the exact
 arithmetic, and the consequence.
+
+---
+
+# Part 6, 2026-07-31: item 2 resolved. The `[?]` branch is DRI's `$$$.SUB` probe
+
+Your hypothesis was right, and the reason it looked unresolvable was the label. Gate 1121 passed
+/ 1 skipped, byte-identical.
+
+## The answer
+
+The branch sets the BDOS return value to `$FF` when **the current user** has a file whose name
+begins with `$`. That is Digital Research's documented CP/M 2.2 behaviour for **function 13,
+Reset Disk System**, which "logs in drive A: and returns 0FFh if there is a file present whose
+name begins with a $, otherwise 0". The CCP reads it to notice `$$$.SUB` and resume a SUBMIT
+batch after a warm boot.
+
+So, to your three settling questions:
+
+* **What writes `$9F41`?** `F_USERNUM_H` (fn 32, Get/Set User Code). It is the **current user
+  number** cell. Your suspicion about the label was exactly right.
+* **Who reads `$9F45`?** The dispatcher, on the way out. `BDOS_RETVAL` is the ordinary BDOS
+  return cell, so the `$FF` simply becomes function 13's `A` result.
+* **Is it DRI's or a SoftCard addition?** **DRI's.** The 2.20 and 2.23 BDOSes carry it
+  identically, and it matches the published function-13 semantics.
+
+It is one clause in the article, as you predicted: *the login scan also notices whether the
+current user has a `$`-prefixed file, which is how `SUBMIT` batches survive a warm boot.*
+
+## Why it read as unknown: the label was wrong
+
+`BDOS_STACK_TOP` is a **dual-use cell**, and this is DRI saving a byte rather than an accident:
+
+```
+BDOS_DISPATCH:  LD SP,BDOS_USER_NUM     ; SP = $9F41
+```
+
+The Z-80 decrements `SP` **before** writing, so the first push lands at `$9F40` and the stack
+grows down from there. **The byte at `$9F41` is never touched by the stack.** DRI put the user
+number in it. Elsewhere in the same file the repo already knew this, and said so plainly at
+`FCB_MERGE_USER` ("OR the current user number into the FCB's drive byte") and at `F_USERNUM_H`.
+Only the cell's own definition, and the one place that mattered, carried the stack-only name.
+
+With the cell named for its stack role, `LD A,(BDOS_STACK_TOP) / CP (HL)` reads as "compare a
+directory entry against a stack byte", which is meaningless, so it got a `[?]`. Renamed to
+`BDOS_USER_NUM` it reads as what it is:
+
+```asm
+        LD A,(BDOS_USER_NUM)   ; current user number
+        CP (HL)                ; this entry's user byte?
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        INC HL
+        LD A,(HL)              ; first name character
+        SUB $24                ; '$'?  (A = 0 when it is)
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        DEC A                  ; 0 -> $FF
+        LD (BDOS_RETVAL),A     ; fn 13's result
+```
+
+**Your Part-2 observation stands unchanged and is worth keeping in the article:** both tests jump
+to `MARK`, and the fall-through reaches `MARK` too, so every non-`$E5` entry has its blocks
+marked regardless. The probe only sets a flag. "`$E5` and for no other reason" is safe.
+
+## Changes
+
+Comment- and label-level in all three BDOS files; `.lst` regenerated; no assembled byte moved.
+
+* `BDOS_STACK_TOP` renamed **`BDOS_USER_NUM`** across `CPMV220-44K`, `CPMV223-44K` and
+  `CPMV223-60K` (16, 17 and 15 references). Its definition now documents the dual tenancy and
+  why the stack cannot disturb it.
+* The `[?] ... exact intent is UNKNOWN` headers in all three replaced with the resolved
+  explanation and the DRI provenance.
+* The "special-entry check" wording, which was doing no work, replaced with "the `$` SUBMIT
+  probe" throughout.
+
+Worth noting for the annotation-tier theme: the 60K file's header already said the test was
+"against the current user" while the two 44K files called it "the BDOS default-FCB byte". A
+cross-tree contradiction of exactly the kind audit 3 exists to catch, which it missed because
+the two descriptions never shared a label name.
+
+## Running tally of the three follow-up items
+
+| item | state |
+|---|---|
+| 1. Run the failure in the emulator | **Done**, and it produced the `$8B` fold (Part 5) |
+| 2. `ALLOC_VECTOR_BUILD` `[?]` branch | **Done**, this part |
+| 3. Third-party CP/M disks | **Not run.** Still the only open item |

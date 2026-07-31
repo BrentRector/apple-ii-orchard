@@ -86,7 +86,7 @@ BDOS_ERRVEC_FILERO:
 ;   Algorithm: OBSERVED -- save caller DE into BDOS_PARAM_PTR; copy low byte E into the
 ;              drive/byte-arg
 ;              cell; default BDOS_RETVAL to 0; capture caller SP into BDOS_SAVED_SP and switch SP to
-;              BDOS_STACK_TOP; clear two per-call state cells; push the common BDOS exit ($A974) so
+;              BDOS_USER_NUM; clear two per-call state cells; push the common BDOS exit ($A974) so
 ;              every handler RETs through it; range-check A(=C) against $29 (41) -- CP $29 / RET NC
 ;              returns when A >= 41. Then move byte-arg E into C, index BDOS_DISPATCH_TBL by 2*A
 ;              (two ADD HL,DE), fetch the handler word into DE, reload the saved info-address into
@@ -103,7 +103,7 @@ BDOS_DISPATCH:
         LD (BDOS_RETVAL),HL
         ADD HL,SP
         LD (BDOS_SAVED_SP),HL
-        LD SP,BDOS_STACK_TOP
+        LD SP,BDOS_USER_NUM
         XOR A
         LD (DRV_SAVED_FCB_BYTE),A
         LD (DRV_RESTORE_FLAG),A
@@ -941,15 +941,15 @@ CON_PENDING_CHAR:
 ; ----------------------------------------------------------------------
 ; BDOS_SAVED_SP -- caller's stack pointer saved on BDOS entry (then BDOS-local stack slack).
 ;   [RE] BDOS_DISPATCH saves SP here and switches to the BDOS-local stack; restored on exit. The
-;        trailing DEFS reserves the BDOS local stack space below BDOS_STACK_TOP.
+;        trailing DEFS reserves the BDOS local stack space below BDOS_USER_NUM.
 ; ----------------------------------------------------------------------
 BDOS_SAVED_SP:
         DEFS    50, $00                  ; fill
 ; ----------------------------------------------------------------------
-; BDOS_STACK_TOP -- top of the BDOS private stack (SP loaded here on entry).
-;   [RE] BDOS_DISPATCH does LD SP,BDOS_STACK_TOP before dispatching a function.
+; BDOS_USER_NUM -- top of the BDOS private stack (SP loaded here on entry).
+;   [RE] BDOS_DISPATCH does LD SP,BDOS_USER_NUM before dispatching a function.
 ; ----------------------------------------------------------------------
-BDOS_STACK_TOP:
+BDOS_USER_NUM:
         DEFB    "\0"
 ; ----------------------------------------------------------------------
 ; BDOS_CUR_DRIVE -- current selected drive index (0=A) for error reporting and disk ops.
@@ -1950,14 +1950,28 @@ ALLOC_FROM_FCB_NEXT:
 ;              reserved directory
 ;       blocks; reset the scan workspace to read from the start; for each entry skip deleted ($E5)
 ;       ones, run a
-;       special-entry check against the BDOS default-FCB byte / '$' name byte, and ALLOC_FROM_FCB to
+;       '$' SUBMIT probe against the current user / '$' name byte, and ALLOC_FROM_FCB to
 ;       mark its blocks;
 ;       advance until the directory is exhausted.
 ;   [RE] canonical CP/M 2.2 drive-init allocation-vector builder, invoked on drive selection /
 ;   reset.
-;   [?] the compare against (BDOS_STACK_TOP) then the $24 ('$') name-byte test and (BDOS_RETVAL)
-;   store is a special-entry path;
-;       its exact intent is UNKNOWN.
+; THE '$' SUBMIT PROBE (resolved 2026-07-31; was marked [?] / UNKNOWN).
+;   While scanning the directory, this sets the BDOS return value to $FF if the CURRENT USER
+;   has a file whose name begins with '$'. That is DRI's documented CP/M 2.2 behaviour for
+;   function 13 (Reset Disk System): it logs in drive A and "returns 0FFh if there is a file
+;   present whose name begins with a $, otherwise 0". The CCP uses it to notice $$$.SUB, the
+;   SUBMIT continuation file, so a batch resumes after a warm boot. It is STANDARD DRI CODE,
+;   not a SoftCard addition: the 2.20 and 2.23 BDOSes carry it identically.
+;
+;   The reason it read as unknown was the label. BDOS_USER_NUM is the CURRENT USER NUMBER
+;   cell, not a stack cell: F_USERNUM_H (fn 32) writes it and FCB_MERGE_USER ORs it into
+;   FCB byte 0. DRI overlapped it with the BDOS stack top to save a byte -- BDOS_DISPATCH
+;   does LD SP,BDOS_USER_NUM, and because the Z-80 decrements SP BEFORE writing, pushes land
+;   at BDOS_USER_NUM-1 and below and never disturb the byte itself.
+;
+;   So the sequence reads: A = current user; equal to this entry's user byte? then is its
+;   first name character '$'? then A (which is 0 from the SUB) becomes $FF and is stored as
+;   the function's result. [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_BUILD:
         LD HL,(MAX_BLOCK_DSM)
@@ -1991,7 +2005,7 @@ ALLOC_VECTOR_CLEAR_LOOP:
         CALL INVALIDATE_CUR_RECORD
 ; ----------------------------------------------------------------------
 ; ALLOC_VECTOR_SCAN_LOOP -- read each directory entry, skipping erased ($E5) ones, applying the
-; special-entry check. [RE]
+; '$' SUBMIT probe (see ALLOC_VECTOR_BUILD's header). [RE]
 ; ----------------------------------------------------------------------
 ALLOC_VECTOR_SCAN_LOOP:
         LD C,$FF
@@ -2002,14 +2016,17 @@ ALLOC_VECTOR_SCAN_LOOP:
         LD A,$E5
         CP (HL)
         JP Z,ALLOC_VECTOR_SCAN_LOOP
-        LD A,(BDOS_STACK_TOP)
+        ; A = the current user number; does this entry belong to that user?
+        LD A,(BDOS_USER_NUM)
         CP (HL)
         JP NZ,ALLOC_VECTOR_SCAN_MARK
         INC HL
         LD A,(HL)
-        ; compare the name byte against '$' for the special-entry path [?]
+        ; Does the name begin with '$'? (SUB leaves A=0 when it does.)
         SUB $24
         JP NZ,ALLOC_VECTOR_SCAN_MARK
+        ; A was 0, so this makes it $FF: fn 13's "a '$' file exists" result, which the CCP
+        ; reads to notice $$$.SUB and resume a SUBMIT batch.
         DEC A
         LD (BDOS_RETVAL),A
 ; ----------------------------------------------------------------------
@@ -3968,7 +3985,7 @@ DRV_SET_H:
 ; FCB_AUTO_DRIVE_SELECT -- common file-operation preamble: honor the drive prefix in the caller's
 ; FCB, temporarily selecting that drive.
 ;   In: BDOS_PARAM_PTR = pointer to the caller's FCB (byte 0 = drive prefix, 0=default else
-;       drive+1); BDOS_CUR_DRIVE = current drive; BDOS_STACK_TOP = current user number.
+;       drive+1); BDOS_CUR_DRIVE = current drive; BDOS_USER_NUM = current user number.
 ;   Out: if the FCB names an explicit drive, that drive is selected (DRV_SELECT_ARG set, DRV_SET_H
 ;        called)
 ;        and the prior drive is saved in the restore cells (DRV_RESTORE_FLAG flag=$FF,
@@ -3984,7 +4001,7 @@ DRV_SET_H:
 ;              save current drive (BDOS_CUR_DRIVE->DRV_SAVED_DRIVE) and original FCB byte
 ;              (->DRV_SAVED_FCB_BYTE), strip
 ;              the drive prefix bits ($E0 mask) from FCB byte0, and select the requested drive via
-;              DRV_SET_H; finally OR the current user number (BDOS_STACK_TOP) into FCB byte0.
+;              DRV_SET_H; finally OR the current user number (BDOS_USER_NUM) into FCB byte0.
 ;   [RE] this is the auto-disk-select / FCB drive-prefix handler that nearly every file BDOS call
 ;   funnels through; the matching restore is FCB_AUTO_DRIVE_RESTORE. The old auto-label
 ;   'FCB_AUTO_DRIVE_SELECT' is a misnomer (it does not seek tracks).
@@ -4021,7 +4038,7 @@ FCB_AUTO_DRIVE_SELECT:
 ; ----------------------------------------------------------------------
 ; FCB_MERGE_USER -- tail of FCB_AUTO_DRIVE_SELECT: OR the current user number into the FCB's drive
 ; byte.
-;   In: BDOS_STACK_TOP = current user number; BDOS_PARAM_PTR = pointer to the FCB.
+;   In: BDOS_USER_NUM = current user number; BDOS_PARAM_PTR = pointer to the FCB.
 ;   Out: FCB byte0 |= current user number.
 ;   Clobbers: A, HL.
 ;   Algorithm: load user number, OR with FCB byte0, store back.
@@ -4029,7 +4046,7 @@ FCB_AUTO_DRIVE_SELECT:
 ; ----------------------------------------------------------------------
 FCB_MERGE_USER:
         ; A = current user number
-        LD A,(BDOS_STACK_TOP)
+        LD A,(BDOS_USER_NUM)
         LD HL,(BDOS_PARAM_PTR)
         ; merge the user number into the FCB's drive/flags byte
         OR (HL)
@@ -4398,9 +4415,9 @@ BDOS_RET_RESULT_HL:
 ; ----------------------------------------------------------------------
 ; F_USERNUM_H -- BDOS function 32 (Get/Set User Code).
 ;   In: DRV_SELECT_ARG = caller's argument byte ($FF = 'get', else the user number to set);
-;       BDOS_STACK_TOP =
+;       BDOS_USER_NUM =
 ;       current user number.
-;   Out: if get: BDOS result A = current user number; if set: current user number BDOS_STACK_TOP
+;   Out: if get: BDOS result A = current user number; if set: current user number BDOS_USER_NUM
 ;        updated to (arg AND $1F).
 ;   Clobbers: A.
 ;   Algorithm: if the argument is $FF, return the current user number; otherwise mask the argument
@@ -4415,13 +4432,13 @@ F_USERNUM_H:
         ; no: it is a 'set user number' request
         JP NZ,SET_USER_NUMBER
         ; get path: load the current user number
-        LD A,(BDOS_STACK_TOP)
+        LD A,(BDOS_USER_NUM)
         ; return it as the BDOS result
         JP BDOS_RET_RESULT
 ; ----------------------------------------------------------------------
 ; SET_USER_NUMBER -- set path of BDOS function 32: change the current user number.
 ;   In: A = requested user number.
-;   Out: current user number BDOS_STACK_TOP = A AND $1F (0..31).
+;   Out: current user number BDOS_USER_NUM = A AND $1F (0..31).
 ;   Clobbers: A.
 ;   Algorithm: mask the requested user number to 5 bits and store it.
 ;   [RE] continuation of F_USERNUM_H (Get/Set User).
@@ -4430,7 +4447,7 @@ SET_USER_NUMBER:
         ; clamp the user number to the range 0..31
         AND $1F
         ; store the new current user number
-        LD (BDOS_STACK_TOP),A
+        LD (BDOS_USER_NUM),A
         RET
 ; ----------------------------------------------------------------------
 ; F_READRAND_H -- BDOS function 33 (Read Random): read the record addressed by the FCB's
