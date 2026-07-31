@@ -13,7 +13,8 @@
 ;   $20 set/get user        E=$1F -> SET user 31. Per CPMREF fn 32, E=$FF GETS;
 ;                           any other E SETS (mod 32). $1F is a set, and it is what
 ;                           puts user byte $1F on the reservation entry made below.
-;   $19 get current disk    $1B get allocation-vector / DPB address (returns HL)
+;   $19 get current disk    $1B Get Addr(Alloc) -> HL = allocation bitmap
+;                           (NOT the DPB; that is fn $1F)
 ;   $0E select disk         $13 delete file       $16 make (create) file
 ;   $10 close file          $06 direct console I/O (E=$FF -> poll keyboard)
 ;   $09 print '$'-string
@@ -38,7 +39,6 @@
 ; -- CP/M page-zero / BDOS --
 WBOOTV   EQU $0000   ; warm-boot vector (JP WBOOT). Also poked as RPC trigger.
 BDOS    EQU $0005   ; BDOS entry (CALL $0005)
-RST2_VEC    EQU $0010   ; +offset used to index the DPB returned by fn $1B
 TFCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
 
 ; -- 60K-BIOS RWTS-bridge variables (high RAM, shared with 6502 via window) --
@@ -99,30 +99,43 @@ TPA_START_1:
 ; ---------------------------------------------------------------------------
 ; 2) VALIDATE THE TARGET DISK via BDOS, before doing any raw writes:
 ;    - select it (fn $0E)
-;    - delete any stale "CP/M     SYS" placeholder (fn $13)
-;    - read its DPB (fn $1B) and sanity-check the disk geometry bytes
+;    - delete any stale "cp/m    sys" reservation entry (fn $13)
+;    - CHECK THAT BLOCKS 128-139 ARE FREE, by reading the allocation vector
+;      (fn $1B) and testing the two bitmap bytes that cover them
 ;    - try to MAKE a file (fn $16) named "cp/m    sys" to (a) check the disk is
 ;      not write-protected and (b) reserve directory/space. If make fails (A=$FF
 ;      after INC -> Z) -> "Disk space already in use".
+;
+; The +$10 test below is a FREE-SPACE check on the twelve surplus blocks, not a
+; "geometry sanity" check as an earlier header here claimed. fn $1B is
+; Get Addr(Alloc), which returns the allocation BITMAP, not the DPB (that is
+; fn $1F). In the bitmap the MSB of byte 0 is block 0, so byte $10 covers blocks
+; 128-135 and the next byte covers 136-143; AND $F0 tests exactly 136-139.
+; Together that is precisely blocks 128..139 -- the twelve this program is about
+; to reserve. COPY.COM runs the identical sequence and routes the same failure to
+; its "Disk space already in use" message, which names what is being tested. [RE]
+;
+; Note the code hard-codes byte offset $10, so it assumes DSM=139: under DSM=127
+; the allocation vector is only 16 bytes and this reads past its end.
 ; ---------------------------------------------------------------------------
         LD E,C
         LD C,$0E                ; fn $0E select disk = C (0-based)
         CALL BDOS
         LD C,$13                ; fn $13 delete file
-        LD DE,$0355             ; FCB "cp/m    sys" (CP/M.SYS placeholder)
+        LD DE,$0355             ; FCB "cp/m    sys" (the reservation entry)
         CALL BDOS
-        LD C,$1B                ; fn $1B get allocation vector / DPB; HL->DPB
+        LD C,$1B                ; fn $1B Get Addr(Alloc); HL -> allocation bitmap
         CALL BDOS
-        LD DE,RST2_VEC          ; +$10 into the DPB
+        LD DE,$0010             ; +$10 = bitmap byte covering blocks 128-135
         ADD HL,DE
-        LD A,(HL)               ; geometry sanity byte 0
+        LD A,(HL)               ; blocks 128-135 must all be free
         OR A
-        JP NZ,TPA_START_8       ; unexpected -> "Disk I/O error"
+        JP NZ,TPA_START_8       ; already in use -> "Disk I/O error"
         INC HL
         LD A,(HL)
-        AND $F0                 ; geometry sanity byte 1 (high nibble must be 0)
+        AND $F0                 ; blocks 136-139 (top 4 bits) must be free
         OR A
-        JP NZ,TPA_START_8       ; unexpected -> "Disk I/O error"
+        JP NZ,TPA_START_8       ; already in use -> "Disk I/O error"
         LD C,$16                ; fn $16 make file (create "cp/m    sys")
         LD DE,$0355
         CALL BDOS

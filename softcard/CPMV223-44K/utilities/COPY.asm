@@ -389,8 +389,15 @@ INIT_FORMAT_DEST:
         CALL CHECK_SOURCE_SYSTEM         ; $0358  CD FC 04
         OR A                             ; $035B  B7
         JR Z,READ_SYSTEM_FILE            ; $035C  28 21
-; [AI] Formats the destination disk: prompts for the disk, runs the 6502 format routine, and writes
-;       a fresh CP/M system image, reporting write-protect or I/O errors.
+; FORMAT_DEST_DISK -- format the destination, then reserve the system area if /S was given.
+;   Prompts (single-drive only), hands the drive to the 6502 formatter at $1900, then calls
+;   WRITE_SYSTEM_RESERVATION. The formatter fills every data field with $E5, so the freshly
+;   formatted track 3 is already a valid EMPTY CP/M directory: nothing writes a directory
+;   structure because CP/M needs none.
+;
+;   It does NOT write a system image. Without /S, WRITE_SYSTEM_RESERVATION returns at once and
+;   the resulting disk carries no 'cp/m    sys' entry at all. An earlier [AI] header claimed a
+;   "fresh CP/M system image" is written here; it is not. [RE]
 FORMAT_DEST_DISK:
         LD DE,CHECK_SOURCE_SYSTEM_41     ; $035E  11 ED 07
         CALL PRINT_IF_SAME_DRIVE         ; $0361  CD 76 03
@@ -408,44 +415,64 @@ PRINT_IF_SAME_DRIVE:
         CP H                             ; $037A  BC
         RET Z                            ; $037B  C8
         JP PRINT_CRLF_STRING             ; $037C  C3 34 04
-; [AI] In system-copy mode, opens the source CPM*.SYS file, validates it, and reads the OS image
-;       into the copy buffer, reporting 'System not found' if absent.
+; WRITE_SYSTEM_RESERVATION -- create the 'cp/m    sys' entry reserving blocks 128-139.
+;   In:  CHECK_SOURCE_SYSTEM_8 = the /S flag (zero -> do nothing and return).
+;   Out: the destination disk carries a directory entry under user 31 named
+;        'cp/m    sys', EX=0, RC=$60, block map 128..139.
+;   Clobbers: A,BC,DE,HL,flags.
+;   Algorithm: delete any stale entry, verify blocks 128-139 are all free in the
+;     allocation bitmap, F_MAKE the file, hand-fill its block map with $80..$8B,
+;     set RC=$60/EX=0, F_CLOSE to commit.
+;
+;   THIS ROUTINE WRITES THE RESERVATION; IT DOES NOT READ ANYTHING. The earlier
+;     [AI] header ("opens the source CPM*.SYS file ... reads the OS image into the
+;     copy buffer") was wrong in every clause: there is no open, no read, and no
+;     source file. The sequence is byte-for-byte the one in CPM60_installer.asm,
+;     so TWO shipped Microsoft tools create this entry. It is a designed
+;     convention, not a mastering-time patch.
+;
+;   The free-space test: fn $1B is Get Addr(Alloc), returning the allocation
+;     BITMAP (the DPB is fn $1F). MSB of byte 0 is block 0, so byte $10 covers
+;     blocks 128-135 and the next byte covers 136-143; AND $F0 tests 136-139.
+;     Exactly the twelve blocks about to be reserved -- and the failure branch is
+;     ERR_SPACE_IN_USE, whose message 'Disk space already in use' names the test.
+;     The hard-coded $10 assumes DSM=139. [RE]
 READ_SYSTEM_FILE:
-        LD A,(CHECK_SOURCE_SYSTEM_8)     ; $037F  3A 22 05
+        LD A,(CHECK_SOURCE_SYSTEM_8)     ; $037F  3A 22 05   /S given?
         OR A                             ; $0382  B7
-        RET Z                            ; $0383  C8
-        CALL OPEN_SYSTEM_FCB             ; $0384  CD D3 03
-        LD C,DRV_ALLOCVEC                         ; $0387  0E 1B
+        RET Z                            ; $0383  C8         no -> write nothing
+        CALL OPEN_SYSTEM_FCB             ; $0384  CD D3 03   delete stale entry
+        LD C,DRV_ALLOCVEC                         ; $0387  0E 1B  Get Addr(Alloc)
         CALL BDOS                    ; $0389  CD 05 00
-        LD DE,RST2_VEC                   ; $038C  11 10 00
+        LD DE,$0010                      ; $038C  11 10 00   bitmap byte for blocks 128-135
         ADD HL,DE                        ; $038F  19
         LD A,(HL)                        ; $0390  7E
-        OR A                             ; $0391  B7
+        OR A                             ; $0391  B7         blocks 128-135 all free?
         JR NZ,ERR_SPACE_IN_USE           ; $0392  20 34
         INC HL                           ; $0394  23
         LD A,(HL)                        ; $0395  7E
-        AND $F0                          ; $0396  E6 F0
+        AND $F0                          ; $0396  E6 F0      blocks 136-139 free?
         JR NZ,ERR_SPACE_IN_USE           ; $0398  20 2E
-        LD C,F_MAKE                         ; $039A  0E 16
+        LD C,F_MAKE                         ; $039A  0E 16   create the entry
         LD DE,OPEN_SYSTEM_FCB_2          ; $039C  11 EA 03
         CALL BDOS                    ; $039F  CD 05 00
         INC A                            ; $03A2  3C
         JR Z,ERR_NO_DIR_SPACE            ; $03A3  28 28
-        LD HL,OPEN_SYSTEM_FCB_5          ; $03A5  21 FA 03
-        LD C,$80                         ; $03A8  0E 80
-        LD B,$0C                         ; $03AA  06 0C
-; [AI] Builds a 12-byte ascending FCB record-list (records $80-$8B) used to read the multi-record
-;       system file in one BDOS random/sequential pass.
+        LD HL,OPEN_SYSTEM_FCB_5          ; $03A5  21 FA 03   FCB+16 = block map
+        LD C,$80                         ; $03A8  0E 80      first block = 128
+        LD B,$0C                         ; $03AA  06 0C      12 blocks
+; Hand-fills the FCB's 16-byte block map with the ascending block numbers $80..$8B, so the
+;   closed entry claims blocks 128-139. These are ALLOCATION BLOCK numbers, not records.
 BUILD_RECORD_LIST:
         LD (HL),C                        ; $03AC  71
         INC C                            ; $03AD  0C
         INC HL                           ; $03AE  23
         DJNZ BUILD_RECORD_LIST           ; $03AF  10 FB
-        LD A,$60                         ; $03B1  3E 60
+        LD A,$60                         ; $03B1  3E 60      RC = 96 records
         LD (OPEN_SYSTEM_FCB_4),A         ; $03B3  32 F9 03
         XOR A                            ; $03B6  AF
-        LD (OPEN_SYSTEM_FCB_3),A         ; $03B7  32 F8 03
-        LD C,F_CLOSE                         ; $03BA  0E 10
+        LD (OPEN_SYSTEM_FCB_3),A         ; $03B7  32 F8 03   EX = 0
+        LD C,F_CLOSE                         ; $03BA  0E 10   commit the directory entry
         LD DE,OPEN_SYSTEM_FCB_2          ; $03BC  11 EA 03
         CALL BDOS                    ; $03BF  CD 05 00
         RET                              ; $03C2  C9
@@ -470,8 +497,11 @@ ERR_PRINT_RESTART:
 ;     $03EA, whose name is the lowercase 'cp/m    sys'. It DELETES; it does not open. An
 ;     earlier [AI] header read "opens the system FCB (BDOS 15)", which is wrong twice: the
 ;     call is fn $13 (F_DELETE), and 15 is open.
-;   That entry is the twelve-block reservation CPM60.COM writes (see CPM60_installer.asm).
-;     COPY removes it; the installer creates it. [RE]
+;   That entry is the twelve-block reservation (blocks 128-139) that CPM60.COM writes; see
+;     CPM60_installer.asm. COPY deletes it HERE only as the first step of rewriting it: the
+;     caller WRITE_SYSTEM_RESERVATION ($037F) re-creates it immediately afterwards. So this
+;     is delete-before-make, not a removal. COPY also calls it at $01FC on the non-format
+;     path, where nothing re-creates it and the entry really is just removed. [RE]
 OPEN_SYSTEM_FCB:
         LD C,DRV_ALLRESET                         ; $03D3  0E 0D
         CALL BDOS                    ; $03D5  CD 05 00
