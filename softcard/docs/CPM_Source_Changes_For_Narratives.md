@@ -1,5 +1,11 @@
 # CP/M source changes, 2026-07-30: a handoff to the write-up session
 
+> **CORRECTION, 2026-07-31.** Part 1 section 2 originally said "do NOT cite a manual
+> for this" about the DPB layout. **That instruction is withdrawn and was wrong.** The
+> layout IS normatively documented, by a DRI manual that is not in the SoftCard box.
+> The section below is rewritten; the DPB text it prints has also changed. If you acted
+> on the old instruction, revisit it. See commit `0620d69`.
+
 **Audience:** whoever is writing the wiseowl.com CP/M narratives. This records what
 changed in the recovered CP/M sources so the articles can track it, and, just as
 importantly, what must **not** be claimed about it.
@@ -52,16 +58,16 @@ article that prints the block can be matched to it verbatim:
 
 ```
 DPB:
-SPT:    DEFW    $0020                    ; records per track: 32 x 128-byte records
-BSH:    DEFB    $03                      ; block shift: log2(records per block) -> 8 records
-BLM:    DEFB    $07                      ; block mask: (records per block) - 1 -> 1 KB blocks
-EXM:    DEFB    $00                      ; extent mask
-DSM:    DEFW    $007F                    ; highest allocation block number: 127 -> 128 blocks
-DRM:    DEFW    $002F                    ; highest directory entry number: 47 -> 48 entries
-AL0:    DEFB    $C0                      ; directory-reserved blocks, bitmap, high byte -> 2
+SPT:    DEFW    $0020                    ; Sectors Per Track: counts 128-byte RECORDS, not 256-byte sectors -> 32
+BSH:    DEFB    $03                      ; Block SHift: log2(records per block) -> 8 records
+BLM:    DEFB    $07                      ; BLock Mask: (records per block) - 1 -> 1 KB blocks
+EXM:    DEFB    $00                      ; EXtent Mask
+DSM:    DEFW    $007F                    ; Disk Size Max: highest allocation block number: 127 -> 128 blocks
+DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
+AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2
 AL1:    DEFB    $00                      ; ditto, low byte
-CKS:    DEFW    $000C                    ; directory checksum bytes
-OFF:    DEFW    $0003                    ; reserved tracks before the file area
+CKS:    DEFW    $000C                    ; ChecKSum: directory checksum bytes
+OFF:    DEFW    $0003                    ; OFFset: reserved tracks before the file area
 ```
 
 That is the 2.20-44K block. The 2.23-44K and 2.23-60K blocks are identical except for
@@ -76,16 +82,42 @@ the assembler before the sources were touched.
 same fifteen bytes as the 2.23-44K twin. It was invisible to a search for "DPB" because
 it was an unlabelled raw `DEFB` run inside a data blob. It is labelled now too.
 
-### Provenance: do NOT cite a manual for this
+### Provenance: cite DRI's Alteration Guide, not the SoftCard manuals
 
-The ten field names are Digital Research's, from the CP/M 2.2 specification. They are
-**not** in the SoftCard manual set held in `softcard/reference/`. All five transcribed
-manuals were checked: they document BDOS function 31, the call that *returns* a DPB
-pointer, and not the block's layout. The sources therefore carry no `[DOC]` tag on the
-field names, and the derived geometry is marked `[RE]`. An article should not say the
-SoftCard manuals document the DPB.
+**This reverses what this document said on 2026-07-30.** The distinction is between the
+archive and the world, and the original wording collapsed them.
 
----
+The SoftCard box bundles DRI's CP/M 2.2 *Reference Manual*, which documents only BDOS
+function 31, the call that *returns* a DPB pointer, and never the block's layout. That
+much was right. But the layout is normatively specified by a different DRI manual, the
+CP/M 2.2 *Alteration Guide* (1979), section "Disk Parameter Tables". SoftCard CP/M is
+licensed DRI CP/M 2.2, so the Guide governs this block. It is registered in
+`softcard/docs/CPM_Manual_Reconcile_Facts.md` as `CPMAG`, with a scan at
+bitsavers (`pdf/digitalResearch/cpm/2.2/CPM_2.2_Alteration_Guide_1979.pdf`).
+
+So: **the DPB layout is documented, and citable.** What is *not* citable to the SoftCard
+manual set is a different statement, and worth keeping distinct in prose.
+
+**One trap the Guide sets.** It defines all ten fields and **never spells the acronyms
+out**. Its own shorthand is `;disk size-1` and `;directory max` in the DISKDEF listing.
+"Disk Size Max", "DiRectory Max" and the rest are conventional readings, not DRI's, and
+the source comments flag them `[?]` for that reason. Do not attribute an expansion to
+the manual. Note also that BSH is Block SHift, not "BLock Shift" - the same word is
+abbreviated B in BSH and BL in BLM, which is precisely why no expansion here is more
+than convention.
+
+### SPT counts RECORDS, not Apple sectors
+
+The most quotable trap in the block, and it bit this repo in six places before being
+corrected. `SPT = 32` does **not** mean 32 physical sectors per track. It counts
+128-byte CP/M records. An Apple 5.25" track holds 16 physical sectors of 256 bytes, so
+records and sectors differ by a factor of two and any prose that glosses SPT as "sectors
+per track" invites an off-by-two.
+
+DRI's own wording *is* "sectors per track", because DRI's reference format was the
+8-inch IBM 3740, whose sectors were 128 bytes, where record and sector coincided. The
+name is a fossil of that machine. That is a good sentence for an article and a bad
+assumption for arithmetic.
 
 ## 3. The Disk Parameter Header table, and a mis-decode worth telling
 
