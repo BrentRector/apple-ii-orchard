@@ -1309,13 +1309,13 @@ already on file in Part 1 §3 and is why the cell read as scratch.
 
 ### D2. Documents
 
-* **`docs/CPM_Disk_Creation.md`** (new) — the eight questions, with an update section carrying the
+* **`docs/CPM_Disk_Creation.md`** (new): the eight questions, with an update section carrying the
   fold and the narrowed hazard.
-* **`docs/CPM_Filesystem.md`** — "64 directory entries" corrected to **48** (`DRM`=`$2F`;
+* **`docs/CPM_Filesystem.md`**: "64 directory entries" corrected to **48** (`DRM`=`$2F`;
   `CKS`=12=48/4 confirms). Its "zero-fill tracks 3-34 for an empty directory" was wrong: a zero
   slot is a valid user-0 entry, so that yields 64 blank files. Must be `$E5`. Added sections on
   how a formatted disk gets its directory and on the reservation entry.
-* **`CPMV223-60K/CPM60_COM.md`, `BOOT_AND_PATCHING.md`** — the stale `$1B`/DPB claim and the
+* **`CPMV223-60K/CPM60_COM.md`, `BOOT_AND_PATCHING.md`**: the stale `$1B`/DPB claim and the
   stale IOB cell names.
 
 ### D3. Tooling
