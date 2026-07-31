@@ -109,10 +109,15 @@ READ:
 WRITE:
         JP SELDSK_IMPL_4
 ; ----------------------------------------------------------------------
-; LISTST -- BIOS list-status entry: report the list device ready.
-;   In:  none.  Out: A=0 (always 'ready'/no status).  Clobbers: A.
-;   Algorithm: XOR A / RET -- a stub that always returns 0, so BDOS never
-;     blocks on printer status.  Matches the CP/M 2.2 no-status LISTST. [RE]
+; LISTST -- entry 15: return the list device's ready status.
+;   In:  none.  Out: A = $00.  Clobbers: A, flags.
+;   Algorithm: XOR A / RET. A is $00 whatever the printer is doing. Under the
+;     CP/M 2.2 convention $00 means NOT ready and $FF means ready, so this
+;     reports "not ready" unconditionally.
+;     That is the whole of what these two bytes support. WHO consults LISTST, and
+;     what they do with the answer, is NOT determinable from this image, and the
+;     SoftCard manual set in softcard/reference/ does not document LISTST at all
+;     -- so no claim is made here about callers or about anything blocking. Same two bytes in the 2.20-44K and 2.23-44K twins. [RE]
 ; ----------------------------------------------------------------------
 LISTST:
         XOR A

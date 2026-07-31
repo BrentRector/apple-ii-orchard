@@ -68,12 +68,15 @@ BIOS_VECTOR_WBOOT:
 ; "post-vector trailer ... not reached as code here", which was wrong twice over:
 ; the BDOS reaches both through the jump table, and the bytes are ordinary Z-80. [RE]
 ; ----------------------------------------------------------------------
-; LISTST -- entry 15: report list-device status.
+; LISTST -- entry 15: return the list device's ready status.
 ;   In:  none.  Out: A = $00.  Clobbers: A, flags.
-;   Algorithm: XOR A / RET. A=0 means "not ready" per the CP/M 2.2 convention, and
-;     because it never returns $FF the BDOS never waits on printer status. The
-;     SoftCard has no list device to poll, so a constant answer is the whole
-;     implementation. Same two bytes in the 2.20-44K and 2.23-60K twins. [RE]
+;   Algorithm: XOR A / RET. A is $00 whatever the printer is doing. Under the
+;     CP/M 2.2 convention $00 means NOT ready and $FF means ready, so this
+;     reports "not ready" unconditionally.
+;     That is the whole of what these two bytes support. WHO consults LISTST, and
+;     what they do with the answer, is NOT determinable from this image, and the
+;     SoftCard manual set in softcard/reference/ does not document LISTST at all
+;     -- so no claim is made here about callers or about anything blocking. Same two bytes in the 2.20-44K and 2.23-60K twins. [RE]
 ; ----------------------------------------------------------------------
 LISTST:
         XOR A

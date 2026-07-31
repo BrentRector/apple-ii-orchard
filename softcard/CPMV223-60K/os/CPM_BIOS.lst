@@ -110,1239 +110,1244 @@
  109  FA2A              WRITE:
  110  FA2A C3 CC FE             JP SELDSK_IMPL_4
  111  FA2D              ; ----------------------------------------------------------------------
- 112  FA2D              ; LISTST -- BIOS list-status entry: report the list device ready.
- 113  FA2D              ;   In:  none.  Out: A=0 (always 'ready'/no status).  Clobbers: A.
- 114  FA2D              ;   Algorithm: XOR A / RET -- a stub that always returns 0, so BDOS never
- 115  FA2D              ;     blocks on printer status.  Matches the CP/M 2.2 no-status LISTST. [RE]
- 116  FA2D              ; ----------------------------------------------------------------------
- 117  FA2D              LISTST:
- 118  FA2D AF                   XOR A
- 119  FA2E C9                   RET
- 120  FA2F 00                   DEFB    $00
- 121  FA30              ; ----------------------------------------------------------------------
- 122  FA30              ; SECTRAN -- logical-to-physical sector translate (no-op identity map).
- 123  FA30              ;   In:  BC = logical sector, DE = translate-table addr (ignored).
- 124  FA30              ;   Out: HL = BC (physical == logical).  Clobbers: HL.
- 125  FA30              ;   Algorithm: LD H,B / LD L,C / RET.  The skew is applied off-image by the
- 126  FA30              ;     disk producer, so the DPH XLT is null and SECTRAN is the identity. [RE]
- 127  FA30              ; ----------------------------------------------------------------------
- 128  FA30              SECTRAN:
- 129  FA30 60                   LD H,B
- 130  FA31 69                   LD L,C
- 131  FA32 C9                   RET
- 132  FA33              ; ----------------------------------------------------------------------
- 133  FA33              ; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array: one 16-byte DPH per logical
- 134  FA33              ;   drive 0..3. SELDSK returns DPH_TABLE + 16*drive (SELDSK_IMPL_1, $FEA9).
- 135  FA33              ;   Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV, ALV. XLT = 0: no SECTRAN
- 136  FA33              ;   translate (SECTRAN above is the identity; the disk producer applies the skew
- 137  FA33              ;   off-image). All four drives share one DIRBUF and one DPB.
- 138  FA33              ;   The per-drive strides are the DPB's own fields: CSV is CKS = 12 bytes, ALV is
- 139  FA33              ;   DSM/8 + 1 = 139/8 + 1 = 18 bytes. [RE]
- 140  FA33              ; ----------------------------------------------------------------------
- 141  FA33              DPH_TABLE:
- 142  FA33 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS ; drive 0
- 142  FA37 00 00 00 00
- 142  FA3B FD FE 73 FA
- 142  FA3F C5 FF 7D FF
- 143  FA43 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+18 ; drive 1
- 143  FA47 00 00 00 00
- 143  FA4B FD FE 73 FA
- 143  FA4F D1 FF 8F FF
- 144  FA53 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+24,ALV_VECTORS+36 ; drive 2
- 144  FA57 00 00 00 00
- 144  FA5B FD FE 73 FA
- 144  FA5F DD FF A1 FF
- 145  FA63 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+36,ALV_VECTORS+54 ; drive 3
- 145  FA67 00 00 00 00
- 145  FA6B FD FE 73 FA
- 145  FA6F E9 FF B3 FF
- 146  FA73              ; DPB -- the shared Disk Parameter Block; all four DPH entries above point here (the
- 147  FA73              ;   $73,$FA pointer byte pair in each). Byte-for-byte the same 15 bytes as the 2.23-44K
- 148  FA73              ;   twin's DPB, DSM included. Field names are Digital Research's CP/M 2.2 DPB names;
- 149  FA73              ;   NOT [DOC]-citable from this archive, which documents only BDOS fn 31 (the call that
- 150  FA73              ;   RETURNS a DPB pointer), not the block's layout. [RE]
- 151  FA73              DPB:
- 152  FA73 20 00        SPT:    DEFW    $0020                    ; records per track: 32 x 128-byte records
- 153  FA75 03           BSH:    DEFB    $03                      ; block shift: log2(records per block) -> 8
- 154  FA76 07           BLM:    DEFB    $07                      ; block mask: (records per block) - 1 -> 1 KB
- 155  FA77 00           EXM:    DEFB    $00                      ; extent mask
- 156  FA78 8B 00        DSM:    DEFW    $008B                    ; highest allocation block number: 139 -> 140
- 157  FA7A 2F 00        DRM:    DEFW    $002F                    ; highest directory entry number: 47 -> 48
- 158  FA7C C0           AL0:    DEFB    $C0                      ; directory-reserved blocks, bitmap, high byte
- 159  FA7D 00           AL1:    DEFB    $00                      ; ditto, low byte
- 160  FA7E 0C 00        CKS:    DEFW    $000C                    ; directory checksum bytes
- 161  FA80 03 00        OFF:    DEFW    $0003                    ; reserved tracks before the file area
- 162  FA82              ; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. The Card Type
- 163  FA82              ;       Table (SLTTYP) starts at $F3B9, entry = $F3B8+S for slot S; $F3B8 itself is the Disk Count
- 164  FA82              ;       Byte. The loop walks $F3B8+DE (DE=7..1 -> $F3BF..$F3B9), reading each slot's detected card
- 165  FA82              ;       type and dispatching on it. (This is NOT the IOBYTE_ADDR table -- IOBYTE_ADDR is a single byte at $0003.)
- 166  FA82              ; ----------------------------------------------------------------------
- 167  FA82              ; PROBE_DEVICES -- cold/warm-boot per-device init loop over the Card Type Table.
- 168  FA82              ;   In:  none (walks the SoftCard Card Type Table at z80 $F3B8..).
- 169  FA82              ;   Out: config cells updated in place; each present card's init is called.
- 170  FA82              ;   Clobbers: A,DE,HL.
- 171  FA82              ;   Algorithm: for E = 7 down to 1, read SLTTYP[$F3B8+E]. Value 3 (serial) runs
- 172  FA82              ;     SLOT_IO_ADDR then stamps the cell $03/$15; value 4 (Videx-class 80-col)
- 173  FA82              ;     runs INIT_PASCAL_1_0 and reclaims the $C800 expansion-ROM window via
- 174  FA82              ;     RPC_TRIGGER; value 6 (post-1980 Pascal-1.1 class) runs PLOT_CHAR_RPC
- 175  FA82              ;     with the $0DD0 param. [DOC S&HD 2-26/2-27] SLTTYP base at $F3B9, entry
- 176  FA82              ;     $F3B8+S; $F3B8 is the Disk Count Byte. Twin of the 2.23-44K PROBE_DEVICES. [RE]
- 177  FA82              ; ----------------------------------------------------------------------
- 178  FA82              PROBE_DEVICES:
- 179  FA82 11 07 00             LD DE,$0007
- 180  FA85              ; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at $F3B8+DE. Card type 3
- 181  FA85              ;       (Apple Communications / CCS 7710A serial) runs its init and stamps the entry; card type 4
- 182  FA85              ;       (Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term) takes the decremented branch
- 183  FA85              ;       below that reclaims the $C800 firmware window.
- 184  FA85              SLOT_SCAN_INIT_1:
- 185  FA85 21 B8 F3             LD HL,SLOT_INFO_BASE
- 186  FA88 19                   ADD HL,DE
- 187  FA89 7E                   LD A,(HL)
- 188  FA8A D6 03                SUB $03
- 189  FA8C 20 07                JR NZ,PROBE_DEVICES_CHK4
- 190  FA8E CD 8A FE             CALL SLOT_IO_ADDR
- 191  FA91 36 03                LD (HL),$03
- 192  FA93 36 15                LD (HL),$15
- 193  FA95              ; [DOC S&HD 2-26] Card-type-4 branch (Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term):
- 194  FA95              ;       runs INIT_PASCAL_1_0, then reclaims the shared $C800 expansion-ROM window (LD HL,$C800)
- 195  FA95              ;       before continuing the per-slot Card Type Table scan. The card-type-2 sub-branch below
- 196  FA95              ;       ($FAA3, CP $02 -> type-6) is the post-1980 Pascal-1.1 path NOT documented by the 2.20 manual.
- 197  FA95              PROBE_DEVICES_CHK4:
- 198  FA95 3D                   DEC A
- 199  FA96 20 0B                JR NZ,SLOT_SCAN_INIT_3
- 200  FA98 CD 83 FD             CALL INIT_PASCAL_1_0
- 201  FA9B 21 00 C8             LD HL,$C800
- 202  FA9E CD 45 FB             CALL RPC_TRIGGER
- 203  FAA1 18 0A                JR PROBE_DEVICES_NEXT
- 204  FAA3              ; [AI] Card-type dispatch continuation: after SUB $03 then DEC A, a remaining value of $02 means the
- 205  FAA3              ;       original Card Type Table byte was 6 -- the POST-1980 device-6 / Pascal-1.1 card class that
- 206  FAA3              ;       the 2.20 manual does NOT document (2.23 added a $Cn0B Pascal-1.1 probe that reassigns the
- 207  FAA3              ;       Videx from type 4 to type 6). Runs PLOT_CHAR_RPC with the $0DD0 parameter. Not manual-backed.
- 208  FAA3              SLOT_SCAN_INIT_3:
- 209  FAA3 FE 02                CP $02
- 210  FAA5 20 06                JR NZ,PROBE_DEVICES_NEXT
- 211  FAA7 21 D0 0D             LD HL,$0DD0
- 212  FAAA CD B0 FD             CALL PLOT_CHAR_RPC
- 213  FAAD              ; [DOC S&HD 2-26/2-27] Loop tail of the Card Type Table scan: decrements the slot index E and repeats
- 214  FAAD              ;       for all seven Apple expansion slots (S=7..1), returning when done.
- 215  FAAD              PROBE_DEVICES_NEXT:
- 216  FAAD 1D                   DEC E
- 217  FAAE 20 D5                JR NZ,SLOT_SCAN_INIT_1
- 218  FAB0 C9                   RET
- 219  FAB1              ; ----------------------------------------------------------------------
- 220  FAB1              ; SLOT_E000_ADDR -- form a SoftCard I/O address from a device/offset index.
- 221  FAB1              ;   In:  E = low offset within the I/O page.  A clobbered.
- 222  FAB1              ;   Out: HL = ((E | $E0) << 8) -- an address in z80 $E000-$EFFF = Apple $C000-$CFFF.
- 223  FAB1              ;   Algorithm: H = $E0 base; A = E OR H forces the high nibble into the $C0xx I/O
- 224  FAB1              ;     page; H = A.  Used to reach keyboard / soft switches / slot I/O.  Twin of the
- 225  FAB1              ;     2.23-44K DEVICE_IO_BASE. [RE]
- 226  FAB1              ; ----------------------------------------------------------------------
- 227  FAB1              SLOT_E000_ADDR:
- 228  FAB1 21 00 E0             LD HL,$E000
- 229  FAB4 7B                   LD A,E
- 230  FAB5 B4                   OR H
- 231  FAB6 67                   LD H,A
- 232  FAB7              RET_VECTOR:
- 233  FAB7 C9                   RET
- 234  FAB8              ; [AI] WBOOT (warm boot) entry: resets the Z-80 stack to $0080, re-establishes the 6502 console via
- 235  FAB8              ;       RPC, rescans the slots, then reloads/relaunches the CCP. NOTE: the BDOS sentinel at $DC08
- 236  FAB8              ;       and BDOS entry $DC06 are 60K-config absolute addresses -- a POST-1980 layout the 2.20 manual
- 237  FAB8              ;       (44K/56K only) does NOT document; do not read a manual address into them.
- 238  FAB8              ; ----------------------------------------------------------------------
- 239  FAB8              ; BIOS_WBOOT (WBOOT) -- CP/M warm boot: re-init console, rebuild page zero, re-enter CCP.
- 240  FAB8              ;   In:  none.  Out: does not return (enters the CCP at $D300).  Clobbers: all.
- 241  FAB8              ;   Algorithm: SP = default DMA top ($0080); touch the 80-col soft switch (z80 $E051
- 242  FAB8              ;     = Apple $C051 TXTSET); re-init the console via RPC_TRIGGER; re-run PROBE_DEVICES.
- 243  FAB8              ;     Test the resident BDOS sentinel at $DC08 ($DC present = BDOS image intact) to skip
- 244  FAB8              ;     the reload; otherwise reload the system through a self-built $000B page-zero bridge.
- 245  FAB8              ;   Note: 60K addresses ($DC06/$DC08 BDOS, $D307/$D74E CCP scratch, CCP entry $D300) are
- 246  FAB8              ;     the POST-1980 Language-Card layout the 2.20 manual (44K/56K only) does NOT document;
- 247  FAB8              ;     do not read a manual address into them. Twin of the 2.23-44K WBOOT (there $9C08/$9300). [RE]
- 248  FAB8              ; ----------------------------------------------------------------------
- 249  FAB8              BIOS_WBOOT:
- 250  FAB8 31 80 00             LD SP,TBUFF
- 251  FABB 3A 51 E0             LD A,($E051)
- 252  FABE 21 00 0E             LD HL,$0E00
- 253  FAC1 CD 45 FB             CALL RPC_TRIGGER
- 254  FAC4 CD 82 FA             CALL PROBE_DEVICES
- 255  FAC7 3A 08 DC             LD A,($DC08)
- 256  FACA FE DC                CP $DC
- 257  FACC 28 11                JR Z,PAGEZERO_REBUILD
- 258  FACE              ; [DOC S&HD 2-24/2-25] Warm-boot RPC setup: stores the 6502 call target at A$VEC=$F3D0, then loads
- 259  FACE              ;       the SoftCard location from Z$CPU=$F3DE (low byte 0, high byte $0ENH for slot N) -- a WRITE
- 260  FACE              ;       through that address is the CPU switch back to the 6502. ($000B/$77 here is 60K-specific glue.)
- 261  FACE 21 59 FF             LD HL,BIOS_BOOT_13+1
- 262  FAD1 22 D0 F3             LD ($F3D0),HL
- 263  FAD4 2A DE F3             LD HL,($F3DE)
- 264  FAD7 3E 77                LD A,$77
- 265  FAD9 32 0B 00             LD ($000B),A
- 266  FADC C3 0B 00             JP $000B
- 267  FADF              PAGEZERO_REBUILD:
- 268  FADF AF                   XOR A
- 269  FAE0 32 07 D3             LD ($D307),A
- 270  FAE3              ; [AI] Cold-boot page-zero plant: writes JP WBOOT at $0000-$0002 and JP BDOS at $0005-$0007 (the
- 271  FAE3              ;       $0000 warm-boot vector and $0005 BDOS entry are SHARED CP/M architecture). The BDOS target
- 272  FAE3              ;       $DC06 stored at $0006 -- which also marks top-of-TPA -- is a 60K-config absolute address;
- 273  FAE3              ;       the 2.20 manual (44K/56K only) does NOT document this POST-1980 layout, so it is not cited.
- 274  FAE3              ; ----------------------------------------------------------------------
- 275  FAE3              ; PAGEZERO_REBUILD_HOOKS -- rebuild page zero, then fall into the CCP relaunch.
- 276  FAE3              ;   In:  none.  Out: falls into CCP_LAUNCH (CCP entry).  Clobbers: A,HL,BC.
- 277  FAE3              ;   Algorithm: plant JP ($C3) at $0000 -> WBOOT (BIOS $FA03) and JP at $0005 -> BDOS
- 278  FAE3              ;     ($DC06); clear the two self-modified cold-boot template cells (BOOT_TMPL_IOBYTE/
- 279  FAE3              ;     DISK_HSTACT); re-issue SETDMA($0080). The $0000 warm-boot vector and $0005 BDOS
- 280  FAE3              ;     entry are SHARED CP/M architecture; the BDOS target $DC06 (also the top-of-TPA
- 281  FAE3              ;     marker at $0006) is a 60K-config absolute address, not manual-backed. Twin of
- 282  FAE3              ;     the 2.23-44K PAGEZERO_REBUILD_HOOKS. [RE]
- 283  FAE3              ; ----------------------------------------------------------------------
- 284  FAE3              PAGEZERO_REBUILD_HOOKS:
- 285  FAE3 AF                   XOR A
- 286  FAE4 32 F6 FE             LD (BOOT_TMPL_IOBYTE),A
- 287  FAE7 32 F1 FE             LD (DISK_HSTACT),A
- 288  FAEA 3E C3                LD A,$C3
- 289  FAEC 32 00 00             LD (WBOOTV),A
- 290  FAEF 21 03 FA             LD HL,WBOOT
- 291  FAF2 22 01 00             LD ($0001),HL
- 292  FAF5 32 05 00             LD (BDOS),A
- 293  FAF8 21 06 DC             LD HL,$DC06
- 294  FAFB 22 06 00             LD ($0006),HL
- 295  FAFE 01 80 00             LD BC,TBUFF
- 296  FB01 CD F9 FB             CALL BIOS_SETDMA
- 297  FB04              ; ----------------------------------------------------------------------
- 298  FB04              ; CCP_LAUNCH -- final warm/cold-boot tail: set the CCP entry flag, enter the CCP.
- 299  FB04              ;   In:  none.  Out: JP $D300 (CCP entry); no return.  Clobbers: A,C.
- 300  FB04              ;   Algorithm: store a CCP-mode flag ($01) into $D74E (self-modified operand at
- 301  FB04              ;     CCP_LAUNCH+1), pass the current default drive (CDISK_ADDR, $0004) in C, and jump
- 302  FB04              ;     to the 60K CCP at $D300 (the 44K twin CCP_LAUNCH entered $9300). [RE]
- 303  FB04              ; ----------------------------------------------------------------------
- 304  FB04              CCP_LAUNCH:
- 305  FB04 3E 01                LD A,$01
- 306  FB06 32 4E D7             LD ($D74E),A
- 307  FB09 3A 04 00             LD A,(CDISK_ADDR)
- 308  FB0C 4F                   LD C,A
- 309  FB0D C3 00 D3             JP $D300
- 310  FB10              ; [DOC S&HD 2-18/2-19] CONST (console status) BIOS entry: jumps through I/O Vector Table cell 1,
- 311  FB10              ;       $F380 (Console Status) -- the routine returns A=$FF if a console character is ready, $00
- 312  FB10              ;       otherwise. This cell normally points into the BIOS and is user-patchable.
- 313  FB10              ; ----------------------------------------------------------------------
- 314  FB10              ; BIOS_CONST (CONST) -- CP/M console status: A=$FF if a char is ready, else $00.
- 315  FB10              ;   In:  none.  Out: A=$FF (ready)/$00 (not).  Clobbers: A,HL.
- 316  FB10              ;   Algorithm: load the console-status handler from the SoftCard I/O Vector Table
- 317  FB10              ;     Console Status cell (z80 $F380 = Apple $0380) and JP (HL) to the 6502-serviced
- 318  FB10              ;     handler, which returns the status in A. This cell is user-patchable.
- 319  FB10              ;     [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONST. [RE]
- 320  FB10              ; ----------------------------------------------------------------------
- 321  FB10              BIOS_CONST:
- 322  FB10 2A 80 F3             LD HL,($F380)
- 323  FB13 E9                   JP (HL)
- 324  FB14 3A                   DEFB    $3A
- 325  FB15              CONST_VEC_PATCH:
- 326  FB15 00 E0 17 9F          DEFB    $00,$E0,$17,$9F,$C9
- 326  FB19 C9
- 327  FB1A              ; [DOC S&HD 2-17] CONIN (console input) BIOS entry: reads a raw key via CONIN_DISPATCH_IOBYTE, masks the
- 328  FB1A              ;       high bit (AND $7F), then walks the Keyboard Character Redefinition Table to translate it.
- 329  FB1A              ;       Per the manual the table is at $F3AC; the code seeds HL=$F3AB and INC HL's to the first
- 330  FB1A              ;       entry's "from" byte at $F3AC. Up to six 2-byte entries (from-ASCII, to-ASCII, both high bit
- 331  FB1A              ;       clear); a byte with the high bit set terminates early (the JP M exit). Applies to TTY:/CRT:.
- 332  FB1A              ; ----------------------------------------------------------------------
- 333  FB1A              ; BIOS_CONIN (CONIN) -- read a console character: dispatch, then remap the key.
- 334  FB1A              ;   In:  none.  Out: A = (translated) key.  Clobbers: A,B,C,HL.
- 335  FB1A              ;   Algorithm: CALL CONIN_DISPATCH_IOBYTE to fetch a raw key (routed by the IOBYTE_ADDR CONSOLE
- 336  FB1A              ;     field); AND $7F to 7-bit; then walk the Keyboard Character Redefinition Table.
- 337  FB1A              ;     Per the manual the table is at $F3AC; the code seeds HL=$F3AB and INC HL's to the
- 338  FB1A              ;     first entry. Up to six 2-byte entries (from-ASCII, to-ASCII); a high-bit-set byte
- 339  FB1A              ;     terminates early (JP M). On a match returns the redefined 'to' byte, else the raw
- 340  FB1A              ;     key. [DOC S&HD 2-17] Twin of the 2.23-44K CONIN remap wrapper. [RE]
- 341  FB1A              ; ----------------------------------------------------------------------
- 342  FB1A              BIOS_CONIN:
- 343  FB1A CD 5A FB             CALL CONIN_DISPATCH_IOBYTE
- 344  FB1D E6 7F                AND $7F
- 345  FB1F 21 AB F3             LD HL,$F3AB
- 346  FB22 06 06                LD B,$06
- 347  FB24 4F                   LD C,A
- 348  FB25              ; [DOC S&HD 2-17] Keyboard-redefinition scan body: INC past to the "from" byte, test for the
- 349  FB25              ;       high-bit-set terminator (JP M exits), else compare the input (in C) and on a match return
- 350  FB25              ;       the redefined "to" byte (A=(HL)); loop up to six times via DJNZ.
- 351  FB25              KEY_REMAP_SCAN:
- 352  FB25 23                   INC HL
- 353  FB26 7E                   LD A,(HL)
- 354  FB27 23                   INC HL
- 355  FB28 B7                   OR A
- 356  FB29 FA 31 FB             JP M,KBD_STROBE_CLEAR
- 357  FB2C B9                   CP C
- 358  FB2D 7E                   LD A,(HL)
- 359  FB2E C8                   RET Z
- 360  FB2F 10 F4                DJNZ KEY_REMAP_SCAN
- 361  FB31              KBD_STROBE_CLEAR:
- 362  FB31 79                   LD A,C
- 363  FB32 C9                   RET
- 364  FB33 11 03 00 C3          DEFB    $11,$03,$00,$C3
- 365  FB37              CONIN_HANDLER_VEC:
- 366  FB37 39 FB 3A 00          DEFB    $39,$FB,$3A,$00,$E0,$17
- 366  FB3B E0 17
- 367  FB3D 30 FA                DEFW    SECTRAN
- 368  FB3F 32 10 E0 3F          DEFB    $32,$10,$E0,$3F,$1F,$C9
- 368  FB43 1F C9
- 369  FB45              ; [DOC S&HD 2-24/2-25] RPC dispatch: stores the 6502 subroutine address (in HL) at A$VEC=$F3D0
- 370  FB45              ;       (low-high) -- the Z-80->6502 call vector -- before the SoftCard CPU-switch is triggered.
- 371  FB45              ;       (The actual switch is a WRITE through Z$CPU=$F3DE; A$VEC just holds the target.)
- 372  FB45              ; ----------------------------------------------------------------------
- 373  FB45              ; RPC_TRIGGER -- fire a SoftCard 6502<->Z-80 RPC.
- 374  FB45              ;   In:  HL = 6502 subroutine address; A = trigger value.  Out: per the 6502 service.
- 375  FB45              ;   Algorithm: stash HL at A$VEC (z80 $F3D0 = Apple $03D0), the Z-80->6502 call vector,
- 376  FB45              ;     then a store through the CPU-switch cell (RPC_TRIGGER_STORE) triggers the actual
- 377  FB45              ;     switch. The store address (Z$CPU-derived) is self-modified at boot, so the store
- 378  FB45              ;     site is RPC_TRIGGER_STORE+1. [DOC S&HD 2-24/2-25] Twin of the 2.23-44K RPC_TRIGGER. [RE]
- 379  FB45              ; ----------------------------------------------------------------------
- 380  FB45              RPC_TRIGGER:
- 381  FB45 22 D0 F3             LD ($F3D0),HL
- 382  FB48              RPC_TRIGGER_STORE:
- 383  FB48 32 00 00             LD (WBOOTV),A
- 384  FB4B C9                   RET
- 385  FB4C              ; ----------------------------------------------------------------------
- 386  FB4C              ; CONOUT_SET_C -- console-output entry that first saves the char into C.
- 387  FB4C              ;   In:  A = character to emit.  Out: none.  Clobbers: A,C,HL.
- 388  FB4C              ;   Algorithm: LD C,A, then fall into CONOUT_DISPATCH. The BIOS CONOUT jump-vector
- 389  FB4C              ;     entry ($FA0C) targets CONOUT_DISPATCH+1 (skipping this LD C,A) when C is already
- 390  FB4C              ;     set; callers that hold the char in A enter here instead. Twin of the 2.23-44K
- 391  FB4C              ;     CONOUT_DISPATCH LD C,A prologue. [RE]
- 392  FB4C              ; ----------------------------------------------------------------------
- 393  FB4C              CONOUT_SET_C:
- 394  FB4C 4F                   LD C,A
- 395  FB4D              ; [DOC S&HD 2-18/2-19] CONOUT (console output) dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1).
- 396  FB4D              ;       Value 2 = BAT: (RDR: in / LST: out), so console output is routed through I/O Vector Table
- 397  FB4D              ;       List Output #1 ($F392); any other value falls through to the screen-function escape processor.
- 398  FB4D              ; ----------------------------------------------------------------------
- 399  FB4D              ; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE_ADDR.
- 400  FB4D              ;   In:  C = character (from CONOUT_SET_C; the +1 jump-vector entry skips the LD C,A).
- 401  FB4D              ;   Out: none.  Clobbers: A,C,HL.
- 402  FB4D              ;   Algorithm: read IOBYTE_ADDR ($0003), mask the 2-bit CONSOLE field (AND $03). Value 2 =
- 403  FB4D              ;     BAT: (RDR: in / LST: out), so output routes through I/O Vector Table List Output
- 404  FB4D              ;     #1 ($F392) via CONOUT_UC1; any other value falls into the screen-function escape
- 405  FB4D              ;     processor. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONOUT_DISPATCH. [RE]
- 406  FB4D              ; ----------------------------------------------------------------------
- 407  FB4D              CONOUT_DISPATCH:
- 408  FB4D 3A 03 00             LD A,(IOBYTE_ADDR)
- 409  FB50 E6 03                AND $03
- 410  FB52 FE 02                CP $02
- 411  FB54 20 4B                JR NZ,CONOUT_ESC_PROC
- 412  FB56              ; [DOC S&HD 2-18/2-19] Jumps through I/O Vector Table List Output #1 cell ($F392) -- used for the
- 413  FB56              ;       BAT: console-output case above; the char in C is carried to the line-printer device.
- 414  FB56              ; ----------------------------------------------------------------------
- 415  FB56              ; CONOUT_UC1 -- console/list output via I/O Vector Table List Output #1 ($F392).
- 416  FB56              ;   In:  C = character.  Out: none (JP (HL) into the handler).  Clobbers: A,HL.
- 417  FB56              ;   Algorithm: load HL from the List Output #1 cell (z80 $F392 = Apple $0392) and
- 418  FB56              ;     JP (HL). Used for the BAT: console-output case and the LPT: LIST case; the char
- 419  FB56              ;     in C is carried to the line-printer device. [DOC S&HD 2-18/2-19] [RE]
- 420  FB56              ; ----------------------------------------------------------------------
- 421  FB56              CONOUT_UC1:
- 422  FB56 2A 92 F3             LD HL,($F392)
- 423  FB59 E9                   JP (HL)
- 424  FB5A              ; [DOC S&HD 2-18/2-19] CONIN dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1). Value 2 (BAT:)
- 425  FB5A              ;       -> Reader Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
- 426  FB5A              ;       (TTY:/CRT:) -> Console Input #1 cell $F382. Each is a user-patchable I/O Vector Table cell.
- 427  FB5A              ; ----------------------------------------------------------------------
- 428  FB5A              ; CONIN_DISPATCH_IOBYTE -- read a console character, routed by the IOBYTE_ADDR CONSOLE field.
- 429  FB5A              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
- 430  FB5A              ;   Algorithm: read IOBYTE_ADDR, mask the CONSOLE field (AND $03). Value 2 (BAT:) -> Reader
- 431  FB5A              ;     Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
- 432  FB5A              ;     (TTY:/CRT:) -> Console Input #1 cell $F382; then JP (HL). Each is a user-patchable
- 433  FB5A              ;     I/O Vector Table cell. Called by BIOS_CONIN and reused by BIOS_READER.
- 434  FB5A              ;     [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONIN_DISPATCH_IOBYTE. [RE]
- 435  FB5A              ; ----------------------------------------------------------------------
- 436  FB5A              CONIN_DISPATCH_IOBYTE:
- 437  FB5A 3A 03 00             LD A,(IOBYTE_ADDR)
- 438  FB5D E6 03                AND $03
- 439  FB5F FE 02                CP $02
- 440  FB61 2A 84 F3             LD HL,($F384)
- 441  FB64 28 06                JR Z,CONIN_UC1
- 442  FB66 30 07                JR NC,CONIN_VEC_JP
- 443  FB68              ; [DOC S&HD 2-18/2-19] TTY:/CRT: console input via I/O Vector Table Console Input #1 cell ($F382).
- 444  FB68              ; ----------------------------------------------------------------------
- 445  FB68              ; CONIN_TTY -- TTY:/CRT: console input via I/O Vector Table Console Input #1 ($F382).
- 446  FB68              ;   In:  none.  Out: A = character (JP (HL) into the handler).  Clobbers: A,HL.
- 447  FB68              ;   Algorithm: load HL from Console Input #1 (z80 $F382 = Apple $0382) and JP (HL).
- 448  FB68              ;     Also the READER TTY:/CRT: target. [DOC S&HD 2-18/2-19] [RE]
+ 112  FA2D              ; LISTST -- entry 15: return the list device's ready status.
+ 113  FA2D              ;   In:  none.  Out: A = $00.  Clobbers: A, flags.
+ 114  FA2D              ;   Algorithm: XOR A / RET. A is $00 whatever the printer is doing. Under the
+ 115  FA2D              ;     CP/M 2.2 convention $00 means NOT ready and $FF means ready, so this
+ 116  FA2D              ;     reports "not ready" unconditionally.
+ 117  FA2D              ;     That is the whole of what these two bytes support. WHO consults LISTST, and
+ 118  FA2D              ;     what they do with the answer, is NOT determinable from this image, and the
+ 119  FA2D              ;     SoftCard manual set in softcard/reference/ does not document LISTST at all
+ 120  FA2D              ;     -- so no claim is made here about callers or about anything blocking. Same two bytes in the 2.20-44K and 2.23-44K twins. [RE]
+ 121  FA2D              ; ----------------------------------------------------------------------
+ 122  FA2D              LISTST:
+ 123  FA2D AF                   XOR A
+ 124  FA2E C9                   RET
+ 125  FA2F 00                   DEFB    $00
+ 126  FA30              ; ----------------------------------------------------------------------
+ 127  FA30              ; SECTRAN -- logical-to-physical sector translate (no-op identity map).
+ 128  FA30              ;   In:  BC = logical sector, DE = translate-table addr (ignored).
+ 129  FA30              ;   Out: HL = BC (physical == logical).  Clobbers: HL.
+ 130  FA30              ;   Algorithm: LD H,B / LD L,C / RET.  The skew is applied off-image by the
+ 131  FA30              ;     disk producer, so the DPH XLT is null and SECTRAN is the identity. [RE]
+ 132  FA30              ; ----------------------------------------------------------------------
+ 133  FA30              SECTRAN:
+ 134  FA30 60                   LD H,B
+ 135  FA31 69                   LD L,C
+ 136  FA32 C9                   RET
+ 137  FA33              ; ----------------------------------------------------------------------
+ 138  FA33              ; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array: one 16-byte DPH per logical
+ 139  FA33              ;   drive 0..3. SELDSK returns DPH_TABLE + 16*drive (SELDSK_IMPL_1, $FEA9).
+ 140  FA33              ;   Each DPH = XLT, three BDOS scratch words, DIRBUF, DPB, CSV, ALV. XLT = 0: no SECTRAN
+ 141  FA33              ;   translate (SECTRAN above is the identity; the disk producer applies the skew
+ 142  FA33              ;   off-image). All four drives share one DIRBUF and one DPB.
+ 143  FA33              ;   The per-drive strides are the DPB's own fields: CSV is CKS = 12 bytes, ALV is
+ 144  FA33              ;   DSM/8 + 1 = 139/8 + 1 = 18 bytes. [RE]
+ 145  FA33              ; ----------------------------------------------------------------------
+ 146  FA33              DPH_TABLE:
+ 147  FA33 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS,   ALV_VECTORS ; drive 0
+ 147  FA37 00 00 00 00
+ 147  FA3B FD FE 73 FA
+ 147  FA3F C5 FF 7D FF
+ 148  FA43 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+12,ALV_VECTORS+18 ; drive 1
+ 148  FA47 00 00 00 00
+ 148  FA4B FD FE 73 FA
+ 148  FA4F D1 FF 8F FF
+ 149  FA53 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+24,ALV_VECTORS+36 ; drive 2
+ 149  FA57 00 00 00 00
+ 149  FA5B FD FE 73 FA
+ 149  FA5F DD FF A1 FF
+ 150  FA63 00 00 00 00          DEFW    0,0,0,0,DIRBUF,DPB,CSV_VECTORS+36,ALV_VECTORS+54 ; drive 3
+ 150  FA67 00 00 00 00
+ 150  FA6B FD FE 73 FA
+ 150  FA6F E9 FF B3 FF
+ 151  FA73              ; DPB -- the shared Disk Parameter Block; all four DPH entries above point here (the
+ 152  FA73              ;   $73,$FA pointer byte pair in each). Byte-for-byte the same 15 bytes as the 2.23-44K
+ 153  FA73              ;   twin's DPB, DSM included. Field names are Digital Research's CP/M 2.2 DPB names;
+ 154  FA73              ;   NOT [DOC]-citable from this archive, which documents only BDOS fn 31 (the call that
+ 155  FA73              ;   RETURNS a DPB pointer), not the block's layout. [RE]
+ 156  FA73              DPB:
+ 157  FA73 20 00        SPT:    DEFW    $0020                    ; records per track: 32 x 128-byte records
+ 158  FA75 03           BSH:    DEFB    $03                      ; block shift: log2(records per block) -> 8
+ 159  FA76 07           BLM:    DEFB    $07                      ; block mask: (records per block) - 1 -> 1 KB
+ 160  FA77 00           EXM:    DEFB    $00                      ; extent mask
+ 161  FA78 8B 00        DSM:    DEFW    $008B                    ; highest allocation block number: 139 -> 140
+ 162  FA7A 2F 00        DRM:    DEFW    $002F                    ; highest directory entry number: 47 -> 48
+ 163  FA7C C0           AL0:    DEFB    $C0                      ; directory-reserved blocks, bitmap, high byte
+ 164  FA7D 00           AL1:    DEFB    $00                      ; ditto, low byte
+ 165  FA7E 0C 00        CKS:    DEFW    $000C                    ; directory checksum bytes
+ 166  FA80 03 00        OFF:    DEFW    $0003                    ; reserved tracks before the file area
+ 167  FA82              ; [DOC S&HD 2-26/2-27] Cold-boot per-device init loop over the Card Type Table. The Card Type
+ 168  FA82              ;       Table (SLTTYP) starts at $F3B9, entry = $F3B8+S for slot S; $F3B8 itself is the Disk Count
+ 169  FA82              ;       Byte. The loop walks $F3B8+DE (DE=7..1 -> $F3BF..$F3B9), reading each slot's detected card
+ 170  FA82              ;       type and dispatching on it. (This is NOT the IOBYTE_ADDR table -- IOBYTE_ADDR is a single byte at $0003.)
+ 171  FA82              ; ----------------------------------------------------------------------
+ 172  FA82              ; PROBE_DEVICES -- cold/warm-boot per-device init loop over the Card Type Table.
+ 173  FA82              ;   In:  none (walks the SoftCard Card Type Table at z80 $F3B8..).
+ 174  FA82              ;   Out: config cells updated in place; each present card's init is called.
+ 175  FA82              ;   Clobbers: A,DE,HL.
+ 176  FA82              ;   Algorithm: for E = 7 down to 1, read SLTTYP[$F3B8+E]. Value 3 (serial) runs
+ 177  FA82              ;     SLOT_IO_ADDR then stamps the cell $03/$15; value 4 (Videx-class 80-col)
+ 178  FA82              ;     runs INIT_PASCAL_1_0 and reclaims the $C800 expansion-ROM window via
+ 179  FA82              ;     RPC_TRIGGER; value 6 (post-1980 Pascal-1.1 class) runs PLOT_CHAR_RPC
+ 180  FA82              ;     with the $0DD0 param. [DOC S&HD 2-26/2-27] SLTTYP base at $F3B9, entry
+ 181  FA82              ;     $F3B8+S; $F3B8 is the Disk Count Byte. Twin of the 2.23-44K PROBE_DEVICES. [RE]
+ 182  FA82              ; ----------------------------------------------------------------------
+ 183  FA82              PROBE_DEVICES:
+ 184  FA82 11 07 00             LD DE,$0007
+ 185  FA85              ; [DOC S&HD 2-26] Loop body: reads the slot's Card Type Table value at $F3B8+DE. Card type 3
+ 186  FA85              ;       (Apple Communications / CCS 7710A serial) runs its init and stamps the entry; card type 4
+ 187  FA85              ;       (Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term) takes the decremented branch
+ 188  FA85              ;       below that reclaims the $C800 firmware window.
+ 189  FA85              SLOT_SCAN_INIT_1:
+ 190  FA85 21 B8 F3             LD HL,SLOT_INFO_BASE
+ 191  FA88 19                   ADD HL,DE
+ 192  FA89 7E                   LD A,(HL)
+ 193  FA8A D6 03                SUB $03
+ 194  FA8C 20 07                JR NZ,PROBE_DEVICES_CHK4
+ 195  FA8E CD 8A FE             CALL SLOT_IO_ADDR
+ 196  FA91 36 03                LD (HL),$03
+ 197  FA93 36 15                LD (HL),$15
+ 198  FA95              ; [DOC S&HD 2-26] Card-type-4 branch (Apple High-Speed Serial / Videx Videoterm / M&R Sup-R-Term):
+ 199  FA95              ;       runs INIT_PASCAL_1_0, then reclaims the shared $C800 expansion-ROM window (LD HL,$C800)
+ 200  FA95              ;       before continuing the per-slot Card Type Table scan. The card-type-2 sub-branch below
+ 201  FA95              ;       ($FAA3, CP $02 -> type-6) is the post-1980 Pascal-1.1 path NOT documented by the 2.20 manual.
+ 202  FA95              PROBE_DEVICES_CHK4:
+ 203  FA95 3D                   DEC A
+ 204  FA96 20 0B                JR NZ,SLOT_SCAN_INIT_3
+ 205  FA98 CD 83 FD             CALL INIT_PASCAL_1_0
+ 206  FA9B 21 00 C8             LD HL,$C800
+ 207  FA9E CD 45 FB             CALL RPC_TRIGGER
+ 208  FAA1 18 0A                JR PROBE_DEVICES_NEXT
+ 209  FAA3              ; [AI] Card-type dispatch continuation: after SUB $03 then DEC A, a remaining value of $02 means the
+ 210  FAA3              ;       original Card Type Table byte was 6 -- the POST-1980 device-6 / Pascal-1.1 card class that
+ 211  FAA3              ;       the 2.20 manual does NOT document (2.23 added a $Cn0B Pascal-1.1 probe that reassigns the
+ 212  FAA3              ;       Videx from type 4 to type 6). Runs PLOT_CHAR_RPC with the $0DD0 parameter. Not manual-backed.
+ 213  FAA3              SLOT_SCAN_INIT_3:
+ 214  FAA3 FE 02                CP $02
+ 215  FAA5 20 06                JR NZ,PROBE_DEVICES_NEXT
+ 216  FAA7 21 D0 0D             LD HL,$0DD0
+ 217  FAAA CD B0 FD             CALL PLOT_CHAR_RPC
+ 218  FAAD              ; [DOC S&HD 2-26/2-27] Loop tail of the Card Type Table scan: decrements the slot index E and repeats
+ 219  FAAD              ;       for all seven Apple expansion slots (S=7..1), returning when done.
+ 220  FAAD              PROBE_DEVICES_NEXT:
+ 221  FAAD 1D                   DEC E
+ 222  FAAE 20 D5                JR NZ,SLOT_SCAN_INIT_1
+ 223  FAB0 C9                   RET
+ 224  FAB1              ; ----------------------------------------------------------------------
+ 225  FAB1              ; SLOT_E000_ADDR -- form a SoftCard I/O address from a device/offset index.
+ 226  FAB1              ;   In:  E = low offset within the I/O page.  A clobbered.
+ 227  FAB1              ;   Out: HL = ((E | $E0) << 8) -- an address in z80 $E000-$EFFF = Apple $C000-$CFFF.
+ 228  FAB1              ;   Algorithm: H = $E0 base; A = E OR H forces the high nibble into the $C0xx I/O
+ 229  FAB1              ;     page; H = A.  Used to reach keyboard / soft switches / slot I/O.  Twin of the
+ 230  FAB1              ;     2.23-44K DEVICE_IO_BASE. [RE]
+ 231  FAB1              ; ----------------------------------------------------------------------
+ 232  FAB1              SLOT_E000_ADDR:
+ 233  FAB1 21 00 E0             LD HL,$E000
+ 234  FAB4 7B                   LD A,E
+ 235  FAB5 B4                   OR H
+ 236  FAB6 67                   LD H,A
+ 237  FAB7              RET_VECTOR:
+ 238  FAB7 C9                   RET
+ 239  FAB8              ; [AI] WBOOT (warm boot) entry: resets the Z-80 stack to $0080, re-establishes the 6502 console via
+ 240  FAB8              ;       RPC, rescans the slots, then reloads/relaunches the CCP. NOTE: the BDOS sentinel at $DC08
+ 241  FAB8              ;       and BDOS entry $DC06 are 60K-config absolute addresses -- a POST-1980 layout the 2.20 manual
+ 242  FAB8              ;       (44K/56K only) does NOT document; do not read a manual address into them.
+ 243  FAB8              ; ----------------------------------------------------------------------
+ 244  FAB8              ; BIOS_WBOOT (WBOOT) -- CP/M warm boot: re-init console, rebuild page zero, re-enter CCP.
+ 245  FAB8              ;   In:  none.  Out: does not return (enters the CCP at $D300).  Clobbers: all.
+ 246  FAB8              ;   Algorithm: SP = default DMA top ($0080); touch the 80-col soft switch (z80 $E051
+ 247  FAB8              ;     = Apple $C051 TXTSET); re-init the console via RPC_TRIGGER; re-run PROBE_DEVICES.
+ 248  FAB8              ;     Test the resident BDOS sentinel at $DC08 ($DC present = BDOS image intact) to skip
+ 249  FAB8              ;     the reload; otherwise reload the system through a self-built $000B page-zero bridge.
+ 250  FAB8              ;   Note: 60K addresses ($DC06/$DC08 BDOS, $D307/$D74E CCP scratch, CCP entry $D300) are
+ 251  FAB8              ;     the POST-1980 Language-Card layout the 2.20 manual (44K/56K only) does NOT document;
+ 252  FAB8              ;     do not read a manual address into them. Twin of the 2.23-44K WBOOT (there $9C08/$9300). [RE]
+ 253  FAB8              ; ----------------------------------------------------------------------
+ 254  FAB8              BIOS_WBOOT:
+ 255  FAB8 31 80 00             LD SP,TBUFF
+ 256  FABB 3A 51 E0             LD A,($E051)
+ 257  FABE 21 00 0E             LD HL,$0E00
+ 258  FAC1 CD 45 FB             CALL RPC_TRIGGER
+ 259  FAC4 CD 82 FA             CALL PROBE_DEVICES
+ 260  FAC7 3A 08 DC             LD A,($DC08)
+ 261  FACA FE DC                CP $DC
+ 262  FACC 28 11                JR Z,PAGEZERO_REBUILD
+ 263  FACE              ; [DOC S&HD 2-24/2-25] Warm-boot RPC setup: stores the 6502 call target at A$VEC=$F3D0, then loads
+ 264  FACE              ;       the SoftCard location from Z$CPU=$F3DE (low byte 0, high byte $0ENH for slot N) -- a WRITE
+ 265  FACE              ;       through that address is the CPU switch back to the 6502. ($000B/$77 here is 60K-specific glue.)
+ 266  FACE 21 59 FF             LD HL,BIOS_BOOT_13+1
+ 267  FAD1 22 D0 F3             LD ($F3D0),HL
+ 268  FAD4 2A DE F3             LD HL,($F3DE)
+ 269  FAD7 3E 77                LD A,$77
+ 270  FAD9 32 0B 00             LD ($000B),A
+ 271  FADC C3 0B 00             JP $000B
+ 272  FADF              PAGEZERO_REBUILD:
+ 273  FADF AF                   XOR A
+ 274  FAE0 32 07 D3             LD ($D307),A
+ 275  FAE3              ; [AI] Cold-boot page-zero plant: writes JP WBOOT at $0000-$0002 and JP BDOS at $0005-$0007 (the
+ 276  FAE3              ;       $0000 warm-boot vector and $0005 BDOS entry are SHARED CP/M architecture). The BDOS target
+ 277  FAE3              ;       $DC06 stored at $0006 -- which also marks top-of-TPA -- is a 60K-config absolute address;
+ 278  FAE3              ;       the 2.20 manual (44K/56K only) does NOT document this POST-1980 layout, so it is not cited.
+ 279  FAE3              ; ----------------------------------------------------------------------
+ 280  FAE3              ; PAGEZERO_REBUILD_HOOKS -- rebuild page zero, then fall into the CCP relaunch.
+ 281  FAE3              ;   In:  none.  Out: falls into CCP_LAUNCH (CCP entry).  Clobbers: A,HL,BC.
+ 282  FAE3              ;   Algorithm: plant JP ($C3) at $0000 -> WBOOT (BIOS $FA03) and JP at $0005 -> BDOS
+ 283  FAE3              ;     ($DC06); clear the two self-modified cold-boot template cells (BOOT_TMPL_IOBYTE/
+ 284  FAE3              ;     DISK_HSTACT); re-issue SETDMA($0080). The $0000 warm-boot vector and $0005 BDOS
+ 285  FAE3              ;     entry are SHARED CP/M architecture; the BDOS target $DC06 (also the top-of-TPA
+ 286  FAE3              ;     marker at $0006) is a 60K-config absolute address, not manual-backed. Twin of
+ 287  FAE3              ;     the 2.23-44K PAGEZERO_REBUILD_HOOKS. [RE]
+ 288  FAE3              ; ----------------------------------------------------------------------
+ 289  FAE3              PAGEZERO_REBUILD_HOOKS:
+ 290  FAE3 AF                   XOR A
+ 291  FAE4 32 F6 FE             LD (BOOT_TMPL_IOBYTE),A
+ 292  FAE7 32 F1 FE             LD (DISK_HSTACT),A
+ 293  FAEA 3E C3                LD A,$C3
+ 294  FAEC 32 00 00             LD (WBOOTV),A
+ 295  FAEF 21 03 FA             LD HL,WBOOT
+ 296  FAF2 22 01 00             LD ($0001),HL
+ 297  FAF5 32 05 00             LD (BDOS),A
+ 298  FAF8 21 06 DC             LD HL,$DC06
+ 299  FAFB 22 06 00             LD ($0006),HL
+ 300  FAFE 01 80 00             LD BC,TBUFF
+ 301  FB01 CD F9 FB             CALL BIOS_SETDMA
+ 302  FB04              ; ----------------------------------------------------------------------
+ 303  FB04              ; CCP_LAUNCH -- final warm/cold-boot tail: set the CCP entry flag, enter the CCP.
+ 304  FB04              ;   In:  none.  Out: JP $D300 (CCP entry); no return.  Clobbers: A,C.
+ 305  FB04              ;   Algorithm: store a CCP-mode flag ($01) into $D74E (self-modified operand at
+ 306  FB04              ;     CCP_LAUNCH+1), pass the current default drive (CDISK_ADDR, $0004) in C, and jump
+ 307  FB04              ;     to the 60K CCP at $D300 (the 44K twin CCP_LAUNCH entered $9300). [RE]
+ 308  FB04              ; ----------------------------------------------------------------------
+ 309  FB04              CCP_LAUNCH:
+ 310  FB04 3E 01                LD A,$01
+ 311  FB06 32 4E D7             LD ($D74E),A
+ 312  FB09 3A 04 00             LD A,(CDISK_ADDR)
+ 313  FB0C 4F                   LD C,A
+ 314  FB0D C3 00 D3             JP $D300
+ 315  FB10              ; [DOC S&HD 2-18/2-19] CONST (console status) BIOS entry: jumps through I/O Vector Table cell 1,
+ 316  FB10              ;       $F380 (Console Status) -- the routine returns A=$FF if a console character is ready, $00
+ 317  FB10              ;       otherwise. This cell normally points into the BIOS and is user-patchable.
+ 318  FB10              ; ----------------------------------------------------------------------
+ 319  FB10              ; BIOS_CONST (CONST) -- CP/M console status: A=$FF if a char is ready, else $00.
+ 320  FB10              ;   In:  none.  Out: A=$FF (ready)/$00 (not).  Clobbers: A,HL.
+ 321  FB10              ;   Algorithm: load the console-status handler from the SoftCard I/O Vector Table
+ 322  FB10              ;     Console Status cell (z80 $F380 = Apple $0380) and JP (HL) to the 6502-serviced
+ 323  FB10              ;     handler, which returns the status in A. This cell is user-patchable.
+ 324  FB10              ;     [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONST. [RE]
+ 325  FB10              ; ----------------------------------------------------------------------
+ 326  FB10              BIOS_CONST:
+ 327  FB10 2A 80 F3             LD HL,($F380)
+ 328  FB13 E9                   JP (HL)
+ 329  FB14 3A                   DEFB    $3A
+ 330  FB15              CONST_VEC_PATCH:
+ 331  FB15 00 E0 17 9F          DEFB    $00,$E0,$17,$9F,$C9
+ 331  FB19 C9
+ 332  FB1A              ; [DOC S&HD 2-17] CONIN (console input) BIOS entry: reads a raw key via CONIN_DISPATCH_IOBYTE, masks the
+ 333  FB1A              ;       high bit (AND $7F), then walks the Keyboard Character Redefinition Table to translate it.
+ 334  FB1A              ;       Per the manual the table is at $F3AC; the code seeds HL=$F3AB and INC HL's to the first
+ 335  FB1A              ;       entry's "from" byte at $F3AC. Up to six 2-byte entries (from-ASCII, to-ASCII, both high bit
+ 336  FB1A              ;       clear); a byte with the high bit set terminates early (the JP M exit). Applies to TTY:/CRT:.
+ 337  FB1A              ; ----------------------------------------------------------------------
+ 338  FB1A              ; BIOS_CONIN (CONIN) -- read a console character: dispatch, then remap the key.
+ 339  FB1A              ;   In:  none.  Out: A = (translated) key.  Clobbers: A,B,C,HL.
+ 340  FB1A              ;   Algorithm: CALL CONIN_DISPATCH_IOBYTE to fetch a raw key (routed by the IOBYTE_ADDR CONSOLE
+ 341  FB1A              ;     field); AND $7F to 7-bit; then walk the Keyboard Character Redefinition Table.
+ 342  FB1A              ;     Per the manual the table is at $F3AC; the code seeds HL=$F3AB and INC HL's to the
+ 343  FB1A              ;     first entry. Up to six 2-byte entries (from-ASCII, to-ASCII); a high-bit-set byte
+ 344  FB1A              ;     terminates early (JP M). On a match returns the redefined 'to' byte, else the raw
+ 345  FB1A              ;     key. [DOC S&HD 2-17] Twin of the 2.23-44K CONIN remap wrapper. [RE]
+ 346  FB1A              ; ----------------------------------------------------------------------
+ 347  FB1A              BIOS_CONIN:
+ 348  FB1A CD 5A FB             CALL CONIN_DISPATCH_IOBYTE
+ 349  FB1D E6 7F                AND $7F
+ 350  FB1F 21 AB F3             LD HL,$F3AB
+ 351  FB22 06 06                LD B,$06
+ 352  FB24 4F                   LD C,A
+ 353  FB25              ; [DOC S&HD 2-17] Keyboard-redefinition scan body: INC past to the "from" byte, test for the
+ 354  FB25              ;       high-bit-set terminator (JP M exits), else compare the input (in C) and on a match return
+ 355  FB25              ;       the redefined "to" byte (A=(HL)); loop up to six times via DJNZ.
+ 356  FB25              KEY_REMAP_SCAN:
+ 357  FB25 23                   INC HL
+ 358  FB26 7E                   LD A,(HL)
+ 359  FB27 23                   INC HL
+ 360  FB28 B7                   OR A
+ 361  FB29 FA 31 FB             JP M,KBD_STROBE_CLEAR
+ 362  FB2C B9                   CP C
+ 363  FB2D 7E                   LD A,(HL)
+ 364  FB2E C8                   RET Z
+ 365  FB2F 10 F4                DJNZ KEY_REMAP_SCAN
+ 366  FB31              KBD_STROBE_CLEAR:
+ 367  FB31 79                   LD A,C
+ 368  FB32 C9                   RET
+ 369  FB33 11 03 00 C3          DEFB    $11,$03,$00,$C3
+ 370  FB37              CONIN_HANDLER_VEC:
+ 371  FB37 39 FB 3A 00          DEFB    $39,$FB,$3A,$00,$E0,$17
+ 371  FB3B E0 17
+ 372  FB3D 30 FA                DEFW    SECTRAN
+ 373  FB3F 32 10 E0 3F          DEFB    $32,$10,$E0,$3F,$1F,$C9
+ 373  FB43 1F C9
+ 374  FB45              ; [DOC S&HD 2-24/2-25] RPC dispatch: stores the 6502 subroutine address (in HL) at A$VEC=$F3D0
+ 375  FB45              ;       (low-high) -- the Z-80->6502 call vector -- before the SoftCard CPU-switch is triggered.
+ 376  FB45              ;       (The actual switch is a WRITE through Z$CPU=$F3DE; A$VEC just holds the target.)
+ 377  FB45              ; ----------------------------------------------------------------------
+ 378  FB45              ; RPC_TRIGGER -- fire a SoftCard 6502<->Z-80 RPC.
+ 379  FB45              ;   In:  HL = 6502 subroutine address; A = trigger value.  Out: per the 6502 service.
+ 380  FB45              ;   Algorithm: stash HL at A$VEC (z80 $F3D0 = Apple $03D0), the Z-80->6502 call vector,
+ 381  FB45              ;     then a store through the CPU-switch cell (RPC_TRIGGER_STORE) triggers the actual
+ 382  FB45              ;     switch. The store address (Z$CPU-derived) is self-modified at boot, so the store
+ 383  FB45              ;     site is RPC_TRIGGER_STORE+1. [DOC S&HD 2-24/2-25] Twin of the 2.23-44K RPC_TRIGGER. [RE]
+ 384  FB45              ; ----------------------------------------------------------------------
+ 385  FB45              RPC_TRIGGER:
+ 386  FB45 22 D0 F3             LD ($F3D0),HL
+ 387  FB48              RPC_TRIGGER_STORE:
+ 388  FB48 32 00 00             LD (WBOOTV),A
+ 389  FB4B C9                   RET
+ 390  FB4C              ; ----------------------------------------------------------------------
+ 391  FB4C              ; CONOUT_SET_C -- console-output entry that first saves the char into C.
+ 392  FB4C              ;   In:  A = character to emit.  Out: none.  Clobbers: A,C,HL.
+ 393  FB4C              ;   Algorithm: LD C,A, then fall into CONOUT_DISPATCH. The BIOS CONOUT jump-vector
+ 394  FB4C              ;     entry ($FA0C) targets CONOUT_DISPATCH+1 (skipping this LD C,A) when C is already
+ 395  FB4C              ;     set; callers that hold the char in A enter here instead. Twin of the 2.23-44K
+ 396  FB4C              ;     CONOUT_DISPATCH LD C,A prologue. [RE]
+ 397  FB4C              ; ----------------------------------------------------------------------
+ 398  FB4C              CONOUT_SET_C:
+ 399  FB4C 4F                   LD C,A
+ 400  FB4D              ; [DOC S&HD 2-18/2-19] CONOUT (console output) dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1).
+ 401  FB4D              ;       Value 2 = BAT: (RDR: in / LST: out), so console output is routed through I/O Vector Table
+ 402  FB4D              ;       List Output #1 ($F392); any other value falls through to the screen-function escape processor.
+ 403  FB4D              ; ----------------------------------------------------------------------
+ 404  FB4D              ; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE_ADDR.
+ 405  FB4D              ;   In:  C = character (from CONOUT_SET_C; the +1 jump-vector entry skips the LD C,A).
+ 406  FB4D              ;   Out: none.  Clobbers: A,C,HL.
+ 407  FB4D              ;   Algorithm: read IOBYTE_ADDR ($0003), mask the 2-bit CONSOLE field (AND $03). Value 2 =
+ 408  FB4D              ;     BAT: (RDR: in / LST: out), so output routes through I/O Vector Table List Output
+ 409  FB4D              ;     #1 ($F392) via CONOUT_UC1; any other value falls into the screen-function escape
+ 410  FB4D              ;     processor. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONOUT_DISPATCH. [RE]
+ 411  FB4D              ; ----------------------------------------------------------------------
+ 412  FB4D              CONOUT_DISPATCH:
+ 413  FB4D 3A 03 00             LD A,(IOBYTE_ADDR)
+ 414  FB50 E6 03                AND $03
+ 415  FB52 FE 02                CP $02
+ 416  FB54 20 4B                JR NZ,CONOUT_ESC_PROC
+ 417  FB56              ; [DOC S&HD 2-18/2-19] Jumps through I/O Vector Table List Output #1 cell ($F392) -- used for the
+ 418  FB56              ;       BAT: console-output case above; the char in C is carried to the line-printer device.
+ 419  FB56              ; ----------------------------------------------------------------------
+ 420  FB56              ; CONOUT_UC1 -- console/list output via I/O Vector Table List Output #1 ($F392).
+ 421  FB56              ;   In:  C = character.  Out: none (JP (HL) into the handler).  Clobbers: A,HL.
+ 422  FB56              ;   Algorithm: load HL from the List Output #1 cell (z80 $F392 = Apple $0392) and
+ 423  FB56              ;     JP (HL). Used for the BAT: console-output case and the LPT: LIST case; the char
+ 424  FB56              ;     in C is carried to the line-printer device. [DOC S&HD 2-18/2-19] [RE]
+ 425  FB56              ; ----------------------------------------------------------------------
+ 426  FB56              CONOUT_UC1:
+ 427  FB56 2A 92 F3             LD HL,($F392)
+ 428  FB59 E9                   JP (HL)
+ 429  FB5A              ; [DOC S&HD 2-18/2-19] CONIN dispatch: masks the IOBYTE_ADDR CONSOLE field (bits 0-1). Value 2 (BAT:)
+ 430  FB5A              ;       -> Reader Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
+ 431  FB5A              ;       (TTY:/CRT:) -> Console Input #1 cell $F382. Each is a user-patchable I/O Vector Table cell.
+ 432  FB5A              ; ----------------------------------------------------------------------
+ 433  FB5A              ; CONIN_DISPATCH_IOBYTE -- read a console character, routed by the IOBYTE_ADDR CONSOLE field.
+ 434  FB5A              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
+ 435  FB5A              ;   Algorithm: read IOBYTE_ADDR, mask the CONSOLE field (AND $03). Value 2 (BAT:) -> Reader
+ 436  FB5A              ;     Input #1 cell $F38A; value 3 (UC1:) -> Console Input #2 cell $F384; values 0/1
+ 437  FB5A              ;     (TTY:/CRT:) -> Console Input #1 cell $F382; then JP (HL). Each is a user-patchable
+ 438  FB5A              ;     I/O Vector Table cell. Called by BIOS_CONIN and reused by BIOS_READER.
+ 439  FB5A              ;     [DOC S&HD 2-18/2-19] Twin of the 2.23-44K CONIN_DISPATCH_IOBYTE. [RE]
+ 440  FB5A              ; ----------------------------------------------------------------------
+ 441  FB5A              CONIN_DISPATCH_IOBYTE:
+ 442  FB5A 3A 03 00             LD A,(IOBYTE_ADDR)
+ 443  FB5D E6 03                AND $03
+ 444  FB5F FE 02                CP $02
+ 445  FB61 2A 84 F3             LD HL,($F384)
+ 446  FB64 28 06                JR Z,CONIN_UC1
+ 447  FB66 30 07                JR NC,CONIN_VEC_JP
+ 448  FB68              ; [DOC S&HD 2-18/2-19] TTY:/CRT: console input via I/O Vector Table Console Input #1 cell ($F382).
  449  FB68              ; ----------------------------------------------------------------------
- 450  FB68              CONIN_TTY:
- 451  FB68 2A 82 F3             LD HL,($F382)
- 452  FB6B E9                   JP (HL)
- 453  FB6C              ; [DOC S&HD 2-18/2-19] BAT: console input via I/O Vector Table Reader Input #1 cell ($F38A).
- 454  FB6C              ; ----------------------------------------------------------------------
- 455  FB6C              ; CONIN_UC1 -- BAT:/PTR: input via I/O Vector Table Reader Input #1 ($F38A).
- 456  FB6C              ;   In:  none.  Out: A = character (falls into CONIN_VEC_JP -> JP (HL)).  Clobbers: A,HL.
- 457  FB6C              ;   Algorithm: load HL from Reader Input #1 (z80 $F38A = Apple $038A) and JP (HL) via
- 458  FB6C              ;     CONIN_VEC_JP. Reused by BIOS_READER for the PTR: case. [DOC S&HD 2-18/2-19] [RE]
+ 450  FB68              ; CONIN_TTY -- TTY:/CRT: console input via I/O Vector Table Console Input #1 ($F382).
+ 451  FB68              ;   In:  none.  Out: A = character (JP (HL) into the handler).  Clobbers: A,HL.
+ 452  FB68              ;   Algorithm: load HL from Console Input #1 (z80 $F382 = Apple $0382) and JP (HL).
+ 453  FB68              ;     Also the READER TTY:/CRT: target. [DOC S&HD 2-18/2-19] [RE]
+ 454  FB68              ; ----------------------------------------------------------------------
+ 455  FB68              CONIN_TTY:
+ 456  FB68 2A 82 F3             LD HL,($F382)
+ 457  FB6B E9                   JP (HL)
+ 458  FB6C              ; [DOC S&HD 2-18/2-19] BAT: console input via I/O Vector Table Reader Input #1 cell ($F38A).
  459  FB6C              ; ----------------------------------------------------------------------
- 460  FB6C              CONIN_UC1:
- 461  FB6C 2A 8A F3             LD HL,($F38A)
- 462  FB6F              CONIN_VEC_JP:
- 463  FB6F E9                   JP (HL)
- 464  FB70              ; [DOC S&HD 2-18/2-19] LIST (printer) output: masks the IOBYTE_ADDR LIST field (bits 6-7; 0=TTY:, 1=CRT:,
- 465  FB70              ;       2=LPT:, 3=UL1:). TTY:/CRT: return null; LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps
- 466  FB70              ;       through the List Output #2 cell ($F394). (List Output #1 is $F392.) Char in C -> list device.
- 467  FB70              ; ----------------------------------------------------------------------
- 468  FB70              ; BIOS_LIST (LIST) -- printer output, routed by the IOBYTE_ADDR LIST field (bits 6-7).
- 469  FB70              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
- 470  FB70              ;   Algorithm: read IOBYTE_ADDR, mask the LIST field (AND $C0). TTY:/CRT: (<$80) return null
- 471  FB70              ;     (DISPATCH_NODEV); LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps through List
- 472  FB70              ;     Output #2 ($F394). (List Output #1 is $F392.) [DOC S&HD 2-18/2-19] Twin of the
- 473  FB70              ;     2.23-44K LIST. [RE]
- 474  FB70              ; ----------------------------------------------------------------------
- 475  FB70              BIOS_LIST:
- 476  FB70 3A 03 00             LD A,(IOBYTE_ADDR)
- 477  FB73 E6 C0                AND $C0
- 478  FB75 FE 80                CP $80
- 479  FB77 38 27                JR C,DISPATCH_NODEV
- 480  FB79 28 DB                JR Z,CONOUT_UC1
- 481  FB7B 2A 94 F3             LD HL,($F394)
- 482  FB7E E9                   JP (HL)
- 483  FB7F              ; [DOC S&HD 2-18/2-19] PUNCH output: masks the IOBYTE_ADDR PUNCH field (bits 4-5). Value 1 (PTP:) ->
- 484  FB7F              ;       Punch Output #1 cell ($F38E); higher values -> Punch Output #2 cell ($F390); value 0 (TTY:)
- 485  FB7F              ;       returns null. The char in C is sent to the selected paper-tape-punch device.
- 486  FB7F              ; ----------------------------------------------------------------------
- 487  FB7F              ; BIOS_PUNCH (PUNCH) -- punch output, routed by the IOBYTE_ADDR PUNCH field (bits 4-5).
- 488  FB7F              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
- 489  FB7F              ;   Algorithm: read IOBYTE_ADDR, mask the PUNCH field (AND $30). TTY: (0) returns null
- 490  FB7F              ;     (DISPATCH_NODEV); PTP: ($10) -> Punch Output #1 ($F38E) via CONIN_VEC_JP; higher
- 491  FB7F              ;     values -> Punch Output #2 ($F390). The char in C goes to the paper-tape-punch
- 492  FB7F              ;     device. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K PUNCH. [RE]
- 493  FB7F              ; ----------------------------------------------------------------------
- 494  FB7F              BIOS_PUNCH:
- 495  FB7F 3A 03 00             LD A,(IOBYTE_ADDR)
- 496  FB82 E6 30                AND $30
- 497  FB84 FE 10                CP $10
- 498  FB86 38 18                JR C,DISPATCH_NODEV
- 499  FB88 2A 8E F3             LD HL,($F38E)
- 500  FB8B 28 E2                JR Z,CONIN_VEC_JP
- 501  FB8D 2A 90 F3             LD HL,($F390)
- 502  FB90 E9                   JP (HL)
- 503  FB91              ; [DOC S&HD 2-18/2-19] READER input: masks the IOBYTE_ADDR READER field (bits 2-3; 0=TTY:, 1=CRT:,
- 504  FB91              ;       2=PTR:, 3=UR2:). TTY:/CRT: -> CONIN_TTY (console input); PTR: ($08) -> CONIN_UC1; UR2: ($0C)
- 505  FB91              ;       jumps through the Reader Input #2 cell ($F38C). (Reader Input #1 is $F38A.) Char returned in A.
- 506  FB91              ; ----------------------------------------------------------------------
- 507  FB91              ; BIOS_READER (READER) -- reader input, routed by the IOBYTE_ADDR READER field (bits 2-3).
- 508  FB91              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
- 509  FB91              ;   Algorithm: read IOBYTE_ADDR, mask the READER field (AND $0C). TTY:/CRT: (<$08) -> CONIN_TTY;
- 510  FB91              ;     PTR: ($08) -> CONIN_UC1; UR2: ($0C) jumps through Reader Input #2 ($F38C). (Reader
- 511  FB91              ;     Input #1 is $F38A.) [DOC S&HD 2-18/2-19] Twin of the 2.23-44K READER. [RE]
- 512  FB91              ; ----------------------------------------------------------------------
- 513  FB91              BIOS_READER:
- 514  FB91 3A 03 00             LD A,(IOBYTE_ADDR)
- 515  FB94 E6 0C                AND $0C
- 516  FB96 FE 08                CP $08
- 517  FB98 38 CE                JR C,CONIN_TTY
- 518  FB9A 28 D0                JR Z,CONIN_UC1
- 519  FB9C 2A 8C F3             LD HL,($F38C)
- 520  FB9F E9                   JP (HL)
- 521  FBA0              ; ----------------------------------------------------------------------
- 522  FBA0              ; DISPATCH_NODEV -- IOBYTE_ADDR field selects no physical device: fall into the filter.
- 523  FBA0              ;   In:  reached with carry set (no-device).  Out: enters the screen-function processor
- 524  FBA0              ;     (CONOUT_ESC_PROC) with the carry folded into a flag.  Clobbers: A,HL.
- 525  FBA0              ;   Algorithm: SCF, then CONOUT_ESC_PROC's SBC A,A turns carry into a 0/$FF flag stored
- 526  FBA0              ;     in COL_FLAG ($FEE4). Twin of the 2.23-44K DISPATCH_NODEV. [RE]
- 527  FBA0              ; ----------------------------------------------------------------------
- 528  FBA0              DISPATCH_NODEV:
- 529  FBA0 37                   SCF
- 530  FBA1              ; [DOC S&HD 2-14] Console-output screen-function processor. $F3A2 is the Hardware-table lead-in
- 531  FBA1              ;       character (zero = no lead-in). Reached for the non-BAT: console path; tests the lead-in to
- 532  FBA1              ;       decide whether a multi-byte screen-function sequence is being emitted.
- 533  FBA1              ; ----------------------------------------------------------------------
- 534  FBA1              ; CONOUT_ESC_PROC -- console-output screen-function / cursor-address processor.
- 535  FBA1              ;   In:  C = character; the SBC A,A flag from the caller.  Out: emits or updates cursor
- 536  FBA1              ;     state.  Clobbers: A,C,DE,HL.
- 537  FBA1              ;   Algorithm: store the entry flag in COL_FLAG ($FEE4). [DOC S&HD 2-14] $F3A2 is the
- 538  FBA1              ;     Hardware-table lead-in char (0 = none); if none, emit directly via CONSOLE_PUT_CHAR.
- 539  FBA1              ;     Else clear bit 7 of C; if the pending-column counter (COL_PENDING, $FEE5) is nonzero,
- 540  FBA1              ;     apply a config-driven column offset ($F396 = SXYOFF, the Software cursor XY offset,
- 541  FBA1              ;     high bit selecting X/Y vs Y/X order), else fall into the sequence scanner. Twin of
- 542  FBA1              ;     the 2.23-44K CONOUT_FILTER_NOEXPAND path. [RE]
- 543  FBA1              ; ----------------------------------------------------------------------
- 544  FBA1              CONOUT_ESC_PROC:
- 545  FBA1 9F                   SBC A,A
- 546  FBA2 21 A2 F3             LD HL,$F3A2
- 547  FBA5 6E                   LD L,(HL)
- 548  FBA6 2C                   INC L
- 549  FBA7 CA A4 FC             JP Z,CONSOLE_PUT_CHAR
- 550  FBAA 21 E4 FE             LD HL,COL_FLAG
- 551  FBAD 77                   LD (HL),A
- 552  FBAE CB B9                RES 7,C
- 553  FBB0 23                   INC HL
- 554  FBB1 7E                   LD A,(HL)
- 555  FBB2 B7                   OR A
- 556  FBB3 CA 56 FC             JP Z,CONOUT_SEQ_MATCH
- 557  FBB6 35                   DEC (HL)
- 558  FBB7              ; [DOC S&HD 2-14] Cursor-address coordinate handling: $F396 is SXYOFF, the Software cursor XY
- 559  FBB7              ;       coordinate offset (range 0-127; high bit 0 => Y first then X, high bit 1 => X first then Y).
- 560  FBB7 3A 96 F3             LD A,($F396)
- 561  FBBA 21 ED FE             LD HL,BIOS_BOOT_1
- 562  FBBD 28 0C                JR Z,COORD_SIGN_CHK
- 563  FBBF B7                   OR A
- 564  FBC0 F2 C6 FB             JP P,COORD_BIAS_SUB
- 565  FBC3 2B                   DEC HL
- 566  FBC4              ; ----------------------------------------------------------------------
- 567  FBC4              ; COORD_MASK7 -- apply a signed config offset to the running column position.
- 568  FBC4              ;   In:  A = config byte (sign bit = direction); C = current column; HL -> column cell.
- 569  FBC4              ;   Out: (HL) = C - offset.  Clobbers: A,E.
- 570  FBC4              ;   Algorithm: AND $7F drops the sign bit to the magnitude (COORD_BIAS_SUB entry skips
- 571  FBC4              ;     the mask), subtract it from C, store the new column. Twin of the 2.23-44K
- 572  FBC4              ;     COL_APPLY_OFFSET. [RE]
- 573  FBC4              ; ----------------------------------------------------------------------
- 574  FBC4              COORD_MASK7:
- 575  FBC4 E6 7F                AND $7F
- 576  FBC6              COORD_BIAS_SUB:
- 577  FBC6 5F                   LD E,A
- 578  FBC7 79                   LD A,C
- 579  FBC8 93                   SUB E
- 580  FBC9 77                   LD (HL),A
- 581  FBCA C9                   RET
- 582  FBCB              COORD_SIGN_CHK:
- 583  FBCB B7                   OR A
- 584  FBCC FA D0 FB             JP M,COL_OFFSET_FROM_WIDTH
- 585  FBCF 2B                   DEC HL
- 586  FBD0              ; ----------------------------------------------------------------------
- 587  FBD0              ; COL_OFFSET_FROM_WIDTH -- derive the cursor screen coordinate and emit the move sequence.
- 588  FBD0              ;   In:  C = column; the BOOT-overlaid base word at (BIOS_BOOT+2).  Out: emits the
- 589  FBD0              ;     cursor-move via CONSOLE_PUT_CHAR.  Clobbers: A,B,C,DE,HL.
- 590  FBD0              ;   Algorithm: CALL COORD_MASK7 to fold the column, load the base word (BIOS_BOOT+2 =
- 591  FBD0              ;     the cold-boot LD SP operand reused as cursor scratch). [DOC S&HD 2-14] $F3A1 is
- 592  FBD0              ;     the Hardware cursor XY offset (counterpart of SXYOFF=$F396); its high bit selects
- 593  FBD0              ;     X/Y vs Y/X transmission order. Fold in the offset, ADD to form the address, emit
- 594  FBD0              ;     with B=7 then B=$0A (CHAR_C_TO_SCREEN). Twin of the 2.23-44K COL_OFFSET_FROM_WIDTH. [RE]
- 595  FBD0              ; ----------------------------------------------------------------------
- 596  FBD0              COL_OFFSET_FROM_WIDTH:
- 597  FBD0 CD C4 FB             CALL COORD_MASK7
- 598  FBD3 2A EC FE             LD HL,(BIOS_BOOT+2)
- 599  FBD6              ; [DOC S&HD 2-14] $F3A1 is the Hardware cursor XY coordinate offset (the hardware-table counterpart
- 600  FBD6              ;       of SXYOFF=$F396); its high bit likewise selects X/Y vs Y/X transmission order to the terminal.
- 601  FBD6 3A A1 F3             LD A,($F3A1)
- 602  FBD9 B7                   OR A
- 603  FBDA F2 E2 FB             JP P,EMIT_CURSOR_MOVE
- 604  FBDD E6 7F                AND $7F
- 605  FBDF 5D                   LD E,L
- 606  FBE0 6C                   LD L,H
- 607  FBE1 63                   LD H,E
- 608  FBE2              EMIT_CURSOR_MOVE:
- 609  FBE2 5F                   LD E,A
- 610  FBE3 84                   ADD A,H
- 611  FBE4 4F                   LD C,A
- 612  FBE5 7B                   LD A,E
- 613  FBE6 85                   ADD A,L
- 614  FBE7 F5                   PUSH AF
- 615  FBE8 06 07                LD B,$07
- 616  FBEA CD A4 FC             CALL CONSOLE_PUT_CHAR
- 617  FBED F1                   POP AF
- 618  FBEE 06 0A                LD B,$0A
- 619  FBF0              ; ----------------------------------------------------------------------
- 620  FBF0              ; CHAR_C_TO_SCREEN -- tail: move A into C and tail-jump to the screen emitter.
- 621  FBF0              ;   In:  A = char/code, B = mode/count code.  Out: JP CONSOLE_PUT_CHAR (no return).
- 622  FBF0              ;   Clobbers: A,C.
- 623  FBF0              ;   Algorithm: LD C,A / JP CONSOLE_PUT_CHAR. Twin of the 2.23-44K CHAR_C_TO_SCREEN. [RE]
+ 460  FB6C              ; CONIN_UC1 -- BAT:/PTR: input via I/O Vector Table Reader Input #1 ($F38A).
+ 461  FB6C              ;   In:  none.  Out: A = character (falls into CONIN_VEC_JP -> JP (HL)).  Clobbers: A,HL.
+ 462  FB6C              ;   Algorithm: load HL from Reader Input #1 (z80 $F38A = Apple $038A) and JP (HL) via
+ 463  FB6C              ;     CONIN_VEC_JP. Reused by BIOS_READER for the PTR: case. [DOC S&HD 2-18/2-19] [RE]
+ 464  FB6C              ; ----------------------------------------------------------------------
+ 465  FB6C              CONIN_UC1:
+ 466  FB6C 2A 8A F3             LD HL,($F38A)
+ 467  FB6F              CONIN_VEC_JP:
+ 468  FB6F E9                   JP (HL)
+ 469  FB70              ; [DOC S&HD 2-18/2-19] LIST (printer) output: masks the IOBYTE_ADDR LIST field (bits 6-7; 0=TTY:, 1=CRT:,
+ 470  FB70              ;       2=LPT:, 3=UL1:). TTY:/CRT: return null; LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps
+ 471  FB70              ;       through the List Output #2 cell ($F394). (List Output #1 is $F392.) Char in C -> list device.
+ 472  FB70              ; ----------------------------------------------------------------------
+ 473  FB70              ; BIOS_LIST (LIST) -- printer output, routed by the IOBYTE_ADDR LIST field (bits 6-7).
+ 474  FB70              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
+ 475  FB70              ;   Algorithm: read IOBYTE_ADDR, mask the LIST field (AND $C0). TTY:/CRT: (<$80) return null
+ 476  FB70              ;     (DISPATCH_NODEV); LPT: ($80) routes via CONOUT_UC1; UL1: ($C0) jumps through List
+ 477  FB70              ;     Output #2 ($F394). (List Output #1 is $F392.) [DOC S&HD 2-18/2-19] Twin of the
+ 478  FB70              ;     2.23-44K LIST. [RE]
+ 479  FB70              ; ----------------------------------------------------------------------
+ 480  FB70              BIOS_LIST:
+ 481  FB70 3A 03 00             LD A,(IOBYTE_ADDR)
+ 482  FB73 E6 C0                AND $C0
+ 483  FB75 FE 80                CP $80
+ 484  FB77 38 27                JR C,DISPATCH_NODEV
+ 485  FB79 28 DB                JR Z,CONOUT_UC1
+ 486  FB7B 2A 94 F3             LD HL,($F394)
+ 487  FB7E E9                   JP (HL)
+ 488  FB7F              ; [DOC S&HD 2-18/2-19] PUNCH output: masks the IOBYTE_ADDR PUNCH field (bits 4-5). Value 1 (PTP:) ->
+ 489  FB7F              ;       Punch Output #1 cell ($F38E); higher values -> Punch Output #2 cell ($F390); value 0 (TTY:)
+ 490  FB7F              ;       returns null. The char in C is sent to the selected paper-tape-punch device.
+ 491  FB7F              ; ----------------------------------------------------------------------
+ 492  FB7F              ; BIOS_PUNCH (PUNCH) -- punch output, routed by the IOBYTE_ADDR PUNCH field (bits 4-5).
+ 493  FB7F              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
+ 494  FB7F              ;   Algorithm: read IOBYTE_ADDR, mask the PUNCH field (AND $30). TTY: (0) returns null
+ 495  FB7F              ;     (DISPATCH_NODEV); PTP: ($10) -> Punch Output #1 ($F38E) via CONIN_VEC_JP; higher
+ 496  FB7F              ;     values -> Punch Output #2 ($F390). The char in C goes to the paper-tape-punch
+ 497  FB7F              ;     device. [DOC S&HD 2-18/2-19] Twin of the 2.23-44K PUNCH. [RE]
+ 498  FB7F              ; ----------------------------------------------------------------------
+ 499  FB7F              BIOS_PUNCH:
+ 500  FB7F 3A 03 00             LD A,(IOBYTE_ADDR)
+ 501  FB82 E6 30                AND $30
+ 502  FB84 FE 10                CP $10
+ 503  FB86 38 18                JR C,DISPATCH_NODEV
+ 504  FB88 2A 8E F3             LD HL,($F38E)
+ 505  FB8B 28 E2                JR Z,CONIN_VEC_JP
+ 506  FB8D 2A 90 F3             LD HL,($F390)
+ 507  FB90 E9                   JP (HL)
+ 508  FB91              ; [DOC S&HD 2-18/2-19] READER input: masks the IOBYTE_ADDR READER field (bits 2-3; 0=TTY:, 1=CRT:,
+ 509  FB91              ;       2=PTR:, 3=UR2:). TTY:/CRT: -> CONIN_TTY (console input); PTR: ($08) -> CONIN_UC1; UR2: ($0C)
+ 510  FB91              ;       jumps through the Reader Input #2 cell ($F38C). (Reader Input #1 is $F38A.) Char returned in A.
+ 511  FB91              ; ----------------------------------------------------------------------
+ 512  FB91              ; BIOS_READER (READER) -- reader input, routed by the IOBYTE_ADDR READER field (bits 2-3).
+ 513  FB91              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
+ 514  FB91              ;   Algorithm: read IOBYTE_ADDR, mask the READER field (AND $0C). TTY:/CRT: (<$08) -> CONIN_TTY;
+ 515  FB91              ;     PTR: ($08) -> CONIN_UC1; UR2: ($0C) jumps through Reader Input #2 ($F38C). (Reader
+ 516  FB91              ;     Input #1 is $F38A.) [DOC S&HD 2-18/2-19] Twin of the 2.23-44K READER. [RE]
+ 517  FB91              ; ----------------------------------------------------------------------
+ 518  FB91              BIOS_READER:
+ 519  FB91 3A 03 00             LD A,(IOBYTE_ADDR)
+ 520  FB94 E6 0C                AND $0C
+ 521  FB96 FE 08                CP $08
+ 522  FB98 38 CE                JR C,CONIN_TTY
+ 523  FB9A 28 D0                JR Z,CONIN_UC1
+ 524  FB9C 2A 8C F3             LD HL,($F38C)
+ 525  FB9F E9                   JP (HL)
+ 526  FBA0              ; ----------------------------------------------------------------------
+ 527  FBA0              ; DISPATCH_NODEV -- IOBYTE_ADDR field selects no physical device: fall into the filter.
+ 528  FBA0              ;   In:  reached with carry set (no-device).  Out: enters the screen-function processor
+ 529  FBA0              ;     (CONOUT_ESC_PROC) with the carry folded into a flag.  Clobbers: A,HL.
+ 530  FBA0              ;   Algorithm: SCF, then CONOUT_ESC_PROC's SBC A,A turns carry into a 0/$FF flag stored
+ 531  FBA0              ;     in COL_FLAG ($FEE4). Twin of the 2.23-44K DISPATCH_NODEV. [RE]
+ 532  FBA0              ; ----------------------------------------------------------------------
+ 533  FBA0              DISPATCH_NODEV:
+ 534  FBA0 37                   SCF
+ 535  FBA1              ; [DOC S&HD 2-14] Console-output screen-function processor. $F3A2 is the Hardware-table lead-in
+ 536  FBA1              ;       character (zero = no lead-in). Reached for the non-BAT: console path; tests the lead-in to
+ 537  FBA1              ;       decide whether a multi-byte screen-function sequence is being emitted.
+ 538  FBA1              ; ----------------------------------------------------------------------
+ 539  FBA1              ; CONOUT_ESC_PROC -- console-output screen-function / cursor-address processor.
+ 540  FBA1              ;   In:  C = character; the SBC A,A flag from the caller.  Out: emits or updates cursor
+ 541  FBA1              ;     state.  Clobbers: A,C,DE,HL.
+ 542  FBA1              ;   Algorithm: store the entry flag in COL_FLAG ($FEE4). [DOC S&HD 2-14] $F3A2 is the
+ 543  FBA1              ;     Hardware-table lead-in char (0 = none); if none, emit directly via CONSOLE_PUT_CHAR.
+ 544  FBA1              ;     Else clear bit 7 of C; if the pending-column counter (COL_PENDING, $FEE5) is nonzero,
+ 545  FBA1              ;     apply a config-driven column offset ($F396 = SXYOFF, the Software cursor XY offset,
+ 546  FBA1              ;     high bit selecting X/Y vs Y/X order), else fall into the sequence scanner. Twin of
+ 547  FBA1              ;     the 2.23-44K CONOUT_FILTER_NOEXPAND path. [RE]
+ 548  FBA1              ; ----------------------------------------------------------------------
+ 549  FBA1              CONOUT_ESC_PROC:
+ 550  FBA1 9F                   SBC A,A
+ 551  FBA2 21 A2 F3             LD HL,$F3A2
+ 552  FBA5 6E                   LD L,(HL)
+ 553  FBA6 2C                   INC L
+ 554  FBA7 CA A4 FC             JP Z,CONSOLE_PUT_CHAR
+ 555  FBAA 21 E4 FE             LD HL,COL_FLAG
+ 556  FBAD 77                   LD (HL),A
+ 557  FBAE CB B9                RES 7,C
+ 558  FBB0 23                   INC HL
+ 559  FBB1 7E                   LD A,(HL)
+ 560  FBB2 B7                   OR A
+ 561  FBB3 CA 56 FC             JP Z,CONOUT_SEQ_MATCH
+ 562  FBB6 35                   DEC (HL)
+ 563  FBB7              ; [DOC S&HD 2-14] Cursor-address coordinate handling: $F396 is SXYOFF, the Software cursor XY
+ 564  FBB7              ;       coordinate offset (range 0-127; high bit 0 => Y first then X, high bit 1 => X first then Y).
+ 565  FBB7 3A 96 F3             LD A,($F396)
+ 566  FBBA 21 ED FE             LD HL,BIOS_BOOT_1
+ 567  FBBD 28 0C                JR Z,COORD_SIGN_CHK
+ 568  FBBF B7                   OR A
+ 569  FBC0 F2 C6 FB             JP P,COORD_BIAS_SUB
+ 570  FBC3 2B                   DEC HL
+ 571  FBC4              ; ----------------------------------------------------------------------
+ 572  FBC4              ; COORD_MASK7 -- apply a signed config offset to the running column position.
+ 573  FBC4              ;   In:  A = config byte (sign bit = direction); C = current column; HL -> column cell.
+ 574  FBC4              ;   Out: (HL) = C - offset.  Clobbers: A,E.
+ 575  FBC4              ;   Algorithm: AND $7F drops the sign bit to the magnitude (COORD_BIAS_SUB entry skips
+ 576  FBC4              ;     the mask), subtract it from C, store the new column. Twin of the 2.23-44K
+ 577  FBC4              ;     COL_APPLY_OFFSET. [RE]
+ 578  FBC4              ; ----------------------------------------------------------------------
+ 579  FBC4              COORD_MASK7:
+ 580  FBC4 E6 7F                AND $7F
+ 581  FBC6              COORD_BIAS_SUB:
+ 582  FBC6 5F                   LD E,A
+ 583  FBC7 79                   LD A,C
+ 584  FBC8 93                   SUB E
+ 585  FBC9 77                   LD (HL),A
+ 586  FBCA C9                   RET
+ 587  FBCB              COORD_SIGN_CHK:
+ 588  FBCB B7                   OR A
+ 589  FBCC FA D0 FB             JP M,COL_OFFSET_FROM_WIDTH
+ 590  FBCF 2B                   DEC HL
+ 591  FBD0              ; ----------------------------------------------------------------------
+ 592  FBD0              ; COL_OFFSET_FROM_WIDTH -- derive the cursor screen coordinate and emit the move sequence.
+ 593  FBD0              ;   In:  C = column; the BOOT-overlaid base word at (BIOS_BOOT+2).  Out: emits the
+ 594  FBD0              ;     cursor-move via CONSOLE_PUT_CHAR.  Clobbers: A,B,C,DE,HL.
+ 595  FBD0              ;   Algorithm: CALL COORD_MASK7 to fold the column, load the base word (BIOS_BOOT+2 =
+ 596  FBD0              ;     the cold-boot LD SP operand reused as cursor scratch). [DOC S&HD 2-14] $F3A1 is
+ 597  FBD0              ;     the Hardware cursor XY offset (counterpart of SXYOFF=$F396); its high bit selects
+ 598  FBD0              ;     X/Y vs Y/X transmission order. Fold in the offset, ADD to form the address, emit
+ 599  FBD0              ;     with B=7 then B=$0A (CHAR_C_TO_SCREEN). Twin of the 2.23-44K COL_OFFSET_FROM_WIDTH. [RE]
+ 600  FBD0              ; ----------------------------------------------------------------------
+ 601  FBD0              COL_OFFSET_FROM_WIDTH:
+ 602  FBD0 CD C4 FB             CALL COORD_MASK7
+ 603  FBD3 2A EC FE             LD HL,(BIOS_BOOT+2)
+ 604  FBD6              ; [DOC S&HD 2-14] $F3A1 is the Hardware cursor XY coordinate offset (the hardware-table counterpart
+ 605  FBD6              ;       of SXYOFF=$F396); its high bit likewise selects X/Y vs Y/X transmission order to the terminal.
+ 606  FBD6 3A A1 F3             LD A,($F3A1)
+ 607  FBD9 B7                   OR A
+ 608  FBDA F2 E2 FB             JP P,EMIT_CURSOR_MOVE
+ 609  FBDD E6 7F                AND $7F
+ 610  FBDF 5D                   LD E,L
+ 611  FBE0 6C                   LD L,H
+ 612  FBE1 63                   LD H,E
+ 613  FBE2              EMIT_CURSOR_MOVE:
+ 614  FBE2 5F                   LD E,A
+ 615  FBE3 84                   ADD A,H
+ 616  FBE4 4F                   LD C,A
+ 617  FBE5 7B                   LD A,E
+ 618  FBE6 85                   ADD A,L
+ 619  FBE7 F5                   PUSH AF
+ 620  FBE8 06 07                LD B,$07
+ 621  FBEA CD A4 FC             CALL CONSOLE_PUT_CHAR
+ 622  FBED F1                   POP AF
+ 623  FBEE 06 0A                LD B,$0A
  624  FBF0              ; ----------------------------------------------------------------------
- 625  FBF0              CHAR_C_TO_SCREEN:
- 626  FBF0 4F                   LD C,A
- 627  FBF1 C3 A4 FC             JP CONSOLE_PUT_CHAR
- 628  FBF4              ; ----------------------------------------------------------------------
- 629  FBF4              ; BIOS_SETSEC (SETSEC) -- set the requested sector for the next disk I/O.
- 630  FBF4              ;   In:  C = sector number.  Out: none.  Clobbers: A.
- 631  FBF4              ;   Algorithm: store C into the seksec cell BIOS_BOOT+1 ($FEEB = the cold-boot LD SP
- 632  FBF4              ;     operand low byte, reused post-boot as the requested-sector cell). The off-image
- 633  FBF4              ;     RWTS/deblock is the consumer; this image only WRITES it. Twin of the 2.23-44K
- 634  FBF4              ;     SETSEC. [RE]
- 635  FBF4              ; ----------------------------------------------------------------------
- 636  FBF4              BIOS_SETSEC:
- 637  FBF4 79                   LD A,C
- 638  FBF5 32 EB FE             LD (BIOS_BOOT+1),A
- 639  FBF8 C9                   RET
- 640  FBF9              ; ----------------------------------------------------------------------
- 641  FBF9              ; BIOS_SETDMA (SETDMA) -- set the DMA (record transfer) address.
- 642  FBF9              ;   In:  BC = DMA buffer address (the 128-byte CP/M record source/destination).
- 643  FBF9              ;   Out: none.  Clobbers: none.
- 644  FBF9              ;   Algorithm: store BC into the dmaadr cell (DISK_DMAADR+2 = $FEFA, the operand region
- 645  FBF9              ;     of the cold-boot template store). The off-image deblock copy uses dmaadr as the
- 646  FBF9              ;     host<->record transfer endpoint. Twin of the 2.23-44K SETDMA. [RE]
- 647  FBF9              ; ----------------------------------------------------------------------
- 648  FBF9              BIOS_SETDMA:
- 649  FBF9 ED 43 FA FE          LD (DISK_DMAADR+2),BC
- 650  FBFD C9                   RET
- 651  FBFE 00 00 00...          DEFS    88, $00                  ; fill
- 652  FC56              ; ----------------------------------------------------------------------
- 653  FC56              ; CONOUT_SEQ_MATCH -- scan the Software Screen Function Table for a control code.
- 654  FC56              ;   In:  A/B = mode code; C = incoming char.  Out: emits a mapped function or the raw
- 655  FC56              ;     char.  Clobbers: A,B,C,DE,HL.
- 656  FC56              ;   Algorithm: read COL_STATE ($FEE6). [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the Software
- 657  FC56              ;     function lead-in char (0 = none); if set and it matches C, mark pending ($80) and
- 658  FC56              ;     return; else control codes (<=$1F) fall into the SSFTAB scan (SEQ_TBL_SCAN),
- 659  FC56              ;     printables emit directly via CONSOLE_PUT_CHAR. Twin of the 2.23-44K SETDMA_1. [RE]
- 660  FC56              ; ----------------------------------------------------------------------
- 661  FC56              CONOUT_SEQ_MATCH:
- 662  FC56 47                   LD B,A
- 663  FC57 21 E6 FE             LD HL,COL_STATE
- 664  FC5A 7E                   LD A,(HL)
- 665  FC5B 5F                   LD E,A
- 666  FC5C B7                   OR A
- 667  FC5D 20 12                JR NZ,SEQ_TBL_SCAN
- 668  FC5F              ; [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the Software function lead-in character (zero = no lead-in).
- 669  FC5F              ;       If set and it matches the incoming byte (in C), a lead-in has been consumed: marks pending
- 670  FC5F              ;       ($80) and returns; otherwise drops through to scan the Software Screen Function Table.
- 671  FC5F 3A 97 F3             LD A,($F397)
- 672  FC62 B7                   OR A
- 673  FC63 28 06                JR Z,SEQ_PRINTABLE_CHK
- 674  FC65 B9                   CP C
- 675  FC66 20 03                JR NZ,SEQ_PRINTABLE_CHK
- 676  FC68 36 80                LD (HL),$80
- 677  FC6A C9                   RET
- 678  FC6B              SEQ_PRINTABLE_CHK:
- 679  FC6B 3E 1F                LD A,$1F
- 680  FC6D B9                   CP C
- 681  FC6E DA A4 FC             JP C,CONSOLE_PUT_CHAR
- 682  FC71              ; [DOC S&HD 2-14/2-15] Scans the Software Screen Function Table for a matching control code. SSFTAB
- 683  FC71              ;       (function #1) is at $F398; here HL=$F3A0 (function #9) and B=9 walks the 9 entries downward
- 684  FC71              ;       to $F398, matching the incoming code against the 9 configurable screen functions. The
- 685  FC71              ;       9-entry span $F398..$F3A0 implies fn#9 sits at $F3A0 (resolving the manual's fn8/fn9 ambiguity).
- 686  FC71              ; ----------------------------------------------------------------------
- 687  FC71              ; SEQ_TBL_SCAN -- match the incoming code against the 9 Software Screen Functions.
- 688  FC71              ;   In:  C = control code, E = lead-in XOR mask.  Out: emits the matched function's
- 689  FC71              ;     sequence or the raw char.  Clobbers: A,B,C,DE,HL.
- 690  FC71              ;   Algorithm: [DOC S&HD 2-14/2-15] SSFTAB fn#1 is at $F398; HL=$F3A0 (fn#9), B=9 walks
- 691  FC71              ;     the 9 entries downward to $F398, comparing each configured function code (XOR E)
- 692  FC71              ;     against C. No match -> emit raw (CONSOLE_PUT_CHAR); match -> SEQ_EMIT_ENTRY. Twin
- 693  FC71              ;     of the 2.23-44K SETDMA_3 SSFTAB scan. [RE]
- 694  FC71              ; ----------------------------------------------------------------------
- 695  FC71              SEQ_TBL_SCAN:
- 696  FC71 21 A0 F3             LD HL,$F3A0
- 697  FC74 06 09                LD B,$09
- 698  FC76              CHECK_UNIT_DEFAULT_3:
- 699  FC76 7E                   LD A,(HL)
- 700  FC77 B7                   OR A
- 701  FC78 28 04                JR Z,SEQ_TBL_NEXT
- 702  FC7A AB                   XOR E
- 703  FC7B B9                   CP C
- 704  FC7C 28 05                JR Z,SEQ_EMIT_ENTRY
- 705  FC7E              SEQ_TBL_NEXT:
- 706  FC7E 2B                   DEC HL
- 707  FC7F 10 F5                DJNZ CHECK_UNIT_DEFAULT_3
- 708  FC81 18 21                JR CONSOLE_PUT_CHAR
- 709  FC83              ; ----------------------------------------------------------------------
- 710  FC83              ; SEQ_EMIT_ENTRY -- emit a matched screen function's replacement sequence.
- 711  FC83              ;   In:  HL -> the matched SSFTAB entry; C carries state.  Out: emits via CONSOLE_PUT_CHAR;
- 712  FC83              ;     may set the pending flag.  Clobbers: A,B,C,DE,HL.
- 713  FC83              ;   Algorithm: index +$0B to the paired replacement byte; high bit set marks a hardware
- 714  FC83              ;     lead-in ($F3A2, [DOC S&HD 2-14/2-15]) emitted ahead of the byte with B=7; then
- 715  FC83              ;     SEQ_SET_PENDING may store $02 into COL_PENDING ($FEE5). Twin of the 2.23-44K
- 716  FC83              ;     SETDMA_6/SETDMA_7. [RE]
- 717  FC83              ; ----------------------------------------------------------------------
- 718  FC83              SEQ_EMIT_ENTRY:
- 719  FC83 11 0B 00             LD DE,$000B
- 720  FC86 19                   ADD HL,DE
- 721  FC87 7E                   LD A,(HL)
- 722  FC88 B7                   OR A
- 723  FC89 4F                   LD C,A
- 724  FC8A F2 9A FC             JP P,SEQ_SET_PENDING
- 725  FC8D E6 7F                AND $7F
- 726  FC8F 4F                   LD C,A
- 727  FC90 C5                   PUSH BC
- 728  FC91              ; [DOC S&HD 2-14/2-15] Emits the matched function's Hardware-table lead-in: $F3A2 is the Hardware
- 729  FC91              ;       lead-in character, sent ahead of the hardware screen-function byte to the terminal.
- 730  FC91 3A A2 F3             LD A,($F3A2)
- 731  FC94 06 07                LD B,$07
- 732  FC96 CD F0 FB             CALL CHAR_C_TO_SCREEN
- 733  FC99 C1                   POP BC
- 734  FC9A              SEQ_SET_PENDING:
- 735  FC9A 78                   LD A,B
- 736  FC9B FE 07                CP $07
- 737  FC9D 20 05                JR NZ,CONSOLE_PUT_CHAR
- 738  FC9F 3E 02                LD A,$02
- 739  FCA1 32 E5 FE             LD (COL_PENDING),A
- 740  FCA4              ; [DOC S&HD 2-18/2-19] Console-output emit tail: loads HL from one of the two I/O Vector Table
- 741  FCA4              ;       Console Output cells -- $F388 (Console Output #2) if the mode flag at COL_FLAG is 0, else
- 742  FCA4              ;       $F386 (Console Output #1) -- and falls into the JP (HL). Output #1 serves TTY:/CRT:; Output
- 743  FCA4              ;       #2 serves UC1:. These are user-patchable cells that carry the char in C to the console device.
- 744  FCA4              ; ----------------------------------------------------------------------
- 745  FCA4              ; CONSOLE_PUT_CHAR -- emit tail: JP (HL) into the selected Console Output vector.
- 746  FCA4              ;   In:  C = character; COL_FLAG ($FEE4) selects the output cell.  Out: none (JP (HL)).
- 747  FCA4              ;   Clobbers: A,HL.
- 748  FCA4              ;   Algorithm: clear COL_STATE ($FEE6); load HL from one of the two I/O Vector Table
- 749  FCA4              ;     Console Output cells -- $F388 (Output #2, UC1:) if COL_FLAG is 0, else $F386
- 750  FCA4              ;     (Output #1, TTY:/CRT:) -- and JP (HL) (CONOUT_PHYS_JP). User-patchable cells that
- 751  FCA4              ;     carry the char in C to the console device. [DOC S&HD 2-18/2-19] Twin of the
- 752  FCA4              ;     2.23-44K SCREEN_EMIT. [RE]
- 753  FCA4              ; ----------------------------------------------------------------------
- 754  FCA4              CONSOLE_PUT_CHAR:
- 755  FCA4 AF                   XOR A
- 756  FCA5 32 E6 FE             LD (COL_STATE),A
- 757  FCA8 3A E4 FE             LD A,(COL_FLAG)
- 758  FCAB B7                   OR A
- 759  FCAC 2A 88 F3             LD HL,($F388)
- 760  FCAF 28 03                JR Z,CONOUT_PHYS_JP
- 761  FCB1 2A 86 F3             LD HL,($F386)
- 762  FCB4              ; [DOC S&HD 2-18/2-19] JP (HL) into the selected Console Output vector ($F386 #1 or $F388 #2)
- 763  FCB4              ;       resolved above -- the user-patchable I/O Vector Table cell that drives console output.
- 764  FCB4              CONOUT_PHYS_JP:
- 765  FCB4 E9                   JP (HL)
- 766  FCB5 11 03 00 C3          DEFB    $11,$03,$00,$C3
- 767  FCB9              CONOUT_HANDLER_VEC:
- 768  FCB9 BB FC 2A E7          DEFB    $BB,$FC,$2A,$E7,$FE,$3A,$E9,$FE,$77,$CD,$E2,$FC,$2A,$28,$F0,$3A
- 768  FCBD FE 3A E9 FE
- 768  FCC1 77 CD E2 FC
- 768  FCC5 2A 28 F0 3A
- 769  FCC9 24 F0 5F 16          DEFB    $24,$F0,$5F,$16,$F0,$19,$22,$E7,$FE,$7E,$32,$E9
- 769  FCCD F0 19 22 E7
- 769  FCD1 FE 7E 32 E9
- 770  FCD5 FE FE                DEFW    BIOS_BOOT_8
- 771  FCD7 E0 38 02 EE          DEFB    $E0,$38,$02,$EE,$20,$E6,$3F,$F6,$40,$77,$C9,$78,$B7,$28,$0B,$21
- 771  FCDB 20 E6 3F F6
- 771  FCDF 40 77 C9 78
- 771  FCE3 B7 28 0B 21
- 772  FCE7 45 FB                DEFW    RPC_TRIGGER
- 773  FCE9 E5 21 66 FD          DEFB    $E5,$21,$66,$FD,$85,$6F,$6E,$E9
- 773  FCED 85 6F 6E E9
- 774  FCF1 79 FE                DEFW    INIT_PASCAL_1_1_2
- 775  FCF3 0D 20 05 AF          DEFB    $0D,$20,$05,$AF,$32,$24,$F0,$C9,$F6
- 775  FCF7 32 24 F0 C9
- 775  FCFB F6
- 776  FCFC 80 FE                DEFW    SETTRK_STORE
- 777  FCFE E0 38 04 21          DEFB    $E0,$38,$04,$21,$DD,$F3,$AE,$32,$45,$F0,$21,$F0,$FD,$C3,$80,$FD
- 777  FD02 DD F3 AE 32
- 777  FD06 45 F0 21 F0
- 777  FD0A FD C3 80 FD
- 778  FD0E CD                   DEFB    $CD
- 779  FD0F 8A FE                DEFW    SLOT_IO_ADDR
- 780  FD11 C6 8F CB 4E          DEFB    $C6,$8F,$CB,$4E,$28,$FC,$21,$2F,$F0,$36,$60,$2B,$36,$C0,$2B,$77
- 780  FD15 28 FC 21 2F
- 780  FD19 F0 36 60 2B
- 780  FD1D 36 C0 2B 77
- 781  FD21 2B 36 8D 62          DEFB    $2B,$36,$8D,$62,$C3,$7C,$FD,$3E,$FF,$01,$3E,$3F,$32,$32,$F0,$E1
- 781  FD25 C3 7C FD 3E
- 781  FD29 FF 01 3E 3F
- 781  FD2D 32 32 F0 E1
- 782  FD31 C9 21                DEFB    $C9,$21
- 783  FD33 F4 FB                DEFW    BIOS_SETSEC
- 784  FD35 C9 AF 6F 67          DEFB    $C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0,$21,$C1,$FB,$C9,$2E,$42
- 784  FD39 22 24 F0 32
- 784  FD3D 45 F0 21 C1
- 784  FD41 FB C9 2E 42
- 785  FD45 01 2E 9C 01          DEFB    $01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A
- 785  FD49 2E 1A 01 2E
- 785  FD4D 58 26 FC C9
- 785  FD51 2A
- 786  FD52 EC FE                DEFW    BIOS_BOOT+2
- 787  FD54 7D FE 28 38          DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24
- 787  FD58 02 2E 00 7C
- 787  FD5C FE 18 38 02
- 787  FD60 26 00 22 24
- 788  FD64 F0 18 D5 4C          DEFB    $F0,$18,$D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD
- 788  FD68 43 46 28 2B
- 788  FD6C 36 30 49 32
- 788  FD70 51 CD
- 789  FD72 83 FD                DEFW    INIT_PASCAL_1_0
- 790  FD74 21 78 F6 19          DEFB    $21,$78,$F6,$19,$71,$21,$AA,$C9,$79,$32,$45,$F0,$C3
- 790  FD78 71 21 AA C9
- 790  FD7C 79 32 45 F0
- 790  FD80 C3
- 791  FD81 45 FB                DEFW    RPC_TRIGGER
- 792  FD83              ; [DOC S&HD 2-24/2-25] Card init that stages 6502 RPC register-pass cells before a SoftCard call:
- 793  FD83              ;       $F047 is cell $47 (6502 X register pass area) and $F046 is cell $46 (6502 Y register pass
- 794  FD83              ;       area). The full RPC set is $45=A, $46=Y, $47=X, $48=P, $49=6502 SP-on-exit (Y precedes X).
- 795  FD83              ; ----------------------------------------------------------------------
- 796  FD83              ; INIT_PASCAL_1_0 -- stage the 6502 RPC register-pass cells for a Videx-class card init.
- 797  FD83              ;   In:  E = slot index.  Out: A = a card firmware byte; RPC cells staged.  Clobbers: A,HL.
- 798  FD83              ;   Algorithm: CALL SLOT_IO_ADDR_W for the card I/O base; stash it in $F6F8 and RPC cell
- 799  FD83              ;     $47 ($F047 = 6502 X pass area); read a card byte at $EFFF; SLOT_E000_ADDR + SUB $20
- 800  FD83              ;     into RPC cell $46 ($F046 = 6502 Y pass area). [DOC S&HD 2-24/2-25] The full RPC set
- 801  FD83              ;     is $45=A, $46=Y, $47=X, $48=P, $49=6502 SP-on-exit. Twin of the 2.23-44K
- 802  FD83              ;     SET_SCREEN_BASE. [RE]
- 803  FD83              ; ----------------------------------------------------------------------
- 804  FD83              INIT_PASCAL_1_0:
- 805  FD83 CD 85 FE             CALL SLOT_IO_ADDR_W
- 806  FD86 32 F8 F6             LD ($F6F8),A
- 807  FD89 32 47 F0             LD ($F047),A
- 808  FD8C 3A FF EF             LD A,($EFFF)
- 809  FD8F CD B1 FA             CALL SLOT_E000_ADDR
- 810  FD92 D6 20                SUB $20
- 811  FD94 32 46 F0             LD ($F046),A
- 812  FD97 7E                   LD A,(HL)
- 813  FD98 C9                   RET
- 814  FD99              CONST_SLOT3_TBL:
- 815  FD99 21 1D 0E 1E          DEFB    $21,$1D,$0E,$1E,$03,$3E,$01,$CD,$AD,$FD,$3A,$48,$F0,$1F,$9F,$C9
- 815  FD9D 03 3E 01 CD
- 815  FDA1 AD FD 3A 48
- 815  FDA5 F0 1F 9F C9
- 816  FDA9 21 E1 0D 79          DEFB    $21,$E1,$0D,$79,$32,$45,$F0
- 816  FDAD 32 45 F0
- 817  FDB0              ; [AI] Pascal-1.1 card initializer (the POST-1980 device-6 class the 2.20 manual does NOT cover).
- 818  FDB0              ;       [DOC S&HD 2-24/2-25] The cell it stages, $F047, is RPC cell $47 (6502 X register pass area);
- 819  FDB0              ;       it then triggers the SoftCard call via RPC_TRIGGER. The Pascal-1.1 / device-6 dispatch
- 820  FDB0              ;       itself is a 2.23-era extension, not manual-backed.
- 821  FDB0              ; ----------------------------------------------------------------------
- 822  FDB0              ; PLOT_CHAR_RPC -- Pascal-1.1 / device-6 card initializer (post-1980 class).
- 823  FDB0              ;   In:  E = a card parameter byte.  Out: fires the SoftCard call.  Clobbers: A.
- 824  FDB0              ;   Algorithm: store E into RPC cell $47 ($F047 = 6502 X register pass area,
- 825  FDB0              ;     [DOC S&HD 2-24/2-25]) then tail-jump to RPC_TRIGGER to run the 6502 service.
- 826  FDB0              ;     The device-6 / Pascal-1.1 dispatch is a 2.23-era extension the 2.20 manual does
- 827  FDB0              ;     NOT document. Twin of the 2.23-44K PLOT_CHAR_RPC family. [RE]
- 828  FDB0              ; ----------------------------------------------------------------------
- 829  FDB0              PLOT_CHAR_RPC:
- 830  FDB0 7B                   LD A,E
- 831  FDB1 32 47 F0             LD ($F047),A
- 832  FDB4 C3 45 FB             JP RPC_TRIGGER
- 833  FDB7 21 0F 0E CD          DEFB    $21,$0F,$0E,$CD
- 834  FDBB B0 FD                DEFW    PLOT_CHAR_RPC
- 835  FDBD 3A 45 F0 C9          DEFB    $3A,$45,$F0,$C9,$CD
- 835  FDC1 CD
- 836  FDC2 83 FD                DEFW    INIT_PASCAL_1_0
- 837  FDC4 21 4D C8 CD          DEFB    $21,$4D,$C8,$CD
- 838  FDC8 45 FB                DEFW    RPC_TRIGGER
- 839  FDCA 21 78 F6 19          DEFB    $21,$78,$F6,$19,$7E,$C9,$48,$20,$26,$0E,$A0,$0D,$B1,$F6,$85,$F6
- 839  FDCE 7E C9 48 20
- 839  FDD2 26 0E A0 0D
- 839  FDD6 B1 F6 85 F6
- 840  FDDA AC F8 06 68          DEFB    $AC,$F8,$06,$68,$6C,$F6,$00,$48,$A9,$00,$20,$EF,$0D,$20,$26,$0E
- 840  FDDE 6C F6 00 48
- 840  FDE2 A9 00 20 EF
- 840  FDE6 0D 20 26 0E
- 841  FDEA A0 0F 4C D6          DEFB    $A0,$0F,$4C,$D6,$0D,$84,$F5,$48,$20,$1D,$0E,$68,$A4,$F5,$90,$F5
- 841  FDEE 0D 84 F5 48
- 841  FDF2 20 1D 0E 68
- 841  FDF6 A4 F5 90 F5
- 842  FDFA 60 00 00 00          DEFB    $60,$00,$00,$00,$00,$00,$4C,$09,$0E,$8D,$8B,$C0,$4C,$13,$D4,$8D
- 842  FDFE 00 00 4C 09
- 842  FE02 0E 8D 8B C0
- 842  FE06 4C 13 D4 8D
- 843  FE0A 8B C0 4C F7          DEFB    $8B,$C0,$4C,$F7,$D1,$A9,$01,$20,$EF,$0D,$20,$26,$0E,$48,$A0,$0E
- 843  FE0E D1 A9 01 20
- 843  FE12 EF 0D 20 26
- 843  FE16 0E 48 A0 0E
- 844  FE1A 4C D6 0D 48          DEFB    $4C,$D6,$0D,$48,$20,$26,$0E,$A0,$10,$4C,$D6,$0D,$98,$09,$C0,$AA
- 844  FE1E 20 26 0E A0
- 844  FE22 10 4C D6 0D
- 844  FE26 98 09 C0 AA
- 845  FE2A 98 0A 0A 0A          DEFB    $98,$0A,$0A,$0A,$0A,$A8,$8C,$F8,$06,$A9,$00,$85,$F6,$86,$F7
- 845  FE2E 0A A8 8C F8
- 845  FE32 06 A9 00 85
- 845  FE36 F6 86 F7
- 846  FE39 AD FF                DEFW    BANNER_PUT_ATTR
- 847  FE3B CF B1 F6 60          DEFB    $CF,$B1,$F6,$60,$A5,$48,$48,$A5,$45,$A6,$46,$A4,$47,$28,$58,$60
- 847  FE3F A5 48 48 A5
- 847  FE43 45 A6 46 A4
- 847  FE47 47 28 58 60
- 848  FE4B CD                   DEFB    $CD
- 849  FE4C 8A FE                DEFW    SLOT_IO_ADDR
- 850  FE4E 7E 1F 30 FC          DEFB    $7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3
- 850  FE52 2C 7E C9 11
- 850  FE56 01 00 C3
- 851  FE59              READER_HANDLER_TBL:
- 852  FE59 68 FE CD             DEFB    $68,$FE,$CD
- 853  FE5C B1 FA                DEFW    SLOT_E000_ADDR
- 854  FE5E 2E C1 7E 17          DEFB    $2E,$C1,$7E,$17,$38,$FC,$CD
- 854  FE62 38 FC CD
- 855  FE65 85 FE                DEFW    SLOT_IO_ADDR_W
- 856  FE67 71 C9 11 02          DEFB    $71,$C9,$11,$02,$00,$C3
- 856  FE6B 00 C3
- 857  FE6D              PUNCH_HANDLER_TBL:
- 858  FE6D 68 FE 11 02          DEFB    $68,$FE,$11,$02,$00
- 858  FE71 00
- 859  FE72              AUX_DEV_STUB:
- 860  FE72 C3                   DEFB    $C3
- 861  FE73              AUX_DEV_VEC:
- 862  FE73 00                   DEFB    $00
- 863  FE74              AUX_DEV_VEC_HI:
- 864  FE74 00                   DEFB    $00
- 865  FE75              ; ----------------------------------------------------------------------
- 866  FE75              ; INIT_PASCAL_1_1_1 (HOME) -- BIOS jump-vector entry 8: seek the drive to track 0.
- 867  FE75              ;   In:  none.  Out: none (falls into SETTRK's store with track 0).  Clobbers: A,C.
- 868  FE75              ;   Algorithm: read the host-write-pending template cell (DISK_HSTWRT); if a write is
- 869  FE75              ;     pending keep the host-active flag, else clear DISK_HSTACT; then fall into
- 870  FE75              ;     INIT_PASCAL_1_1_3/_4 (SETTRK) with track 0. The actual head step happens later in
- 871  FE75              ;     the off-image deblock path. Twin of the 2.23-44K HOME/SETTRK_STORE. [RE]
- 872  FE75              ; ----------------------------------------------------------------------
- 873  FE75              INIT_PASCAL_1_1_1:
- 874  FE75 3A F2 FE             LD A,(DISK_HSTWRT)
- 875  FE78 B7                   OR A
- 876  FE79              INIT_PASCAL_1_1_2:
- 877  FE79 20 03                JR NZ,INIT_PASCAL_1_1_3
- 878  FE7B 32 F1 FE             LD (DISK_HSTACT),A
- 879  FE7E              INIT_PASCAL_1_1_3:
- 880  FE7E 0E 00                LD C,$00
- 881  FE80              ; ----------------------------------------------------------------------
- 882  FE80              ; SETTRK_STORE (SETTRK) -- BIOS jump-vector entry 10: set the requested track.
- 883  FE80              ;   In:  C = track number.  Out: none.  Clobbers: A.
- 884  FE80              ;   Algorithm: LD A,C then store into the sektrk cell BIOS_BOOT ($FEEA = the cold-boot
- 885  FE80              ;     LD SP operand byte reused post-boot as sektrk). HOME enters this common tail with
- 886  FE80              ;     track 0. Twin of the 2.23-44K SETTRK_STORE tail. [RE]
- 887  FE80              ; ----------------------------------------------------------------------
- 888  FE80              SETTRK_STORE:
- 889  FE80 79                   LD A,C
- 890  FE81 32 EA FE             LD (BIOS_BOOT),A
- 891  FE84 C9                   RET
- 892  FE85              ; ----------------------------------------------------------------------
- 893  FE85              ; SLOT_IO_ADDR_W -- map a slot/drive index to the Apple $C080 write/control-bank base.
- 894  FE85              ;   In:  E = slot/drive index (0..15).  Out: HL = $E080 + (E<<4).  Clobbers: A,L.
- 895  FE85              ;   Algorithm: load z80 $E080 = Apple $C080, then fall into the shared index scaler
- 896  FE85              ;     (SLOT_IOBASE_CALC). Twin of the 2.23-44K SLOT_IO_ADDR_W. [RE]
+ 625  FBF0              ; CHAR_C_TO_SCREEN -- tail: move A into C and tail-jump to the screen emitter.
+ 626  FBF0              ;   In:  A = char/code, B = mode/count code.  Out: JP CONSOLE_PUT_CHAR (no return).
+ 627  FBF0              ;   Clobbers: A,C.
+ 628  FBF0              ;   Algorithm: LD C,A / JP CONSOLE_PUT_CHAR. Twin of the 2.23-44K CHAR_C_TO_SCREEN. [RE]
+ 629  FBF0              ; ----------------------------------------------------------------------
+ 630  FBF0              CHAR_C_TO_SCREEN:
+ 631  FBF0 4F                   LD C,A
+ 632  FBF1 C3 A4 FC             JP CONSOLE_PUT_CHAR
+ 633  FBF4              ; ----------------------------------------------------------------------
+ 634  FBF4              ; BIOS_SETSEC (SETSEC) -- set the requested sector for the next disk I/O.
+ 635  FBF4              ;   In:  C = sector number.  Out: none.  Clobbers: A.
+ 636  FBF4              ;   Algorithm: store C into the seksec cell BIOS_BOOT+1 ($FEEB = the cold-boot LD SP
+ 637  FBF4              ;     operand low byte, reused post-boot as the requested-sector cell). The off-image
+ 638  FBF4              ;     RWTS/deblock is the consumer; this image only WRITES it. Twin of the 2.23-44K
+ 639  FBF4              ;     SETSEC. [RE]
+ 640  FBF4              ; ----------------------------------------------------------------------
+ 641  FBF4              BIOS_SETSEC:
+ 642  FBF4 79                   LD A,C
+ 643  FBF5 32 EB FE             LD (BIOS_BOOT+1),A
+ 644  FBF8 C9                   RET
+ 645  FBF9              ; ----------------------------------------------------------------------
+ 646  FBF9              ; BIOS_SETDMA (SETDMA) -- set the DMA (record transfer) address.
+ 647  FBF9              ;   In:  BC = DMA buffer address (the 128-byte CP/M record source/destination).
+ 648  FBF9              ;   Out: none.  Clobbers: none.
+ 649  FBF9              ;   Algorithm: store BC into the dmaadr cell (DISK_DMAADR+2 = $FEFA, the operand region
+ 650  FBF9              ;     of the cold-boot template store). The off-image deblock copy uses dmaadr as the
+ 651  FBF9              ;     host<->record transfer endpoint. Twin of the 2.23-44K SETDMA. [RE]
+ 652  FBF9              ; ----------------------------------------------------------------------
+ 653  FBF9              BIOS_SETDMA:
+ 654  FBF9 ED 43 FA FE          LD (DISK_DMAADR+2),BC
+ 655  FBFD C9                   RET
+ 656  FBFE 00 00 00...          DEFS    88, $00                  ; fill
+ 657  FC56              ; ----------------------------------------------------------------------
+ 658  FC56              ; CONOUT_SEQ_MATCH -- scan the Software Screen Function Table for a control code.
+ 659  FC56              ;   In:  A/B = mode code; C = incoming char.  Out: emits a mapped function or the raw
+ 660  FC56              ;     char.  Clobbers: A,B,C,DE,HL.
+ 661  FC56              ;   Algorithm: read COL_STATE ($FEE6). [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the Software
+ 662  FC56              ;     function lead-in char (0 = none); if set and it matches C, mark pending ($80) and
+ 663  FC56              ;     return; else control codes (<=$1F) fall into the SSFTAB scan (SEQ_TBL_SCAN),
+ 664  FC56              ;     printables emit directly via CONSOLE_PUT_CHAR. Twin of the 2.23-44K SETDMA_1. [RE]
+ 665  FC56              ; ----------------------------------------------------------------------
+ 666  FC56              CONOUT_SEQ_MATCH:
+ 667  FC56 47                   LD B,A
+ 668  FC57 21 E6 FE             LD HL,COL_STATE
+ 669  FC5A 7E                   LD A,(HL)
+ 670  FC5B 5F                   LD E,A
+ 671  FC5C B7                   OR A
+ 672  FC5D 20 12                JR NZ,SEQ_TBL_SCAN
+ 673  FC5F              ; [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the Software function lead-in character (zero = no lead-in).
+ 674  FC5F              ;       If set and it matches the incoming byte (in C), a lead-in has been consumed: marks pending
+ 675  FC5F              ;       ($80) and returns; otherwise drops through to scan the Software Screen Function Table.
+ 676  FC5F 3A 97 F3             LD A,($F397)
+ 677  FC62 B7                   OR A
+ 678  FC63 28 06                JR Z,SEQ_PRINTABLE_CHK
+ 679  FC65 B9                   CP C
+ 680  FC66 20 03                JR NZ,SEQ_PRINTABLE_CHK
+ 681  FC68 36 80                LD (HL),$80
+ 682  FC6A C9                   RET
+ 683  FC6B              SEQ_PRINTABLE_CHK:
+ 684  FC6B 3E 1F                LD A,$1F
+ 685  FC6D B9                   CP C
+ 686  FC6E DA A4 FC             JP C,CONSOLE_PUT_CHAR
+ 687  FC71              ; [DOC S&HD 2-14/2-15] Scans the Software Screen Function Table for a matching control code. SSFTAB
+ 688  FC71              ;       (function #1) is at $F398; here HL=$F3A0 (function #9) and B=9 walks the 9 entries downward
+ 689  FC71              ;       to $F398, matching the incoming code against the 9 configurable screen functions. The
+ 690  FC71              ;       9-entry span $F398..$F3A0 implies fn#9 sits at $F3A0 (resolving the manual's fn8/fn9 ambiguity).
+ 691  FC71              ; ----------------------------------------------------------------------
+ 692  FC71              ; SEQ_TBL_SCAN -- match the incoming code against the 9 Software Screen Functions.
+ 693  FC71              ;   In:  C = control code, E = lead-in XOR mask.  Out: emits the matched function's
+ 694  FC71              ;     sequence or the raw char.  Clobbers: A,B,C,DE,HL.
+ 695  FC71              ;   Algorithm: [DOC S&HD 2-14/2-15] SSFTAB fn#1 is at $F398; HL=$F3A0 (fn#9), B=9 walks
+ 696  FC71              ;     the 9 entries downward to $F398, comparing each configured function code (XOR E)
+ 697  FC71              ;     against C. No match -> emit raw (CONSOLE_PUT_CHAR); match -> SEQ_EMIT_ENTRY. Twin
+ 698  FC71              ;     of the 2.23-44K SETDMA_3 SSFTAB scan. [RE]
+ 699  FC71              ; ----------------------------------------------------------------------
+ 700  FC71              SEQ_TBL_SCAN:
+ 701  FC71 21 A0 F3             LD HL,$F3A0
+ 702  FC74 06 09                LD B,$09
+ 703  FC76              CHECK_UNIT_DEFAULT_3:
+ 704  FC76 7E                   LD A,(HL)
+ 705  FC77 B7                   OR A
+ 706  FC78 28 04                JR Z,SEQ_TBL_NEXT
+ 707  FC7A AB                   XOR E
+ 708  FC7B B9                   CP C
+ 709  FC7C 28 05                JR Z,SEQ_EMIT_ENTRY
+ 710  FC7E              SEQ_TBL_NEXT:
+ 711  FC7E 2B                   DEC HL
+ 712  FC7F 10 F5                DJNZ CHECK_UNIT_DEFAULT_3
+ 713  FC81 18 21                JR CONSOLE_PUT_CHAR
+ 714  FC83              ; ----------------------------------------------------------------------
+ 715  FC83              ; SEQ_EMIT_ENTRY -- emit a matched screen function's replacement sequence.
+ 716  FC83              ;   In:  HL -> the matched SSFTAB entry; C carries state.  Out: emits via CONSOLE_PUT_CHAR;
+ 717  FC83              ;     may set the pending flag.  Clobbers: A,B,C,DE,HL.
+ 718  FC83              ;   Algorithm: index +$0B to the paired replacement byte; high bit set marks a hardware
+ 719  FC83              ;     lead-in ($F3A2, [DOC S&HD 2-14/2-15]) emitted ahead of the byte with B=7; then
+ 720  FC83              ;     SEQ_SET_PENDING may store $02 into COL_PENDING ($FEE5). Twin of the 2.23-44K
+ 721  FC83              ;     SETDMA_6/SETDMA_7. [RE]
+ 722  FC83              ; ----------------------------------------------------------------------
+ 723  FC83              SEQ_EMIT_ENTRY:
+ 724  FC83 11 0B 00             LD DE,$000B
+ 725  FC86 19                   ADD HL,DE
+ 726  FC87 7E                   LD A,(HL)
+ 727  FC88 B7                   OR A
+ 728  FC89 4F                   LD C,A
+ 729  FC8A F2 9A FC             JP P,SEQ_SET_PENDING
+ 730  FC8D E6 7F                AND $7F
+ 731  FC8F 4F                   LD C,A
+ 732  FC90 C5                   PUSH BC
+ 733  FC91              ; [DOC S&HD 2-14/2-15] Emits the matched function's Hardware-table lead-in: $F3A2 is the Hardware
+ 734  FC91              ;       lead-in character, sent ahead of the hardware screen-function byte to the terminal.
+ 735  FC91 3A A2 F3             LD A,($F3A2)
+ 736  FC94 06 07                LD B,$07
+ 737  FC96 CD F0 FB             CALL CHAR_C_TO_SCREEN
+ 738  FC99 C1                   POP BC
+ 739  FC9A              SEQ_SET_PENDING:
+ 740  FC9A 78                   LD A,B
+ 741  FC9B FE 07                CP $07
+ 742  FC9D 20 05                JR NZ,CONSOLE_PUT_CHAR
+ 743  FC9F 3E 02                LD A,$02
+ 744  FCA1 32 E5 FE             LD (COL_PENDING),A
+ 745  FCA4              ; [DOC S&HD 2-18/2-19] Console-output emit tail: loads HL from one of the two I/O Vector Table
+ 746  FCA4              ;       Console Output cells -- $F388 (Console Output #2) if the mode flag at COL_FLAG is 0, else
+ 747  FCA4              ;       $F386 (Console Output #1) -- and falls into the JP (HL). Output #1 serves TTY:/CRT:; Output
+ 748  FCA4              ;       #2 serves UC1:. These are user-patchable cells that carry the char in C to the console device.
+ 749  FCA4              ; ----------------------------------------------------------------------
+ 750  FCA4              ; CONSOLE_PUT_CHAR -- emit tail: JP (HL) into the selected Console Output vector.
+ 751  FCA4              ;   In:  C = character; COL_FLAG ($FEE4) selects the output cell.  Out: none (JP (HL)).
+ 752  FCA4              ;   Clobbers: A,HL.
+ 753  FCA4              ;   Algorithm: clear COL_STATE ($FEE6); load HL from one of the two I/O Vector Table
+ 754  FCA4              ;     Console Output cells -- $F388 (Output #2, UC1:) if COL_FLAG is 0, else $F386
+ 755  FCA4              ;     (Output #1, TTY:/CRT:) -- and JP (HL) (CONOUT_PHYS_JP). User-patchable cells that
+ 756  FCA4              ;     carry the char in C to the console device. [DOC S&HD 2-18/2-19] Twin of the
+ 757  FCA4              ;     2.23-44K SCREEN_EMIT. [RE]
+ 758  FCA4              ; ----------------------------------------------------------------------
+ 759  FCA4              CONSOLE_PUT_CHAR:
+ 760  FCA4 AF                   XOR A
+ 761  FCA5 32 E6 FE             LD (COL_STATE),A
+ 762  FCA8 3A E4 FE             LD A,(COL_FLAG)
+ 763  FCAB B7                   OR A
+ 764  FCAC 2A 88 F3             LD HL,($F388)
+ 765  FCAF 28 03                JR Z,CONOUT_PHYS_JP
+ 766  FCB1 2A 86 F3             LD HL,($F386)
+ 767  FCB4              ; [DOC S&HD 2-18/2-19] JP (HL) into the selected Console Output vector ($F386 #1 or $F388 #2)
+ 768  FCB4              ;       resolved above -- the user-patchable I/O Vector Table cell that drives console output.
+ 769  FCB4              CONOUT_PHYS_JP:
+ 770  FCB4 E9                   JP (HL)
+ 771  FCB5 11 03 00 C3          DEFB    $11,$03,$00,$C3
+ 772  FCB9              CONOUT_HANDLER_VEC:
+ 773  FCB9 BB FC 2A E7          DEFB    $BB,$FC,$2A,$E7,$FE,$3A,$E9,$FE,$77,$CD,$E2,$FC,$2A,$28,$F0,$3A
+ 773  FCBD FE 3A E9 FE
+ 773  FCC1 77 CD E2 FC
+ 773  FCC5 2A 28 F0 3A
+ 774  FCC9 24 F0 5F 16          DEFB    $24,$F0,$5F,$16,$F0,$19,$22,$E7,$FE,$7E,$32,$E9
+ 774  FCCD F0 19 22 E7
+ 774  FCD1 FE 7E 32 E9
+ 775  FCD5 FE FE                DEFW    BIOS_BOOT_8
+ 776  FCD7 E0 38 02 EE          DEFB    $E0,$38,$02,$EE,$20,$E6,$3F,$F6,$40,$77,$C9,$78,$B7,$28,$0B,$21
+ 776  FCDB 20 E6 3F F6
+ 776  FCDF 40 77 C9 78
+ 776  FCE3 B7 28 0B 21
+ 777  FCE7 45 FB                DEFW    RPC_TRIGGER
+ 778  FCE9 E5 21 66 FD          DEFB    $E5,$21,$66,$FD,$85,$6F,$6E,$E9
+ 778  FCED 85 6F 6E E9
+ 779  FCF1 79 FE                DEFW    INIT_PASCAL_1_1_2
+ 780  FCF3 0D 20 05 AF          DEFB    $0D,$20,$05,$AF,$32,$24,$F0,$C9,$F6
+ 780  FCF7 32 24 F0 C9
+ 780  FCFB F6
+ 781  FCFC 80 FE                DEFW    SETTRK_STORE
+ 782  FCFE E0 38 04 21          DEFB    $E0,$38,$04,$21,$DD,$F3,$AE,$32,$45,$F0,$21,$F0,$FD,$C3,$80,$FD
+ 782  FD02 DD F3 AE 32
+ 782  FD06 45 F0 21 F0
+ 782  FD0A FD C3 80 FD
+ 783  FD0E CD                   DEFB    $CD
+ 784  FD0F 8A FE                DEFW    SLOT_IO_ADDR
+ 785  FD11 C6 8F CB 4E          DEFB    $C6,$8F,$CB,$4E,$28,$FC,$21,$2F,$F0,$36,$60,$2B,$36,$C0,$2B,$77
+ 785  FD15 28 FC 21 2F
+ 785  FD19 F0 36 60 2B
+ 785  FD1D 36 C0 2B 77
+ 786  FD21 2B 36 8D 62          DEFB    $2B,$36,$8D,$62,$C3,$7C,$FD,$3E,$FF,$01,$3E,$3F,$32,$32,$F0,$E1
+ 786  FD25 C3 7C FD 3E
+ 786  FD29 FF 01 3E 3F
+ 786  FD2D 32 32 F0 E1
+ 787  FD31 C9 21                DEFB    $C9,$21
+ 788  FD33 F4 FB                DEFW    BIOS_SETSEC
+ 789  FD35 C9 AF 6F 67          DEFB    $C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0,$21,$C1,$FB,$C9,$2E,$42
+ 789  FD39 22 24 F0 32
+ 789  FD3D 45 F0 21 C1
+ 789  FD41 FB C9 2E 42
+ 790  FD45 01 2E 9C 01          DEFB    $01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A
+ 790  FD49 2E 1A 01 2E
+ 790  FD4D 58 26 FC C9
+ 790  FD51 2A
+ 791  FD52 EC FE                DEFW    BIOS_BOOT+2
+ 792  FD54 7D FE 28 38          DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24
+ 792  FD58 02 2E 00 7C
+ 792  FD5C FE 18 38 02
+ 792  FD60 26 00 22 24
+ 793  FD64 F0 18 D5 4C          DEFB    $F0,$18,$D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD
+ 793  FD68 43 46 28 2B
+ 793  FD6C 36 30 49 32
+ 793  FD70 51 CD
+ 794  FD72 83 FD                DEFW    INIT_PASCAL_1_0
+ 795  FD74 21 78 F6 19          DEFB    $21,$78,$F6,$19,$71,$21,$AA,$C9,$79,$32,$45,$F0,$C3
+ 795  FD78 71 21 AA C9
+ 795  FD7C 79 32 45 F0
+ 795  FD80 C3
+ 796  FD81 45 FB                DEFW    RPC_TRIGGER
+ 797  FD83              ; [DOC S&HD 2-24/2-25] Card init that stages 6502 RPC register-pass cells before a SoftCard call:
+ 798  FD83              ;       $F047 is cell $47 (6502 X register pass area) and $F046 is cell $46 (6502 Y register pass
+ 799  FD83              ;       area). The full RPC set is $45=A, $46=Y, $47=X, $48=P, $49=6502 SP-on-exit (Y precedes X).
+ 800  FD83              ; ----------------------------------------------------------------------
+ 801  FD83              ; INIT_PASCAL_1_0 -- stage the 6502 RPC register-pass cells for a Videx-class card init.
+ 802  FD83              ;   In:  E = slot index.  Out: A = a card firmware byte; RPC cells staged.  Clobbers: A,HL.
+ 803  FD83              ;   Algorithm: CALL SLOT_IO_ADDR_W for the card I/O base; stash it in $F6F8 and RPC cell
+ 804  FD83              ;     $47 ($F047 = 6502 X pass area); read a card byte at $EFFF; SLOT_E000_ADDR + SUB $20
+ 805  FD83              ;     into RPC cell $46 ($F046 = 6502 Y pass area). [DOC S&HD 2-24/2-25] The full RPC set
+ 806  FD83              ;     is $45=A, $46=Y, $47=X, $48=P, $49=6502 SP-on-exit. Twin of the 2.23-44K
+ 807  FD83              ;     SET_SCREEN_BASE. [RE]
+ 808  FD83              ; ----------------------------------------------------------------------
+ 809  FD83              INIT_PASCAL_1_0:
+ 810  FD83 CD 85 FE             CALL SLOT_IO_ADDR_W
+ 811  FD86 32 F8 F6             LD ($F6F8),A
+ 812  FD89 32 47 F0             LD ($F047),A
+ 813  FD8C 3A FF EF             LD A,($EFFF)
+ 814  FD8F CD B1 FA             CALL SLOT_E000_ADDR
+ 815  FD92 D6 20                SUB $20
+ 816  FD94 32 46 F0             LD ($F046),A
+ 817  FD97 7E                   LD A,(HL)
+ 818  FD98 C9                   RET
+ 819  FD99              CONST_SLOT3_TBL:
+ 820  FD99 21 1D 0E 1E          DEFB    $21,$1D,$0E,$1E,$03,$3E,$01,$CD,$AD,$FD,$3A,$48,$F0,$1F,$9F,$C9
+ 820  FD9D 03 3E 01 CD
+ 820  FDA1 AD FD 3A 48
+ 820  FDA5 F0 1F 9F C9
+ 821  FDA9 21 E1 0D 79          DEFB    $21,$E1,$0D,$79,$32,$45,$F0
+ 821  FDAD 32 45 F0
+ 822  FDB0              ; [AI] Pascal-1.1 card initializer (the POST-1980 device-6 class the 2.20 manual does NOT cover).
+ 823  FDB0              ;       [DOC S&HD 2-24/2-25] The cell it stages, $F047, is RPC cell $47 (6502 X register pass area);
+ 824  FDB0              ;       it then triggers the SoftCard call via RPC_TRIGGER. The Pascal-1.1 / device-6 dispatch
+ 825  FDB0              ;       itself is a 2.23-era extension, not manual-backed.
+ 826  FDB0              ; ----------------------------------------------------------------------
+ 827  FDB0              ; PLOT_CHAR_RPC -- Pascal-1.1 / device-6 card initializer (post-1980 class).
+ 828  FDB0              ;   In:  E = a card parameter byte.  Out: fires the SoftCard call.  Clobbers: A.
+ 829  FDB0              ;   Algorithm: store E into RPC cell $47 ($F047 = 6502 X register pass area,
+ 830  FDB0              ;     [DOC S&HD 2-24/2-25]) then tail-jump to RPC_TRIGGER to run the 6502 service.
+ 831  FDB0              ;     The device-6 / Pascal-1.1 dispatch is a 2.23-era extension the 2.20 manual does
+ 832  FDB0              ;     NOT document. Twin of the 2.23-44K PLOT_CHAR_RPC family. [RE]
+ 833  FDB0              ; ----------------------------------------------------------------------
+ 834  FDB0              PLOT_CHAR_RPC:
+ 835  FDB0 7B                   LD A,E
+ 836  FDB1 32 47 F0             LD ($F047),A
+ 837  FDB4 C3 45 FB             JP RPC_TRIGGER
+ 838  FDB7 21 0F 0E CD          DEFB    $21,$0F,$0E,$CD
+ 839  FDBB B0 FD                DEFW    PLOT_CHAR_RPC
+ 840  FDBD 3A 45 F0 C9          DEFB    $3A,$45,$F0,$C9,$CD
+ 840  FDC1 CD
+ 841  FDC2 83 FD                DEFW    INIT_PASCAL_1_0
+ 842  FDC4 21 4D C8 CD          DEFB    $21,$4D,$C8,$CD
+ 843  FDC8 45 FB                DEFW    RPC_TRIGGER
+ 844  FDCA 21 78 F6 19          DEFB    $21,$78,$F6,$19,$7E,$C9,$48,$20,$26,$0E,$A0,$0D,$B1,$F6,$85,$F6
+ 844  FDCE 7E C9 48 20
+ 844  FDD2 26 0E A0 0D
+ 844  FDD6 B1 F6 85 F6
+ 845  FDDA AC F8 06 68          DEFB    $AC,$F8,$06,$68,$6C,$F6,$00,$48,$A9,$00,$20,$EF,$0D,$20,$26,$0E
+ 845  FDDE 6C F6 00 48
+ 845  FDE2 A9 00 20 EF
+ 845  FDE6 0D 20 26 0E
+ 846  FDEA A0 0F 4C D6          DEFB    $A0,$0F,$4C,$D6,$0D,$84,$F5,$48,$20,$1D,$0E,$68,$A4,$F5,$90,$F5
+ 846  FDEE 0D 84 F5 48
+ 846  FDF2 20 1D 0E 68
+ 846  FDF6 A4 F5 90 F5
+ 847  FDFA 60 00 00 00          DEFB    $60,$00,$00,$00,$00,$00,$4C,$09,$0E,$8D,$8B,$C0,$4C,$13,$D4,$8D
+ 847  FDFE 00 00 4C 09
+ 847  FE02 0E 8D 8B C0
+ 847  FE06 4C 13 D4 8D
+ 848  FE0A 8B C0 4C F7          DEFB    $8B,$C0,$4C,$F7,$D1,$A9,$01,$20,$EF,$0D,$20,$26,$0E,$48,$A0,$0E
+ 848  FE0E D1 A9 01 20
+ 848  FE12 EF 0D 20 26
+ 848  FE16 0E 48 A0 0E
+ 849  FE1A 4C D6 0D 48          DEFB    $4C,$D6,$0D,$48,$20,$26,$0E,$A0,$10,$4C,$D6,$0D,$98,$09,$C0,$AA
+ 849  FE1E 20 26 0E A0
+ 849  FE22 10 4C D6 0D
+ 849  FE26 98 09 C0 AA
+ 850  FE2A 98 0A 0A 0A          DEFB    $98,$0A,$0A,$0A,$0A,$A8,$8C,$F8,$06,$A9,$00,$85,$F6,$86,$F7
+ 850  FE2E 0A A8 8C F8
+ 850  FE32 06 A9 00 85
+ 850  FE36 F6 86 F7
+ 851  FE39 AD FF                DEFW    BANNER_PUT_ATTR
+ 852  FE3B CF B1 F6 60          DEFB    $CF,$B1,$F6,$60,$A5,$48,$48,$A5,$45,$A6,$46,$A4,$47,$28,$58,$60
+ 852  FE3F A5 48 48 A5
+ 852  FE43 45 A6 46 A4
+ 852  FE47 47 28 58 60
+ 853  FE4B CD                   DEFB    $CD
+ 854  FE4C 8A FE                DEFW    SLOT_IO_ADDR
+ 855  FE4E 7E 1F 30 FC          DEFB    $7E,$1F,$30,$FC,$2C,$7E,$C9,$11,$01,$00,$C3
+ 855  FE52 2C 7E C9 11
+ 855  FE56 01 00 C3
+ 856  FE59              READER_HANDLER_TBL:
+ 857  FE59 68 FE CD             DEFB    $68,$FE,$CD
+ 858  FE5C B1 FA                DEFW    SLOT_E000_ADDR
+ 859  FE5E 2E C1 7E 17          DEFB    $2E,$C1,$7E,$17,$38,$FC,$CD
+ 859  FE62 38 FC CD
+ 860  FE65 85 FE                DEFW    SLOT_IO_ADDR_W
+ 861  FE67 71 C9 11 02          DEFB    $71,$C9,$11,$02,$00,$C3
+ 861  FE6B 00 C3
+ 862  FE6D              PUNCH_HANDLER_TBL:
+ 863  FE6D 68 FE 11 02          DEFB    $68,$FE,$11,$02,$00
+ 863  FE71 00
+ 864  FE72              AUX_DEV_STUB:
+ 865  FE72 C3                   DEFB    $C3
+ 866  FE73              AUX_DEV_VEC:
+ 867  FE73 00                   DEFB    $00
+ 868  FE74              AUX_DEV_VEC_HI:
+ 869  FE74 00                   DEFB    $00
+ 870  FE75              ; ----------------------------------------------------------------------
+ 871  FE75              ; INIT_PASCAL_1_1_1 (HOME) -- BIOS jump-vector entry 8: seek the drive to track 0.
+ 872  FE75              ;   In:  none.  Out: none (falls into SETTRK's store with track 0).  Clobbers: A,C.
+ 873  FE75              ;   Algorithm: read the host-write-pending template cell (DISK_HSTWRT); if a write is
+ 874  FE75              ;     pending keep the host-active flag, else clear DISK_HSTACT; then fall into
+ 875  FE75              ;     INIT_PASCAL_1_1_3/_4 (SETTRK) with track 0. The actual head step happens later in
+ 876  FE75              ;     the off-image deblock path. Twin of the 2.23-44K HOME/SETTRK_STORE. [RE]
+ 877  FE75              ; ----------------------------------------------------------------------
+ 878  FE75              INIT_PASCAL_1_1_1:
+ 879  FE75 3A F2 FE             LD A,(DISK_HSTWRT)
+ 880  FE78 B7                   OR A
+ 881  FE79              INIT_PASCAL_1_1_2:
+ 882  FE79 20 03                JR NZ,INIT_PASCAL_1_1_3
+ 883  FE7B 32 F1 FE             LD (DISK_HSTACT),A
+ 884  FE7E              INIT_PASCAL_1_1_3:
+ 885  FE7E 0E 00                LD C,$00
+ 886  FE80              ; ----------------------------------------------------------------------
+ 887  FE80              ; SETTRK_STORE (SETTRK) -- BIOS jump-vector entry 10: set the requested track.
+ 888  FE80              ;   In:  C = track number.  Out: none.  Clobbers: A.
+ 889  FE80              ;   Algorithm: LD A,C then store into the sektrk cell BIOS_BOOT ($FEEA = the cold-boot
+ 890  FE80              ;     LD SP operand byte reused post-boot as sektrk). HOME enters this common tail with
+ 891  FE80              ;     track 0. Twin of the 2.23-44K SETTRK_STORE tail. [RE]
+ 892  FE80              ; ----------------------------------------------------------------------
+ 893  FE80              SETTRK_STORE:
+ 894  FE80 79                   LD A,C
+ 895  FE81 32 EA FE             LD (BIOS_BOOT),A
+ 896  FE84 C9                   RET
  897  FE85              ; ----------------------------------------------------------------------
- 898  FE85              SLOT_IO_ADDR_W:
- 899  FE85 21 80 E0             LD HL,$E080
- 900  FE88 18 03                JR SLOT_IO_SCALE_E
- 901  FE8A              ; ----------------------------------------------------------------------
- 902  FE8A              ; SLOT_IO_ADDR -- map a slot/drive index to the Apple $C08E slot-I/O base.
- 903  FE8A              ;   In:  E = slot/drive index (0..15).  Out: HL = $E08E + (E<<4).  Clobbers: A,L.
- 904  FE8A              ;   Algorithm: load z80 $E08E = Apple $C08E, then fall into the shared index scaler
- 905  FE8A              ;     (SLOT_IO_SCALE_E -> SLOT_IOBASE_CALC). Twin of the 2.23-44K SLOT_IO_ADDR. [RE]
+ 898  FE85              ; SLOT_IO_ADDR_W -- map a slot/drive index to the Apple $C080 write/control-bank base.
+ 899  FE85              ;   In:  E = slot/drive index (0..15).  Out: HL = $E080 + (E<<4).  Clobbers: A,L.
+ 900  FE85              ;   Algorithm: load z80 $E080 = Apple $C080, then fall into the shared index scaler
+ 901  FE85              ;     (SLOT_IOBASE_CALC). Twin of the 2.23-44K SLOT_IO_ADDR_W. [RE]
+ 902  FE85              ; ----------------------------------------------------------------------
+ 903  FE85              SLOT_IO_ADDR_W:
+ 904  FE85 21 80 E0             LD HL,$E080
+ 905  FE88 18 03                JR SLOT_IO_SCALE_E
  906  FE8A              ; ----------------------------------------------------------------------
- 907  FE8A              SLOT_IO_ADDR:
- 908  FE8A 21 8E E0             LD HL,$E08E
- 909  FE8D              SLOT_IO_SCALE_E:
- 910  FE8D 7B                   LD A,E
- 911  FE8E              ; ----------------------------------------------------------------------
- 912  FE8E              ; SLOT_IOBASE_CALC -- shift the index left by 4 and add to L (index a 16-byte block).
- 913  FE8E              ;   In:  A = index (via SLOT_IO_SCALE_E from E), L = base low byte.  Out: L += A*16;
- 914  FE8E              ;     A preserved.  Clobbers: A,L.
- 915  FE8E              ;   Algorithm: ADD A,A x4 (A*=16), PUSH AF, ADD A,L, LD L,A, POP AF, RET. Shared by
- 916  FE8E              ;     SLOT_IO_ADDR_W/_8E and by SELDSK (DPH-table index) and PROBE_DEVICES. Twin of the
- 917  FE8E              ;     2.23-44K SLOT_IO_SCALE. [RE]
- 918  FE8E              ; ----------------------------------------------------------------------
- 919  FE8E              SLOT_IOBASE_CALC:
- 920  FE8E 87                   ADD A,A
- 921  FE8F 87                   ADD A,A
- 922  FE90 87                   ADD A,A
- 923  FE91 87                   ADD A,A
- 924  FE92 F5                   PUSH AF
- 925  FE93 85                   ADD A,L
- 926  FE94 6F                   LD L,A
- 927  FE95 F1                   POP AF
- 928  FE96 C9                   RET
- 929  FE97              ; ----------------------------------------------------------------------
- 930  FE97              ; SELDSK_IMPL_1 (SELDSK) -- BIOS jump-vector entry 9: select the disk drive.
- 931  FE97              ;   In:  C = disk number (0-based).  Out: HL = DPH address for drive C, or HL=0 if out
- 932  FE97              ;     of range.  Clobbers: A,DE,HL.
- 933  FE97              ;   Algorithm: DE -> the sekdsk build site (BIOS_BOOT_2, an install-template cell reused
- 934  FE97              ;     as disk-state scratch). Read the configured drive count from the SoftCard config
- 935  FE97              ;     block (z80 $F3B8 = Apple $03B8, the Disk Count Byte); if C >= count return HL=0
- 936  FE97              ;     (SELDSK_BAD_DRIVE). Else record the disk number, index DPH_TABLE by C*16 (CALL
- 937  FE97              ;     SLOT_IOBASE_CALC), pull a per-drive disk-parameter byte and self-modify the install
- 938  FE97              ;     template SECTOR_BLOCK_PATCH+1 with it. [DOC S&HD 2-26/2-27] Twin of the 2.23-44K SELDSK. [RE]
- 939  FE97              ; ----------------------------------------------------------------------
- 940  FE97              SELDSK_IMPL_1:
- 941  FE97 11 EE FE             LD DE,BIOS_BOOT_2
- 942  FE9A 21 04 00             LD HL,CDISK_ADDR
- 943  FE9D 3A B8 F3             LD A,(SLOT_INFO_BASE)
- 944  FEA0 3D                   DEC A
- 945  FEA1 B9                   CP C
- 946  FEA2 38 1D                JR C,SELDSK_BAD_DRIVE
- 947  FEA4 7E                   LD A,(HL)
- 948  FEA5 12                   LD (DE),A
- 949  FEA6 13                   INC DE
- 950  FEA7 79                   LD A,C
- 951  FEA8 12                   LD (DE),A
- 952  FEA9 21 33 FA             LD HL,DPH_TABLE
- 953  FEAC CD 8E FE             CALL SLOT_IOBASE_CALC
- 954  FEAF E5                   PUSH HL
- 955  FEB0 11 0A 00             LD DE,$000A
- 956  FEB3 19                   ADD HL,DE
- 957  FEB4 5E                   LD E,(HL)
- 958  FEB5 23                   INC HL
- 959  FEB6 56                   LD D,(HL)
- 960  FEB7 21 05 00             LD HL,BDOS
- 961  FEBA 19                   ADD HL,DE
- 962  FEBB 7E                   LD A,(HL)
- 963  FEBC 32 FC FE             LD (SECTOR_BLOCK_PATCH+1),A
- 964  FEBF E1                   POP HL
- 965  FEC0 C9                   RET
- 966  FEC1              ; ----------------------------------------------------------------------
- 967  FEC1              ; SELDSK_BAD_DRIVE -- out-of-range drive: return HL=0 (no DPH).
- 968  FEC1              ;   In:  DE -> sekdsk build site.  Out: HL=0.  Clobbers: A,L.
- 969  FEC1              ;   Algorithm: restore the prior sekdsk byte, then LD L,$00 signals an invalid drive to
- 970  FEC1              ;     the BDOS. Twin of the 2.23-44K SELDSK_BAD_DRIVE. [RE]
+ 907  FE8A              ; SLOT_IO_ADDR -- map a slot/drive index to the Apple $C08E slot-I/O base.
+ 908  FE8A              ;   In:  E = slot/drive index (0..15).  Out: HL = $E08E + (E<<4).  Clobbers: A,L.
+ 909  FE8A              ;   Algorithm: load z80 $E08E = Apple $C08E, then fall into the shared index scaler
+ 910  FE8A              ;     (SLOT_IO_SCALE_E -> SLOT_IOBASE_CALC). Twin of the 2.23-44K SLOT_IO_ADDR. [RE]
+ 911  FE8A              ; ----------------------------------------------------------------------
+ 912  FE8A              SLOT_IO_ADDR:
+ 913  FE8A 21 8E E0             LD HL,$E08E
+ 914  FE8D              SLOT_IO_SCALE_E:
+ 915  FE8D 7B                   LD A,E
+ 916  FE8E              ; ----------------------------------------------------------------------
+ 917  FE8E              ; SLOT_IOBASE_CALC -- shift the index left by 4 and add to L (index a 16-byte block).
+ 918  FE8E              ;   In:  A = index (via SLOT_IO_SCALE_E from E), L = base low byte.  Out: L += A*16;
+ 919  FE8E              ;     A preserved.  Clobbers: A,L.
+ 920  FE8E              ;   Algorithm: ADD A,A x4 (A*=16), PUSH AF, ADD A,L, LD L,A, POP AF, RET. Shared by
+ 921  FE8E              ;     SLOT_IO_ADDR_W/_8E and by SELDSK (DPH-table index) and PROBE_DEVICES. Twin of the
+ 922  FE8E              ;     2.23-44K SLOT_IO_SCALE. [RE]
+ 923  FE8E              ; ----------------------------------------------------------------------
+ 924  FE8E              SLOT_IOBASE_CALC:
+ 925  FE8E 87                   ADD A,A
+ 926  FE8F 87                   ADD A,A
+ 927  FE90 87                   ADD A,A
+ 928  FE91 87                   ADD A,A
+ 929  FE92 F5                   PUSH AF
+ 930  FE93 85                   ADD A,L
+ 931  FE94 6F                   LD L,A
+ 932  FE95 F1                   POP AF
+ 933  FE96 C9                   RET
+ 934  FE97              ; ----------------------------------------------------------------------
+ 935  FE97              ; SELDSK_IMPL_1 (SELDSK) -- BIOS jump-vector entry 9: select the disk drive.
+ 936  FE97              ;   In:  C = disk number (0-based).  Out: HL = DPH address for drive C, or HL=0 if out
+ 937  FE97              ;     of range.  Clobbers: A,DE,HL.
+ 938  FE97              ;   Algorithm: DE -> the sekdsk build site (BIOS_BOOT_2, an install-template cell reused
+ 939  FE97              ;     as disk-state scratch). Read the configured drive count from the SoftCard config
+ 940  FE97              ;     block (z80 $F3B8 = Apple $03B8, the Disk Count Byte); if C >= count return HL=0
+ 941  FE97              ;     (SELDSK_BAD_DRIVE). Else record the disk number, index DPH_TABLE by C*16 (CALL
+ 942  FE97              ;     SLOT_IOBASE_CALC), pull a per-drive disk-parameter byte and self-modify the install
+ 943  FE97              ;     template SECTOR_BLOCK_PATCH+1 with it. [DOC S&HD 2-26/2-27] Twin of the 2.23-44K SELDSK. [RE]
+ 944  FE97              ; ----------------------------------------------------------------------
+ 945  FE97              SELDSK_IMPL_1:
+ 946  FE97 11 EE FE             LD DE,BIOS_BOOT_2
+ 947  FE9A 21 04 00             LD HL,CDISK_ADDR
+ 948  FE9D 3A B8 F3             LD A,(SLOT_INFO_BASE)
+ 949  FEA0 3D                   DEC A
+ 950  FEA1 B9                   CP C
+ 951  FEA2 38 1D                JR C,SELDSK_BAD_DRIVE
+ 952  FEA4 7E                   LD A,(HL)
+ 953  FEA5 12                   LD (DE),A
+ 954  FEA6 13                   INC DE
+ 955  FEA7 79                   LD A,C
+ 956  FEA8 12                   LD (DE),A
+ 957  FEA9 21 33 FA             LD HL,DPH_TABLE
+ 958  FEAC CD 8E FE             CALL SLOT_IOBASE_CALC
+ 959  FEAF E5                   PUSH HL
+ 960  FEB0 11 0A 00             LD DE,$000A
+ 961  FEB3 19                   ADD HL,DE
+ 962  FEB4 5E                   LD E,(HL)
+ 963  FEB5 23                   INC HL
+ 964  FEB6 56                   LD D,(HL)
+ 965  FEB7 21 05 00             LD HL,BDOS
+ 966  FEBA 19                   ADD HL,DE
+ 967  FEBB 7E                   LD A,(HL)
+ 968  FEBC 32 FC FE             LD (SECTOR_BLOCK_PATCH+1),A
+ 969  FEBF E1                   POP HL
+ 970  FEC0 C9                   RET
  971  FEC1              ; ----------------------------------------------------------------------
- 972  FEC1              SELDSK_BAD_DRIVE:
- 973  FEC1 1A                   LD A,(DE)
- 974  FEC2 77                   LD (HL),A
- 975  FEC3 2E 00                LD L,$00
- 976  FEC5 C9                   RET
- 977  FEC6              ; ----------------------------------------------------------------------
- 978  FEC6              ; SELDSK_IMPL_3 (READ) -- BIOS jump-vector entry 13: read one 128-byte record.
- 979  FEC6              ;   In:  sekdsk/sektrk/seksec/dmaadr previously set.  Out: A=0 ok / 1 error.
- 980  FEC6              ;   Algorithm: stash A at $E08B (a 6502-side RPC param cell = Apple $C08B), then OFF-IMAGE
- 981  FEC6              ;     tail-jump to the deblock/RWTS read core at $B247 (below the BIOS, in the 60K
- 982  FEC6              ;     system-image region). Unlike the 2.20 twin, the 2.23 BIOS does NOT carry the deblock
- 983  FEC6              ;     in-image; READ/WRITE delegate to the $B2xx host-sector routines. [RE]
- 984  FEC6              ; ----------------------------------------------------------------------
- 985  FEC6              SELDSK_IMPL_3:
- 986  FEC6 32 8B E0             LD ($E08B),A
- 987  FEC9 C3 47 B2             JP $B247
- 988  FECC              ; ----------------------------------------------------------------------
- 989  FECC              ; SELDSK_IMPL_4 (WRITE) -- BIOS jump-vector entry 14: write one 128-byte record.
- 990  FECC              ;   In:  C = write type; sekdsk/sektrk/seksec/dmaadr previously set.  Out: A=0 ok / 1 error.
- 991  FECC              ;   Algorithm: stash A at $E08B (Apple $C08B RPC param), then OFF-IMAGE tail-jump to the
- 992  FECC              ;     deblock/RWTS write core at $B257 (60K system-image region below the BIOS). Same
- 993  FECC              ;     off-image RWTS delegation as SELDSK_IMPL_3 (READ). [RE]
- 994  FECC              ; ----------------------------------------------------------------------
- 995  FECC              SELDSK_IMPL_4:
- 996  FECC 32 8B E0             LD ($E08B),A
- 997  FECF C3 57 B2             JP $B257
- 998  FED2 CD                   DEFB    $CD
- 999  FED3 45 FB                DEFW    RPC_TRIGGER
-1000  FED5 32 8B E0 C9          DEFB    $32,$8B,$E0,$C9,$32,$83,$E0,$2A,$0D,$DC,$E9,$32,$83,$E0,$C9
-1000  FED9 32 83 E0 2A
-1000  FEDD 0D DC E9 32
-1000  FEE1 83 E0 C9
-1001  FEE4              COL_FLAG:
-1002  FEE4 00                   DEFB    $00
-1003  FEE5              COL_PENDING:
-1004  FEE5 00                   DEFB    $00
-1005  FEE6              COL_STATE:
-1006  FEE6 00 E9 FE 00          DEFB    $00,$E9,$FE,$00
-1007  FEEA              ; ----------------------------------------------------------------------
-1008  FEEA              ; BIOS_BOOT -- Z-80 cold-boot init: runs ONCE, then self-modifies ~a few dozen bytes.
-1009  FEEA              ;   In:  entered once at cold start (the 60K reset-plant JPs here).  Out: enters the CCP
-1010  FEEA              ;     via the sign-on tail; never re-executed.  Clobbers: all.
-1011  FEEA              ;   Algorithm: set SP=$0100; NOP the $FA00 cold JP; load the default IOBYTE_ADDR ($95) into
-1012  FEEA              ;     $0003; bind Z$CPU ($F3DE) into RPC_TRIGGER_STORE+1; clear CDISK_ADDR; install console/list/
-1013  FEEA              ;     punch/reader handlers by Card Type Table class (device-6=Pascal-1.1, 5=parallel,
-1014  FEEA              ;     4=Videx patches the status vector); re-run PROBE_DEVICES; clear screen; print banner.
-1015  FEEA              ;   DUAL USE: the 'LD SP,$0100' operand bytes are reused post-boot as sektrk (BIOS_BOOT),
-1016  FEEA              ;     seksec (BIOS_BOOT+1) and a cursor word (BIOS_BOOT+2). After it runs, $FEEA-$FF8D is
-1017  FEEA              ;     dead scratch; the ~6 self-mods are cataloged in ../BOOT_AND_PATCHING.md section 3c.
-1018  FEEA              ;     [DOC S&HD 2-24/2-25, 2-26/2-27] Twin of the 2.23-44K install engine. [RE]
-1019  FEEA              ; ----------------------------------------------------------------------
-1020  FEEA              BIOS_BOOT:
-1021  FEEA 31 00 01             LD SP,TPA
-1022  FEED              BIOS_BOOT_1:
-1023  FEED AF                   XOR A
-1024  FEEE              BIOS_BOOT_2:
-1025  FEEE 21 00 FA             LD HL,BOOT
-1026  FEF1              DISK_HSTACT:
-1027  FEF1 77                   LD (HL),A
-1028  FEF2              DISK_HSTWRT:
-1029  FEF2 23                   INC HL
-1030  FEF3 77                   LD (HL),A
-1031  FEF4 23                   INC HL
-1032  FEF5 77                   LD (HL),A
-1033  FEF6              BOOT_TMPL_IOBYTE:
-1034  FEF6 3E 95                LD A,$95
-1035  FEF8              DISK_DMAADR:
-1036  FEF8 32 03 00             LD (IOBYTE_ADDR),A
-1037  FEFB              ; [DOC S&HD 2-24/2-25] Loads the SoftCard location from Z$CPU=$F3DE and binds it into the RPC
-1038  FEFB              ;       dispatcher (patching RPC_TRIGGER_STORE+1) so subsequent 6502 calls switch via the right slot.
-1039  FEFB              SECTOR_BLOCK_PATCH:
-1040  FEFB 2A DE F3             LD HL,($F3DE)
-1041  FEFE              BIOS_BOOT_8:
-1042  FEFE 22 49 FB             LD (RPC_TRIGGER_STORE+1),HL
-1043  FF01 AF                   XOR A
-1044  FF02 32 04 00             LD (CDISK_ADDR),A
-1045  FF05              ; [DOC S&HD 2-26/2-27] Reads the slot-3 (console) Card Type Table entry at $F3BB ($F3B8+3). [AI] The
-1046  FF05              ;       CP $06 test selects the POST-1980 device-6 / Pascal-1.1 console class (a 2.23 extension the
-1047  FF05              ;       2.20 manual does NOT document; in 2.20 the Videx is type 4). On a match it points the
-1048  FF05              ;       [DOC S&HD 2-18] I/O Vector Table Console Status cell ($F380) at the slot-3 console handler.
-1049  FF05 3A BB F3             LD A,($F3BB)
-1050  FF08 FE 06                CP $06
-1051  FF0A 20 0A                JR NZ,DEV_INSTALL_LIST
-1052  FF0C 21 99 FD             LD HL,CONST_SLOT3_TBL
-1053  FF0F 22 80 F3             LD ($F380),HL
-1054  FF12 D6 03                SUB $03
-1055  FF14 18 13                JR DEV_INSTALL_PUNCH
-1056  FF16              ; [DOC S&HD 2-26/2-27] Non-device-6 console path: dispatches on the slot-3 Card Type value. Value 5
-1057  FF16              ;       (Apple Parallel Printer) skips ahead; values >=3 (serial / Videx-class / device-4) fall
-1058  FF16              ;       through to install the console handlers; value 4 patches the slot-3 console-status vector below.
-1059  FF16              DEV_INSTALL_LIST:
-1060  FF16 FE 05                CP $05
-1061  FF18 28 22                JR Z,BIOS_BOOT_11
-1062  FF1A D6 03                SUB $03
-1063  FF1C 38 1E                JR C,BIOS_BOOT_11
-1064  FF1E 20 09                JR NZ,DEV_INSTALL_PUNCH
-1065  FF20 21 15 FB             LD HL,CONST_VEC_PATCH
-1066  FF23 36 BE                LD (HL),$BE
-1067  FF25 23                   INC HL
-1068  FF26 23                   INC HL
-1069  FF27 36 1F                LD (HL),$1F
-1070  FF29              DEV_INSTALL_PUNCH:
-1071  FF29 F5                   PUSH AF
-1072  FF2A CD 9D FF             CALL DEV_HANDLER_LOOKUP
-1073  FF2D F1                   POP AF
-1074  FF2E 22 B9 FC             LD (CONOUT_HANDLER_VEC),HL
-1075  FF31 CD 98 FF             CALL GET_CONIN_HANDLER
-1076  FF34 22 37 FB             LD (CONIN_HANDLER_VEC),HL
-1077  FF37 3E 03                LD A,$03
-1078  FF39 32 05 FB             LD (CCP_LAUNCH+1),A
-1079  FF3C              ; [DOC S&HD 2-26/2-27] Reads the slot-1 Card Type Table entry at $F3B9 (SLTTYP base = slot 1, per
-1080  FF3C              ;       Slot Function Assignments the LST: line-printer slot). For a recognized output card (value
-1081  FF3C              ;       >=3 after SUB $03) it resolves and installs that card's output handler for the list device.
-1082  FF3C              BIOS_BOOT_11:
-1083  FF3C 3A B9 F3             LD A,($F3B9)
-1084  FF3F D6 03                SUB $03
-1085  FF41 38 06                JR C,INSTALL_DONE_DEVICES
-1086  FF43 CD 9D FF             CALL DEV_HANDLER_LOOKUP
-1087  FF46 22 59 FE             LD (READER_HANDLER_TBL),HL
-1088  FF49              ; [DOC S&HD 2-26/2-27] Reads the slot-2 Card Type Table entry at $F3BA ($F3B8+2) -- per Slot
-1089  FF49              ;       Function Assignments the general-purpose PUN:/RDR: slot. For a recognized output card it
-1090  FF49              ;       installs the punch handler; the value also drives the reader-handler selection below.
-1091  FF49              INSTALL_DONE_DEVICES:
-1092  FF49 3A BA F3             LD A,($F3BA)
-1093  FF4C D6 03                SUB $03
-1094  FF4E 38 14                JR C,BIOS_BOOT_14
-1095  FF50 F5                   PUSH AF
-1096  FF51 CD 9D FF             CALL DEV_HANDLER_LOOKUP
-1097  FF54 22 6D FE             LD (PUNCH_HANDLER_TBL),HL
-1098  FF57 F1                   POP AF
-1099  FF58              BIOS_BOOT_13:
-1100  FF58 FE 02                CP $02
-1101  FF5A 28 08                JR Z,BIOS_BOOT_14
-1102  FF5C CD 98 FF             CALL GET_CONIN_HANDLER
-1103  FF5F 22 73 FE             LD (AUX_DEV_VEC),HL
-1104  FF62 18 0B                JR BIOS_BOOT_15
-1105  FF64              BIOS_BOOT_14:
-1106  FF64 21 3E 1A             LD HL,$1A3E
-1107  FF67 22 72 FE             LD (AUX_DEV_STUB),HL
-1108  FF6A 3E C9                LD A,$C9
-1109  FF6C 32 74 FE             LD (AUX_DEV_VEC_HI),A
-1110  FF6F              ; [DOC S&HD 2-14/2-15] Rescans the slots, then reads $F398 -- SSFTAB function #1, Clear Screen, the
-1111  FF6F              ;       first entry of the Software Screen Function Table -- and emits it to home/clear the console
-1112  FF6F              ;       before printing the sign-on banner.
-1113  FF6F              BIOS_BOOT_15:
-1114  FF6F CD 82 FA             CALL PROBE_DEVICES
-1115  FF72 3A 98 F3             LD A,($F398)
-1116  FF75 CD A8 FF             CALL BANNER_PUT_CHAR
-1117  FF78 21 B7 FF             LD HL,SIGNON_BANNER
-1118  FF7B              SIGNON_BANNER_LOOP:
-1119  FF7B 7E                   LD A,(HL)
-1120  FF7C B7                   OR A
-1121  FF7D              BIOS_BOOT_17:
-1122  FF7D CA E3 FA             JP Z,PAGEZERO_REBUILD_HOOKS
-1123  FF80 E5                   PUSH HL
-1124  FF81 CD 4C FB             CALL CONOUT_SET_C
-1125  FF84 E1                   POP HL
-1126  FF85 23                   INC HL
-1127  FF86 18 F3                JR SIGNON_BANNER_LOOP
-1128  FF88              CONOUT_VEC_TABLE:
-1129  FF88 0E FD 71 FD          DEFB    $0E,$FD,$71,$FD,$5B,$FE,$A9,$FD
-1129  FF8C 5B FE A9 FD
-1130  FF90              CONIN_VEC_TABLE:
-1131  FF90 4B FE C1 FD          DEFB    $4B,$FE,$C1,$FD,$B7,$FD,$B7,$FD
-1131  FF94 B7 FD B7 FD
-1132  FF98              ; ----------------------------------------------------------------------
-1133  FF98              ; GET_CONIN_HANDLER -- fetch a console-input handler address from CONIN_VEC_TABLE.
-1134  FF98              ;   In:  A = card-class index (0-based).  Out: HL = handler address.  Clobbers: A,HL.
-1135  FF98              ;   Algorithm: HL = CONIN_VEC_TABLE base, then fall into the shared index tail
-1136  FF98              ;     (HANDLER_TBL_INDEX: HL += A*2; load the word). Twin of the 2.23-44K
-1137  FF98              ;     DEV_HANDLER_LOOKUP_B family. [RE]
-1138  FF98              ; ----------------------------------------------------------------------
-1139  FF98              GET_CONIN_HANDLER:
-1140  FF98 21 90 FF             LD HL,CONIN_VEC_TABLE
-1141  FF9B 18 03                JR HANDLER_TBL_INDEX
-1142  FF9D              ; ----------------------------------------------------------------------
-1143  FF9D              ; DEV_HANDLER_LOOKUP -- fetch a console-output handler address from CONOUT_VEC_TABLE.
-1144  FF9D              ;   In:  A = card-class index (0-based).  Out: HL = handler address.  Clobbers: A,HL.
-1145  FF9D              ;   Algorithm: HL = CONOUT_VEC_TABLE base, fall into HANDLER_TBL_INDEX (HL += A*2; load
-1146  FF9D              ;     the 16-bit word low-then-high). Twin of the 2.23-44K DEV_HANDLER_LOOKUP. [RE]
+ 972  FEC1              ; SELDSK_BAD_DRIVE -- out-of-range drive: return HL=0 (no DPH).
+ 973  FEC1              ;   In:  DE -> sekdsk build site.  Out: HL=0.  Clobbers: A,L.
+ 974  FEC1              ;   Algorithm: restore the prior sekdsk byte, then LD L,$00 signals an invalid drive to
+ 975  FEC1              ;     the BDOS. Twin of the 2.23-44K SELDSK_BAD_DRIVE. [RE]
+ 976  FEC1              ; ----------------------------------------------------------------------
+ 977  FEC1              SELDSK_BAD_DRIVE:
+ 978  FEC1 1A                   LD A,(DE)
+ 979  FEC2 77                   LD (HL),A
+ 980  FEC3 2E 00                LD L,$00
+ 981  FEC5 C9                   RET
+ 982  FEC6              ; ----------------------------------------------------------------------
+ 983  FEC6              ; SELDSK_IMPL_3 (READ) -- BIOS jump-vector entry 13: read one 128-byte record.
+ 984  FEC6              ;   In:  sekdsk/sektrk/seksec/dmaadr previously set.  Out: A=0 ok / 1 error.
+ 985  FEC6              ;   Algorithm: stash A at $E08B (a 6502-side RPC param cell = Apple $C08B), then OFF-IMAGE
+ 986  FEC6              ;     tail-jump to the deblock/RWTS read core at $B247 (below the BIOS, in the 60K
+ 987  FEC6              ;     system-image region). Unlike the 2.20 twin, the 2.23 BIOS does NOT carry the deblock
+ 988  FEC6              ;     in-image; READ/WRITE delegate to the $B2xx host-sector routines. [RE]
+ 989  FEC6              ; ----------------------------------------------------------------------
+ 990  FEC6              SELDSK_IMPL_3:
+ 991  FEC6 32 8B E0             LD ($E08B),A
+ 992  FEC9 C3 47 B2             JP $B247
+ 993  FECC              ; ----------------------------------------------------------------------
+ 994  FECC              ; SELDSK_IMPL_4 (WRITE) -- BIOS jump-vector entry 14: write one 128-byte record.
+ 995  FECC              ;   In:  C = write type; sekdsk/sektrk/seksec/dmaadr previously set.  Out: A=0 ok / 1 error.
+ 996  FECC              ;   Algorithm: stash A at $E08B (Apple $C08B RPC param), then OFF-IMAGE tail-jump to the
+ 997  FECC              ;     deblock/RWTS write core at $B257 (60K system-image region below the BIOS). Same
+ 998  FECC              ;     off-image RWTS delegation as SELDSK_IMPL_3 (READ). [RE]
+ 999  FECC              ; ----------------------------------------------------------------------
+1000  FECC              SELDSK_IMPL_4:
+1001  FECC 32 8B E0             LD ($E08B),A
+1002  FECF C3 57 B2             JP $B257
+1003  FED2 CD                   DEFB    $CD
+1004  FED3 45 FB                DEFW    RPC_TRIGGER
+1005  FED5 32 8B E0 C9          DEFB    $32,$8B,$E0,$C9,$32,$83,$E0,$2A,$0D,$DC,$E9,$32,$83,$E0,$C9
+1005  FED9 32 83 E0 2A
+1005  FEDD 0D DC E9 32
+1005  FEE1 83 E0 C9
+1006  FEE4              COL_FLAG:
+1007  FEE4 00                   DEFB    $00
+1008  FEE5              COL_PENDING:
+1009  FEE5 00                   DEFB    $00
+1010  FEE6              COL_STATE:
+1011  FEE6 00 E9 FE 00          DEFB    $00,$E9,$FE,$00
+1012  FEEA              ; ----------------------------------------------------------------------
+1013  FEEA              ; BIOS_BOOT -- Z-80 cold-boot init: runs ONCE, then self-modifies ~a few dozen bytes.
+1014  FEEA              ;   In:  entered once at cold start (the 60K reset-plant JPs here).  Out: enters the CCP
+1015  FEEA              ;     via the sign-on tail; never re-executed.  Clobbers: all.
+1016  FEEA              ;   Algorithm: set SP=$0100; NOP the $FA00 cold JP; load the default IOBYTE_ADDR ($95) into
+1017  FEEA              ;     $0003; bind Z$CPU ($F3DE) into RPC_TRIGGER_STORE+1; clear CDISK_ADDR; install console/list/
+1018  FEEA              ;     punch/reader handlers by Card Type Table class (device-6=Pascal-1.1, 5=parallel,
+1019  FEEA              ;     4=Videx patches the status vector); re-run PROBE_DEVICES; clear screen; print banner.
+1020  FEEA              ;   DUAL USE: the 'LD SP,$0100' operand bytes are reused post-boot as sektrk (BIOS_BOOT),
+1021  FEEA              ;     seksec (BIOS_BOOT+1) and a cursor word (BIOS_BOOT+2). After it runs, $FEEA-$FF8D is
+1022  FEEA              ;     dead scratch; the ~6 self-mods are cataloged in ../BOOT_AND_PATCHING.md section 3c.
+1023  FEEA              ;     [DOC S&HD 2-24/2-25, 2-26/2-27] Twin of the 2.23-44K install engine. [RE]
+1024  FEEA              ; ----------------------------------------------------------------------
+1025  FEEA              BIOS_BOOT:
+1026  FEEA 31 00 01             LD SP,TPA
+1027  FEED              BIOS_BOOT_1:
+1028  FEED AF                   XOR A
+1029  FEEE              BIOS_BOOT_2:
+1030  FEEE 21 00 FA             LD HL,BOOT
+1031  FEF1              DISK_HSTACT:
+1032  FEF1 77                   LD (HL),A
+1033  FEF2              DISK_HSTWRT:
+1034  FEF2 23                   INC HL
+1035  FEF3 77                   LD (HL),A
+1036  FEF4 23                   INC HL
+1037  FEF5 77                   LD (HL),A
+1038  FEF6              BOOT_TMPL_IOBYTE:
+1039  FEF6 3E 95                LD A,$95
+1040  FEF8              DISK_DMAADR:
+1041  FEF8 32 03 00             LD (IOBYTE_ADDR),A
+1042  FEFB              ; [DOC S&HD 2-24/2-25] Loads the SoftCard location from Z$CPU=$F3DE and binds it into the RPC
+1043  FEFB              ;       dispatcher (patching RPC_TRIGGER_STORE+1) so subsequent 6502 calls switch via the right slot.
+1044  FEFB              SECTOR_BLOCK_PATCH:
+1045  FEFB 2A DE F3             LD HL,($F3DE)
+1046  FEFE              BIOS_BOOT_8:
+1047  FEFE 22 49 FB             LD (RPC_TRIGGER_STORE+1),HL
+1048  FF01 AF                   XOR A
+1049  FF02 32 04 00             LD (CDISK_ADDR),A
+1050  FF05              ; [DOC S&HD 2-26/2-27] Reads the slot-3 (console) Card Type Table entry at $F3BB ($F3B8+3). [AI] The
+1051  FF05              ;       CP $06 test selects the POST-1980 device-6 / Pascal-1.1 console class (a 2.23 extension the
+1052  FF05              ;       2.20 manual does NOT document; in 2.20 the Videx is type 4). On a match it points the
+1053  FF05              ;       [DOC S&HD 2-18] I/O Vector Table Console Status cell ($F380) at the slot-3 console handler.
+1054  FF05 3A BB F3             LD A,($F3BB)
+1055  FF08 FE 06                CP $06
+1056  FF0A 20 0A                JR NZ,DEV_INSTALL_LIST
+1057  FF0C 21 99 FD             LD HL,CONST_SLOT3_TBL
+1058  FF0F 22 80 F3             LD ($F380),HL
+1059  FF12 D6 03                SUB $03
+1060  FF14 18 13                JR DEV_INSTALL_PUNCH
+1061  FF16              ; [DOC S&HD 2-26/2-27] Non-device-6 console path: dispatches on the slot-3 Card Type value. Value 5
+1062  FF16              ;       (Apple Parallel Printer) skips ahead; values >=3 (serial / Videx-class / device-4) fall
+1063  FF16              ;       through to install the console handlers; value 4 patches the slot-3 console-status vector below.
+1064  FF16              DEV_INSTALL_LIST:
+1065  FF16 FE 05                CP $05
+1066  FF18 28 22                JR Z,BIOS_BOOT_11
+1067  FF1A D6 03                SUB $03
+1068  FF1C 38 1E                JR C,BIOS_BOOT_11
+1069  FF1E 20 09                JR NZ,DEV_INSTALL_PUNCH
+1070  FF20 21 15 FB             LD HL,CONST_VEC_PATCH
+1071  FF23 36 BE                LD (HL),$BE
+1072  FF25 23                   INC HL
+1073  FF26 23                   INC HL
+1074  FF27 36 1F                LD (HL),$1F
+1075  FF29              DEV_INSTALL_PUNCH:
+1076  FF29 F5                   PUSH AF
+1077  FF2A CD 9D FF             CALL DEV_HANDLER_LOOKUP
+1078  FF2D F1                   POP AF
+1079  FF2E 22 B9 FC             LD (CONOUT_HANDLER_VEC),HL
+1080  FF31 CD 98 FF             CALL GET_CONIN_HANDLER
+1081  FF34 22 37 FB             LD (CONIN_HANDLER_VEC),HL
+1082  FF37 3E 03                LD A,$03
+1083  FF39 32 05 FB             LD (CCP_LAUNCH+1),A
+1084  FF3C              ; [DOC S&HD 2-26/2-27] Reads the slot-1 Card Type Table entry at $F3B9 (SLTTYP base = slot 1, per
+1085  FF3C              ;       Slot Function Assignments the LST: line-printer slot). For a recognized output card (value
+1086  FF3C              ;       >=3 after SUB $03) it resolves and installs that card's output handler for the list device.
+1087  FF3C              BIOS_BOOT_11:
+1088  FF3C 3A B9 F3             LD A,($F3B9)
+1089  FF3F D6 03                SUB $03
+1090  FF41 38 06                JR C,INSTALL_DONE_DEVICES
+1091  FF43 CD 9D FF             CALL DEV_HANDLER_LOOKUP
+1092  FF46 22 59 FE             LD (READER_HANDLER_TBL),HL
+1093  FF49              ; [DOC S&HD 2-26/2-27] Reads the slot-2 Card Type Table entry at $F3BA ($F3B8+2) -- per Slot
+1094  FF49              ;       Function Assignments the general-purpose PUN:/RDR: slot. For a recognized output card it
+1095  FF49              ;       installs the punch handler; the value also drives the reader-handler selection below.
+1096  FF49              INSTALL_DONE_DEVICES:
+1097  FF49 3A BA F3             LD A,($F3BA)
+1098  FF4C D6 03                SUB $03
+1099  FF4E 38 14                JR C,BIOS_BOOT_14
+1100  FF50 F5                   PUSH AF
+1101  FF51 CD 9D FF             CALL DEV_HANDLER_LOOKUP
+1102  FF54 22 6D FE             LD (PUNCH_HANDLER_TBL),HL
+1103  FF57 F1                   POP AF
+1104  FF58              BIOS_BOOT_13:
+1105  FF58 FE 02                CP $02
+1106  FF5A 28 08                JR Z,BIOS_BOOT_14
+1107  FF5C CD 98 FF             CALL GET_CONIN_HANDLER
+1108  FF5F 22 73 FE             LD (AUX_DEV_VEC),HL
+1109  FF62 18 0B                JR BIOS_BOOT_15
+1110  FF64              BIOS_BOOT_14:
+1111  FF64 21 3E 1A             LD HL,$1A3E
+1112  FF67 22 72 FE             LD (AUX_DEV_STUB),HL
+1113  FF6A 3E C9                LD A,$C9
+1114  FF6C 32 74 FE             LD (AUX_DEV_VEC_HI),A
+1115  FF6F              ; [DOC S&HD 2-14/2-15] Rescans the slots, then reads $F398 -- SSFTAB function #1, Clear Screen, the
+1116  FF6F              ;       first entry of the Software Screen Function Table -- and emits it to home/clear the console
+1117  FF6F              ;       before printing the sign-on banner.
+1118  FF6F              BIOS_BOOT_15:
+1119  FF6F CD 82 FA             CALL PROBE_DEVICES
+1120  FF72 3A 98 F3             LD A,($F398)
+1121  FF75 CD A8 FF             CALL BANNER_PUT_CHAR
+1122  FF78 21 B7 FF             LD HL,SIGNON_BANNER
+1123  FF7B              SIGNON_BANNER_LOOP:
+1124  FF7B 7E                   LD A,(HL)
+1125  FF7C B7                   OR A
+1126  FF7D              BIOS_BOOT_17:
+1127  FF7D CA E3 FA             JP Z,PAGEZERO_REBUILD_HOOKS
+1128  FF80 E5                   PUSH HL
+1129  FF81 CD 4C FB             CALL CONOUT_SET_C
+1130  FF84 E1                   POP HL
+1131  FF85 23                   INC HL
+1132  FF86 18 F3                JR SIGNON_BANNER_LOOP
+1133  FF88              CONOUT_VEC_TABLE:
+1134  FF88 0E FD 71 FD          DEFB    $0E,$FD,$71,$FD,$5B,$FE,$A9,$FD
+1134  FF8C 5B FE A9 FD
+1135  FF90              CONIN_VEC_TABLE:
+1136  FF90 4B FE C1 FD          DEFB    $4B,$FE,$C1,$FD,$B7,$FD,$B7,$FD
+1136  FF94 B7 FD B7 FD
+1137  FF98              ; ----------------------------------------------------------------------
+1138  FF98              ; GET_CONIN_HANDLER -- fetch a console-input handler address from CONIN_VEC_TABLE.
+1139  FF98              ;   In:  A = card-class index (0-based).  Out: HL = handler address.  Clobbers: A,HL.
+1140  FF98              ;   Algorithm: HL = CONIN_VEC_TABLE base, then fall into the shared index tail
+1141  FF98              ;     (HANDLER_TBL_INDEX: HL += A*2; load the word). Twin of the 2.23-44K
+1142  FF98              ;     DEV_HANDLER_LOOKUP_B family. [RE]
+1143  FF98              ; ----------------------------------------------------------------------
+1144  FF98              GET_CONIN_HANDLER:
+1145  FF98 21 90 FF             LD HL,CONIN_VEC_TABLE
+1146  FF9B 18 03                JR HANDLER_TBL_INDEX
 1147  FF9D              ; ----------------------------------------------------------------------
-1148  FF9D              DEV_HANDLER_LOOKUP:
-1149  FF9D 21 88 FF             LD HL,CONOUT_VEC_TABLE
-1150  FFA0              HANDLER_TBL_INDEX:
-1151  FFA0 87                   ADD A,A
-1152  FFA1              HANDLER_TBL_FETCH:
-1153  FFA1 85                   ADD A,L
-1154  FFA2 6F                   LD L,A
-1155  FFA3 7E                   LD A,(HL)
-1156  FFA4 2C                   INC L
-1157  FFA5 66                   LD H,(HL)
-1158  FFA6 6F                   LD L,A
-1159  FFA7 C9                   RET
-1160  FFA8              ; [AI] Banner character emitter: if the byte is positive (high bit clear) it outputs it directly; if
-1161  FFA8              ;       negative it first emits the software lead-in. [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the
-1162  FFA8              ;       Software function lead-in character, sent ahead of the byte for the high-bit-set case.
-1163  FFA8              ; ----------------------------------------------------------------------
-1164  FFA8              ; BANNER_PUT_CHAR -- emit one sign-on byte, optionally preceded by a lead-in char.
-1165  FFA8              ;   In:  A = byte/flag.  Out: prints via CONOUT_SET_C.  Clobbers: A,HL.
-1166  FFA8              ;   Algorithm: if A is positive (bit7 clear) tail-jump to emit it directly
-1167  FFA8              ;     (BANNER_EMIT_CHAR); if negative, first emit the software lead-in char from config
-1168  FFA8              ;     $F397 (SFLDIN, [DOC S&HD 2-14/2-15]) via CONOUT_SET_C, then emit A. Twin of the
-1169  FFA8              ;     2.23-44K SIGNON_EMIT. [RE]
-1170  FFA8              ; ----------------------------------------------------------------------
-1171  FFA8              BANNER_PUT_CHAR:
-1172  FFA8 B7                   OR A
-1173  FFA9 F2 B4 FF             JP P,BANNER_EMIT_CHAR
-1174  FFAC F5                   PUSH AF
-1175  FFAD              BANNER_PUT_ATTR:
-1176  FFAD 3A 97 F3             LD A,($F397)
-1177  FFB0 CD 4C FB             CALL CONOUT_SET_C
-1178  FFB3              BANNER_RESTORE_A:
-1179  FFB3 F1                   POP AF
-1180  FFB4              BANNER_EMIT_CHAR:
-1181  FFB4 C3 4C FB             JP CONOUT_SET_C
-1182  FFB7              ; [AI] Cold-boot sign-on banner emitted by the loop above: "Softcard CP/M / 60K Ver. 2.23 / (c)
-1183  FFB7              ;       1980,1982 Microsoft". This is the POST-1980 60K / 2.23 variant; the 2.20 manual documents only
-1184  FFB7              ;       the "APPLE II CP/M / 44K vers. 2.2X / (C) 1980 MICROSOFT" 44K/56K banner (S&HD 1-8), so the
-1185  FFB7              ;       "60K"/"2.23"/"1982" tokens here are version-specific, not manual-backed.
-1186  FFB7              SIGNON_BANNER:
-1187  FFB7 0D 0A 0A 0A          DEFB    $0D,$0A,$0A,$0A,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61,$72
-1187  FFBB 20 20 20 20
-1187  FFBF 20 53 6F 66
-1187  FFC3 74 63 61 72
-1188  FFC7 64 20 43 50          DEFB    "d CP/M"                 ; string
-1188  FFCB 2F 4D
-1189  FFCD 0D                   DEFB    $0D                      ; terminator
-1190  FFCE 0A 20 20 20          DEFB    $0A,$20,$20,$20,$20,$20,$36,$30,$4B,$20,$56,$65,$72,$2E,$20,$32
-1190  FFD2 20 20 36 30
-1190  FFD6 4B 20 56 65
-1190  FFDA 72 2E 20 32
-1191  FFDE 2E 32 33 0D          DEFB    $2E,$32,$33,$0D,$0A,$28,$63,$29,$20,$31,$39,$38,$30,$2C,$31,$39
-1191  FFE2 0A 28 63 29
-1191  FFE6 20 31 39 38
-1191  FFEA 30 2C 31 39
-1192  FFEE 38 32 20 4D          DEFB    "82 Microsoft"           ; string
-1192  FFF2 69 63 72 6F
-1192  FFF6 73 6F 66 74
-1193  FFFA 0D                   DEFB    $0D                      ; terminator
-1194  FFFB 0A 0D 0A             DEFB    $0A,$0D,$0A
-1195  FFFE 00 FA                DEFW    BOOT
-1196  0000
-1197  0000              BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
-1198  0000
-1199  0000                  IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
-1200  0000                  ; Image size from its bracketing labels, not a magic length, as in the 2.23-44K twin:
-1201  0000                  ; an overrun fails the build here instead of being silently truncated by SAVEBIN.
-1202  0000                  ; $FA00 = the ORG base; the subtraction wraps because the image ends at $10000.
-1203  0000                  SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
-1204  0000                  ENDIF
-1205  0000
-1206  0000              ; ----------------------------------------------------------------------
-1207  0000              ; BDOS scratch overlay -- the SECOND tenant of $FEFD-$FFF4.
-1208  0000              ;   Those bytes are the one-shot cold-boot / sign-on code above (the region the file
-1209  0000              ;   header describes as dead after BIOS_BOOT has run). It runs once at cold start; only
-1210  0000              ;   afterwards does the disk system reuse them as the buffers DPH_TABLE hands out. The
-1211  0000              ;   two tenants are never live at the same time.
-1212  0000              ;
-1213  0000              ;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
-1214  0000              ;   at the overlay base, then one label per field with its extent carried in the
-1215  0000              ;   arithmetic that advances to the next. Labels emit no bytes, so this names the
-1216  0000              ;   region without writing to it -- the cold-boot code above still owns every byte of
-1217  0000              ;   the image. Under the CPM60.COM master link this file is assembled inside a
-1218  0000              ;   DISP $FA00 block, where sjasmplus moves only the displacement address and leaves
-1219  0000              ;   the physical output pointer alone, so the ORGs are safe there too.
-1220  0000              ;
-1221  0000              ;   Reference whichever tenant is live at the point of use: the cold-boot routines by
-1222  0000              ;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
-1223  0000              ;   cold boot has finished. Same shape and names as the 2.20-44K and 2.23-44K twins;
-1224  0000              ;   only the addresses differ. [RE]
-1225  0000              ; ----------------------------------------------------------------------
-1226  0000              DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
-1227  0000              DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
-1228  0000              ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
-1229  0000              CSV_SIZE     EQU 12                   ; = CKS
-1230  0000
-1231  0000                      ORG $FEFD                     ; the one given: where the author placed the overlay
-1232  FEFD              DIRBUF:                               ; shared directory buffer, one per system
-1233  FEFD                      ORG DIRBUF + DIRBUF_SIZE
-1234  FF7D              ALV_VECTORS:                          ; per-drive allocation vectors ($FF7D..)
-1235  FF7D                      ORG ALV_VECTORS + DRIVES * ALV_SIZE
-1236  FFC5              CSV_VECTORS:                          ; per-drive checksum vectors ($FFC5..)
-1237  FFC5                      ORG CSV_VECTORS + DRIVES * CSV_SIZE
-1238  FFF5              BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFF5)
-1239  FFF5
-1240  FFF5                  ; Pin the derived layout to the addresses the shipped image actually uses: change
-1241  FFF5                  ; DRIVES or a size and the build fails here rather than silently moving a buffer.
-1242  FFF5                  ASSERT ALV_VECTORS == $FF7D
-1243  FFF5                  ASSERT CSV_VECTORS == $FFC5
-1244  FFF5                  ASSERT BIOS_SCRATCH_END == $FFF5
-1245  FFF5
+1148  FF9D              ; DEV_HANDLER_LOOKUP -- fetch a console-output handler address from CONOUT_VEC_TABLE.
+1149  FF9D              ;   In:  A = card-class index (0-based).  Out: HL = handler address.  Clobbers: A,HL.
+1150  FF9D              ;   Algorithm: HL = CONOUT_VEC_TABLE base, fall into HANDLER_TBL_INDEX (HL += A*2; load
+1151  FF9D              ;     the 16-bit word low-then-high). Twin of the 2.23-44K DEV_HANDLER_LOOKUP. [RE]
+1152  FF9D              ; ----------------------------------------------------------------------
+1153  FF9D              DEV_HANDLER_LOOKUP:
+1154  FF9D 21 88 FF             LD HL,CONOUT_VEC_TABLE
+1155  FFA0              HANDLER_TBL_INDEX:
+1156  FFA0 87                   ADD A,A
+1157  FFA1              HANDLER_TBL_FETCH:
+1158  FFA1 85                   ADD A,L
+1159  FFA2 6F                   LD L,A
+1160  FFA3 7E                   LD A,(HL)
+1161  FFA4 2C                   INC L
+1162  FFA5 66                   LD H,(HL)
+1163  FFA6 6F                   LD L,A
+1164  FFA7 C9                   RET
+1165  FFA8              ; [AI] Banner character emitter: if the byte is positive (high bit clear) it outputs it directly; if
+1166  FFA8              ;       negative it first emits the software lead-in. [DOC S&HD 2-14/2-15] $F397 is SFLDIN, the
+1167  FFA8              ;       Software function lead-in character, sent ahead of the byte for the high-bit-set case.
+1168  FFA8              ; ----------------------------------------------------------------------
+1169  FFA8              ; BANNER_PUT_CHAR -- emit one sign-on byte, optionally preceded by a lead-in char.
+1170  FFA8              ;   In:  A = byte/flag.  Out: prints via CONOUT_SET_C.  Clobbers: A,HL.
+1171  FFA8              ;   Algorithm: if A is positive (bit7 clear) tail-jump to emit it directly
+1172  FFA8              ;     (BANNER_EMIT_CHAR); if negative, first emit the software lead-in char from config
+1173  FFA8              ;     $F397 (SFLDIN, [DOC S&HD 2-14/2-15]) via CONOUT_SET_C, then emit A. Twin of the
+1174  FFA8              ;     2.23-44K SIGNON_EMIT. [RE]
+1175  FFA8              ; ----------------------------------------------------------------------
+1176  FFA8              BANNER_PUT_CHAR:
+1177  FFA8 B7                   OR A
+1178  FFA9 F2 B4 FF             JP P,BANNER_EMIT_CHAR
+1179  FFAC F5                   PUSH AF
+1180  FFAD              BANNER_PUT_ATTR:
+1181  FFAD 3A 97 F3             LD A,($F397)
+1182  FFB0 CD 4C FB             CALL CONOUT_SET_C
+1183  FFB3              BANNER_RESTORE_A:
+1184  FFB3 F1                   POP AF
+1185  FFB4              BANNER_EMIT_CHAR:
+1186  FFB4 C3 4C FB             JP CONOUT_SET_C
+1187  FFB7              ; [AI] Cold-boot sign-on banner emitted by the loop above: "Softcard CP/M / 60K Ver. 2.23 / (c)
+1188  FFB7              ;       1980,1982 Microsoft". This is the POST-1980 60K / 2.23 variant; the 2.20 manual documents only
+1189  FFB7              ;       the "APPLE II CP/M / 44K vers. 2.2X / (C) 1980 MICROSOFT" 44K/56K banner (S&HD 1-8), so the
+1190  FFB7              ;       "60K"/"2.23"/"1982" tokens here are version-specific, not manual-backed.
+1191  FFB7              SIGNON_BANNER:
+1192  FFB7 0D 0A 0A 0A          DEFB    $0D,$0A,$0A,$0A,$20,$20,$20,$20,$20,$53,$6F,$66,$74,$63,$61,$72
+1192  FFBB 20 20 20 20
+1192  FFBF 20 53 6F 66
+1192  FFC3 74 63 61 72
+1193  FFC7 64 20 43 50          DEFB    "d CP/M"                 ; string
+1193  FFCB 2F 4D
+1194  FFCD 0D                   DEFB    $0D                      ; terminator
+1195  FFCE 0A 20 20 20          DEFB    $0A,$20,$20,$20,$20,$20,$36,$30,$4B,$20,$56,$65,$72,$2E,$20,$32
+1195  FFD2 20 20 36 30
+1195  FFD6 4B 20 56 65
+1195  FFDA 72 2E 20 32
+1196  FFDE 2E 32 33 0D          DEFB    $2E,$32,$33,$0D,$0A,$28,$63,$29,$20,$31,$39,$38,$30,$2C,$31,$39
+1196  FFE2 0A 28 63 29
+1196  FFE6 20 31 39 38
+1196  FFEA 30 2C 31 39
+1197  FFEE 38 32 20 4D          DEFB    "82 Microsoft"           ; string
+1197  FFF2 69 63 72 6F
+1197  FFF6 73 6F 66 74
+1198  FFFA 0D                   DEFB    $0D                      ; terminator
+1199  FFFB 0A 0D 0A             DEFB    $0A,$0D,$0A
+1200  FFFE 00 FA                DEFW    BOOT
+1201  0000
+1202  0000              BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
+1203  0000
+1204  0000                  IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
+1205  0000                  ; Image size from its bracketing labels, not a magic length, as in the 2.23-44K twin:
+1206  0000                  ; an overrun fails the build here instead of being silently truncated by SAVEBIN.
+1207  0000                  ; $FA00 = the ORG base; the subtraction wraps because the image ends at $10000.
+1208  0000                  SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
+1209  0000                  ENDIF
+1210  0000
+1211  0000              ; ----------------------------------------------------------------------
+1212  0000              ; BDOS scratch overlay -- the SECOND tenant of $FEFD-$FFF4.
+1213  0000              ;   Those bytes are the one-shot cold-boot / sign-on code above (the region the file
+1214  0000              ;   header describes as dead after BIOS_BOOT has run). It runs once at cold start; only
+1215  0000              ;   afterwards does the disk system reuse them as the buffers DPH_TABLE hands out. The
+1216  0000              ;   two tenants are never live at the same time.
+1217  0000              ;
+1218  0000              ;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
+1219  0000              ;   at the overlay base, then one label per field with its extent carried in the
+1220  0000              ;   arithmetic that advances to the next. Labels emit no bytes, so this names the
+1221  0000              ;   region without writing to it -- the cold-boot code above still owns every byte of
+1222  0000              ;   the image. Under the CPM60.COM master link this file is assembled inside a
+1223  0000              ;   DISP $FA00 block, where sjasmplus moves only the displacement address and leaves
+1224  0000              ;   the physical output pointer alone, so the ORGs are safe there too.
+1225  0000              ;
+1226  0000              ;   Reference whichever tenant is live at the point of use: the cold-boot routines by
+1227  0000              ;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
+1228  0000              ;   cold boot has finished. Same shape and names as the 2.20-44K and 2.23-44K twins;
+1229  0000              ;   only the addresses differ. [RE]
+1230  0000              ; ----------------------------------------------------------------------
+1231  0000              DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
+1232  0000              DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
+1233  0000              ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
+1234  0000              CSV_SIZE     EQU 12                   ; = CKS
+1235  0000
+1236  0000                      ORG $FEFD                     ; the one given: where the author placed the overlay
+1237  FEFD              DIRBUF:                               ; shared directory buffer, one per system
+1238  FEFD                      ORG DIRBUF + DIRBUF_SIZE
+1239  FF7D              ALV_VECTORS:                          ; per-drive allocation vectors ($FF7D..)
+1240  FF7D                      ORG ALV_VECTORS + DRIVES * ALV_SIZE
+1241  FFC5              CSV_VECTORS:                          ; per-drive checksum vectors ($FFC5..)
+1242  FFC5                      ORG CSV_VECTORS + DRIVES * CSV_SIZE
+1243  FFF5              BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFF5)
+1244  FFF5
+1245  FFF5                  ; Pin the derived layout to the addresses the shipped image actually uses: change
+1246  FFF5                  ; DRIVES or a size and the build fails here rather than silently moving a buffer.
+1247  FFF5                  ASSERT ALV_VECTORS == $FF7D
+1248  FFF5                  ASSERT CSV_VECTORS == $FFC5
+1249  FFF5                  ASSERT BIOS_SCRATCH_END == $FFF5
+1250  FFF5
 # file closed: CPM_BIOS.asm
