@@ -61,9 +61,36 @@ BIOS_VECTOR_WBOOT:
         JP      READ
         ; entry 14 = WRITE (out of this scope, $FE85 band)
         JP      WRITE
-        ; post-vector trailer: $AF $C9 (XOR A / RET) then 4 opaque bytes $00,$60,$69,$C9;
-        ; the same 6 bytes as 2.20's $AA2D trailer. [RE] not reached as code here.
-        DEFB    $AF,$C9,$00,$60,$69,$C9
+; ----------------------------------------------------------------------
+; The last two jump-table slots are not JPs: both handlers are short enough to sit
+; INLINE in the table, which is legal because nothing after entry 16 needs a fixed
+; offset. They used to be dumped here as an opaque DEFB run described as a
+; "post-vector trailer ... not reached as code here", which was wrong twice over:
+; the BDOS reaches both through the jump table, and the bytes are ordinary Z-80. [RE]
+; ----------------------------------------------------------------------
+; LISTST -- entry 15: report list-device status.
+;   In:  none.  Out: A = $00.  Clobbers: A, flags.
+;   Algorithm: XOR A / RET. A=0 means "not ready" per the CP/M 2.2 convention, and
+;     because it never returns $FF the BDOS never waits on printer status. The
+;     SoftCard has no list device to poll, so a constant answer is the whole
+;     implementation. Same two bytes in the 2.20-44K and 2.23-60K twins. [RE]
+; ----------------------------------------------------------------------
+LISTST:
+        XOR A
+        RET
+        DEFB    $00                      ; pad: realigns SECTRAN onto the 3-byte slot grid
+; ----------------------------------------------------------------------
+; SECTRAN -- entry 16: logical-to-physical sector translate (identity).
+;   In:  BC = logical sector, DE = translate-table address (ignored).
+;   Out: HL = BC (physical == logical).  Clobbers: H, L.
+;   Algorithm: LD H,B / LD L,C / RET. The DPH XLT field is 0 for every drive, so the
+;     BDOS asks for no translation and this returns its argument unchanged; the skew
+;     is applied by the disk producer, off-image. Same three bytes in both twins. [RE]
+; ----------------------------------------------------------------------
+SECTRAN:
+        LD H,B
+        LD L,C
+        RET
 ; ----------------------------------------------------------------------
 ; DPH_TABLE -- the CP/M 2.2 Disk Parameter Header array (one 16-byte DPH per logical
 ;   drive 0..3; 2.23 supports 4 drives, vs 6 in the 2.20 twin). SELDSK returns
