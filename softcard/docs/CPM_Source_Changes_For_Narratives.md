@@ -1060,3 +1060,308 @@ the two descriptions never shared a label name.
 | 1. Run the failure in the emulator | **Done**, and it produced the `$8B` fold (Part 5) |
 | 2. `ALLOC_VECTOR_BUILD` `[?]` branch | **Done**, this part |
 | 3. Third-party CP/M disks | **Not run.** Still the only open item |
+
+---
+
+# Part 7, 2026-07-31: full report. All three items closed
+
+Commits `01477bf` `e368a50` `65a9000` `359104a` `25f94e3` `fbd578c` `83cd467`. Gate **1121 passed
+/ 1 skipped** throughout, byte-identical at every step. Your verification of `25f94e3` is
+incorporated; where we disagreed I say so and give the evidence.
+
+**The three open items are all closed.** Item 1 (run the failure) produced the fold. Item 2
+(the `[?]` branch) is DRI's `$$$.SUB` probe. Item 3 (third-party) is answered from two
+independent sources.
+
+---
+
+## PART A. The finding, in the order the evidence forced it
+
+### A1. What `DSM = $8B` actually is
+
+Not a miscount. The 2.23 deblock, `SM_NOFLUSH` at `$BCDA` in
+`CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm`:
+
+```asm
+        LD A,(REQ_TRACK)     ; requested track
+        CP $23               ; 35 = past the last track of a 35-track medium
+        JR C,SM_SETSEC       ; normal track, use as-is
+        LD L,A
+        LD A,(DPB_DSM)       ; the running DPB's DSM byte
+        CP $8B               ; ONLY the 140-block geometry
+        JR NZ,SM_STORE
+        LD A,L
+        SUB $23              ; fold onto tracks 0-2
+```
+
+```
+block 128 -> record 1024 -> OFF + 1024/SPT = 3 + 32 = track 35 -> 0
+block 139 -> record 1112 -> 3 + 34                  =       37 -> 2
+blocks 128..139 = 12 blocks = 12 KB = tracks 0,1,2 = 12,288 bytes, no remainder
+```
+
+The twelve blocks past the 2.20 twin's `$7F` are the three reserved system tracks, reachable
+through the ordinary file system. `cp/m    sys` (user `$1F`, block map exactly 128-139) is the
+entry that accounts for them.
+
+The gate is the evidence of intent: a clamp that merely kept the head on the medium would not
+need to know `DSM`. No other tree has the fold.
+
+### A2. Independent corroboration, found after the fact
+
+Two secondary sources describe this as a deliberate feature. Both are `[?]` tier, and both agree
+with the instructions and with each other.
+
+**Apple II SoftCard CP/M Reference** (community, apple2.guidero.us):
+
+> "SoftCard CP/M ver 2.23 and higher uses a trick to allow the system tracks for data storage: a
+> file called cp/m.sys is created in user area 31 as a dummy file allocated to the system tracks.
+> It is inaccessible from the CCP and unseen by the user."
+>
+> "COPY.COM has an option to create a 'data diskette' where cp/m.sys is absent, which creates 3
+> more tracks for data storage."
+
+**CiderPress2 CP/M format notes**: same entry, user 31, lower-case name, blocks `$80`-`$8B`
+"treated as wrapping around to the start of the disk", and "This trick, which appears to have
+originated with the Microsoft SoftCard, is used to allow extra storage on non-bootable disks."
+
+That answers item 3: **a Microsoft SoftCard origination, not a general CP/M idiom.**
+
+One caution. The same reference's DPB table prints `DSM`=127 for both versions, which the shipped
+BIOS bytes contradict (`$7F` on 2.20, `$8B` on 2.23, verified across 8 archived images). Our bytes
+win, and the reference is internally inconsistent: its own "allocated to the system tracks" claim
+needs `DSM`>127 to be expressible at all. Do not cite its table.
+
+### A3. THE HAZARD, and it is the story
+
+Neither source mentions it, and it follows directly from what they do say.
+
+**The `cp/m sys` entry is the only thing that distinguishes "this disk's boot tracks are in use"
+from "this disk's boot tracks are free storage."** There is no other marker. A data diskette is
+simply a disk with no entry.
+
+A 2.20-lineage disk has a boot image on tracks 0-2 and no entry, because under its own `DSM`=`$7F`
+those blocks were not expressible and no entry was needed. Mounted on a 2.23 system it is
+therefore **indistinguishable from a data diskette**, and 2.23 will allocate its boot tracks to
+the next file that needs the space.
+
+Every 2.20 disk in existence is in that state. They ship 2-3 KB from full, so it is one file away.
+
+**Correction to my own earlier claim, and to your point 4:** a `COPY /F` data disk is **not** at
+risk. It has no boot image, so writing into those blocks is the documented intended use. The
+hazard is specific to a disk that carries a boot image and no entry.
+
+### A4. Reservation or conduit: you were right, and "describable" is still too weak
+
+You are right that **no shipped tool moves data through those blocks.** Verified independently:
+
+* `CPM60.COM`'s entire BDOS function set is `{$06,$09,$0E,$10,$13,$16,$19,$1B,$20}`. No `$14`,
+  `$15`, `$21` or `$22`. It never reads or writes through the FCB.
+* `COPY.COM` touches that FCB only with `DRV_SET`, `F_DELETE`, `F_MAKE`, `F_CLOSE`.
+
+But "describable" understates it, for two reasons.
+
+**The reservation does not need the fold.** `ALLOC_FROM_FCB` reads a block number, range-checks it
+against `DSM`, and calls `ALLOC_BIT_WRITE`. It is a pure bitmap operation and never converts a
+block to a track. The reservation would work identically with no fold at all. The fold is reached
+**only** from the deblock, on real record I/O.
+
+**And that I/O works.** Round-trip verified: I placed a known 256-byte pattern in the TPA at
+`$0100`, ran `SAVE 1 P.PPP` on a disk whose only free blocks were 128-139, and the pattern arrived
+**byte-for-byte at track 0 sector 0**.
+
+So the twelve blocks are genuine, working storage that no Microsoft tool uses. The beneficiary is
+ordinary user files on a disk with no boot image, which is exactly the use both references
+describe. The entry exists to withhold that storage when there *is* a boot image.
+
+---
+
+## PART B. Item 2: the `[?]` branch, and what the `$` filename business is
+
+You said you did not follow this. Here it is from the top, because the mechanism is genuinely
+non-obvious and the payoff is one clause in the article.
+
+### B1. What `$$$.SUB` is, and why it has to be a file
+
+CP/M has a batch facility called **SUBMIT**. You put command lines in a file, say `JOB.SUB`, and
+type `SUBMIT JOB`. The commands then run one after another without you typing them.
+
+The awkward part is that CP/M has nowhere to keep the queue. Every program that runs owns the
+whole TPA, and when it finishes the CCP is **reloaded from disk** (a warm boot). Nothing in memory
+survives. So a list of pending commands cannot live in RAM between commands.
+
+DRI's answer: keep the queue **in a file**. `SUBMIT` reads your `JOB.SUB` and writes the pending
+command lines into a file literally named `$$$.SUB` on drive A. After each command finishes, the
+freshly reloaded CCP looks for `$$$.SUB`; if it is there, it takes the next line from it and
+executes that instead of prompting you. When the lines run out the CCP deletes the file and goes
+back to prompting. (The lines are stored in reverse and consumed from the end, so "take the next
+one" is just "decrement the record count".)
+
+### B2. Why the BDOS is involved at all
+
+Checking "does `$$$.SUB` exist?" on **every warm boot** would mean a directory search every time.
+
+But the BDOS already walks the *entire* directory when it logs a drive in, because that is how it
+rebuilds the allocation vector: read every entry, mark the blocks each one owns. DRI piggybacked
+the check onto that walk. While marking blocks it also asks, per entry, "does this belong to the
+current user, and does its name start with `$`?" If so it sets a flag. The walk was happening
+anyway, so the check is free.
+
+The flag is then handed back as the result of **BDOS function 13, Reset Disk System**, which is
+documented as returning `0FFh` if a file whose name begins with `$` is present and `0` otherwise.
+The CCP makes that one cheap call and learns whether it is worth opening `$$$.SUB`.
+
+Note it tests only the **first character**, not the whole name. It is a hint, not an answer: "there
+might be a submit file here, go look properly."
+
+### B3. The code, and why it read as unknown
+
+```asm
+        LD A,(BDOS_USER_NUM)   ; current user number
+        CP (HL)                ; this entry's user byte?
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        INC HL
+        LD A,(HL)              ; first name character
+        SUB $24                ; '$'?   (leaves A = 0 when it matches)
+        JP NZ,ALLOC_VECTOR_SCAN_MARK
+        DEC A                  ; 0 -> $FF
+        LD (BDOS_RETVAL),A     ; fn 13's result
+```
+
+The cell at `$9F41` was labelled `BDOS_STACK_TOP`, so this read as "compare a directory entry
+against a stack byte", which is meaningless. Hence the `[?]`.
+
+It is a **dual-use cell**, and DRI saving a byte rather than an accident. `BDOS_DISPATCH` does
+`LD SP,$9F41`, but the Z-80 decrements `SP` **before** writing, so the first push lands at `$9F40`
+and the stack grows down from there. The byte at `$9F41` is never touched by the stack, so DRI put
+the current user number in it. The same file already knew that at `FCB_MERGE_USER` and
+`F_USERNUM_H`; only the definition and the one site that mattered carried the stack-only name.
+
+Answering your three settling questions: `$9F41` is written by `F_USERNUM_H` (fn 32) and is the
+current user number; `$9F45` is read by the dispatcher on the way out, being the ordinary BDOS
+return cell; and the branch is **standard DRI**, carried identically by the 2.20 and 2.23 BDOSes.
+
+**Your Part-2 observation stands and is worth keeping**: both tests jump to `MARK` and the
+fall-through reaches `MARK` too, so every non-`$E5` entry has its blocks marked regardless. The
+probe only sets a flag. "`$E5` and for no other reason" is safe.
+
+---
+
+## PART C. Every test I ran, and what it established
+
+| # | Test | Result |
+|---|---|---|
+| 1 | Rebuild the allocation vector from each archived disk's real directory under both `DSM` values | 2.20 disk 2 KB @127 / **14 KB** @139; your figure confirmed. Recomputed with the correct 48-entry directory; agrees with the 64-entry run |
+| 2 | Boot 2.23 with the reservation entry deleted, run `STAT` | `A: R/W, Space: 12k`. Offers space it should not |
+| 3 | `SAVE 4 Z.ZZZ` on that disk | **Succeeds silently.** Directory entry committed: `Z.ZZZ`, EX=0, RC=`$08`, blocks=[128] |
+| 4 | Diff the image before/after | **689 bytes of track 0 changed**; tracks changed = [0, 3] |
+| 5 | Instrument the sector hook: log every request including rejects | Track 35 **never requested**. IOB track = 0 |
+| 6 | Read CP/M's own `sektrk` (`$FED1`) and the DSM cell (`$FEE3`) at each request | `$FED1`=35, `$FEE3`=`$8B`, IOB track 0. The fold, caught in the act |
+| 7 | Trace the boot loader's 29 sector loads | Staging is contiguous `$7000-$8CFF`; the 8 track-2 sectors in no `ChunkSpec` are **never read** |
+| 8 | Search each assembled chunk for the deblock signature | Present in `CPM223_BootLoader` at offset 1097. It was decoded all along |
+| 9 | Round-trip: known 256-byte pattern in TPA, `SAVE 1 P.PPP` | Pattern arrived **byte-for-byte at track 0 sector 0**. The blocks are real storage |
+| 10 | Enumerate every BDOS function code in `CPM60.COM` and every call on COPY's FCB | No read/write call in either. Reservation, not conduit |
+| 11 | Read `ALLOC_FROM_FCB` | Pure bitmap op, no block-to-track conversion. The reservation needs no fold |
+| 12 | Read the shipped RWTS (`RWTS_MAIN`, `$0EC0`-`$0F0B`) | 48 inner retries, recalibrate, returns `$40`; **the write is gated behind the address-field match** |
+| 13 | Verify the emulator's disk model at the limit | Default path asserts `if track >= 35`; the faithful nibble path is read-only |
+| 14 | Grep all trees for the fold | `CP $8B` / `SUB $23` exists **only** in 2.23's deblock |
+
+Test 12 is worth keeping even though it turned out to be off-path: it establishes what a drive
+*would* do if it were ever asked for track 35. It never is.
+
+---
+
+## PART D. Every change, and why
+
+All comment-, label- and doc-level. **No assembled byte moved at any point.** Tracked `.lst` files
+and the INCBIN listing comment were regenerated after each source edit.
+
+### D1. Corrections to shipped-code annotation
+
+| File | Was | Is | Why it mattered |
+|---|---|---|---|
+| `CPM60_installer.asm` | `LD E,$1F` = "get current user" | **sets** user 31 | Hid the entire reservation mechanism |
+| `CPM60_installer.asm` | fn `$1B` "get DPB", `+$10` "geometry sanity byte" | `Get Addr(Alloc)`; free-space check on blocks 128-139 | Made a deliberate check look like noise |
+| `CPM60_installer.asm` | `RW_SECTOR` `$F3E0` | `IOB_TRACK` | **Your find.** Hid that the installer starts at track 0 |
+| `CPM60_installer.asm` | `RW_TRACK` `$F3E9` "start at track $14 (20)" | `IOB_BUF_HI`, buffer page | Nonsense value; also contradicted its own comment |
+| `CPM60_installer.asm` | `RW_SECCNT` `$F3EB` "sector count" | `IOB_CMD`, 2 = write | |
+| `COPY.asm` `$037F` | "opens the source CPM*.SYS file ... reads the OS image" | `WRITE_SYSTEM_RESERVATION` | Opens nothing, reads nothing, **creates** the entry |
+| `COPY.asm` | `OPEN_SYSTEM_FCB` "opens (BDOS 15)" | `F_DELETE` (`$13`) | |
+| `COPY.asm` | `LD DE,RST2_VEC` | `$0010`, a bitmap offset | Blind `cpm22.inc` rename |
+| `COPY.asm` | `FORMAT_DEST_DISK` "writes a fresh CP/M system image" | It does not | |
+| `DiskXlate.asm` | `IOB_SECTOR` `$F3E0` | `IOB_TRACK` | The fold read as arithmetic on a sector |
+| `DiskXlate.asm` | `IOB_TRACK` `$F3E4` | `IOB_DRIVE` | |
+| `DiskXlate.asm` | `SCR_D1`/`SCR_D2` "sector"/"track" | `REQ_TRACK`/`REQ_RECORD` | **Transposed** |
+| `DiskXlate.asm` | `SCR_E3` "deblock flag scratch" | `DPB_DSM` | The fold tests it against `$8B` |
+| `CPM_BDOS.asm` x3 | `BDOS_STACK_TOP` | `BDOS_USER_NUM` | Made the `$$$.SUB` probe unreadable |
+| `CPM_BDOS.asm` x3 | `[?] ... intent is UNKNOWN` | resolved, with DRI provenance | |
+| `CPM_BIOS.asm` x2 | "whether `$8B` is an error or a convention is NOT determinable" | resolved | |
+| `FORMAT_6502.s`, `COPY_6502.s` | plain constants | the `$E5` derivation | The one thing you could not get from the images |
+| `BOOT.asm` | (nothing) | "IT WRITES NOTHING" | The 512-byte size invites the opposite assumption |
+| `STAT` x2, `GBASIC` x2, `MBASIC`, `src/os/CPM_CCP` | `RST2_VEC` | `$0010` literal | Six blind renames; all were the number 16 |
+
+Your `$FEE3` trace, which I had asserted rather than proven, is now the header's justification:
+`SELDSK` at `$FEA0` walks `DPH_TABLE` to the drive's DPH, takes the DPB pointer at DPH+10, adds 5,
+and stores that byte to `$FEE3`. DPB+5 is the low byte of `DSM`. The deblock therefore tests the
+running drive's `DSM` at every select. Also recorded: `$FEE2` is a two-tenant overlay
+(`LD HL,($F3DE)` at cold boot, self-modified by `SELDSK` afterwards), which is the hazard class
+already on file in Part 1 §3 and is why the cell read as scratch.
+
+### D2. Documents
+
+* **`docs/CPM_Disk_Creation.md`** (new) — the eight questions, with an update section carrying the
+  fold and the narrowed hazard.
+* **`docs/CPM_Filesystem.md`** — "64 directory entries" corrected to **48** (`DRM`=`$2F`;
+  `CKS`=12=48/4 confirms). Its "zero-fill tracks 3-34 for an empty directory" was wrong: a zero
+  slot is a valid user-0 entry, so that yields 64 blank files. Must be `$E5`. Added sections on
+  how a formatted disk gets its directory and on the reservation entry.
+* **`CPMV223-60K/CPM60_COM.md`, `BOOT_AND_PATCHING.md`** — the stale `$1B`/DPB claim and the
+  stale IOB cell names.
+
+### D3. Tooling
+
+* **Audit 4** in `cpm_pipeline/annotation_audit.py` (+4 tests): flags any comment **or doc** naming
+  a BDOS function number alongside another function's terms. It scans `.md` too, because both bad
+  `$1B` claims had propagated into the 60K markdown. Zero hits on the current tree.
+
+---
+
+## PART E. Decisions, and two things I got wrong
+
+### E1. Decisions
+
+* **`DSM`=`$8B` is deliberate.** It cannot be presented as Microsoft misreading their own manual.
+  The Alteration Guide's two readings still explain how 139 is arrivable, but the deblock is built
+  around that exact value. Agreed with your §4; the section built on it should go.
+* **The hazard, not the arithmetic, is the story.** Specifically: a disk with a boot image and no
+  entry is indistinguishable from a data diskette.
+* **Cite the two secondary sources as corroboration, not authority.** They are `[?]` tier and one
+  of them has a wrong DPB table. What makes them worth citing is that they agree with the code.
+* **Do not claim the emulator settles hardware behaviour at track 35.** It cannot, and it does not
+  need to, because the drive is never asked.
+
+### E2. Two things I got wrong, both self-corrected
+
+* **Part 4's "2 KB decode gap" was wrong.** There is no gap. The deblock was already decoded in
+  `CPM_BootLoader_DiskXlate.asm` and INCBIN'd into the boot loader. I was misled by 8 track-2
+  sectors absent from every `ChunkSpec` (never read at boot) and by mapping a disk file offset back
+  to a sector without applying the interleave. Please drop that work item; Part 5 §0 retracts it.
+* **Part 5's exposure claim was too broad.** I said a `COPY /F` disk was exposed. It is not; that
+  is the designed use. Corrected in Part 7 §A3 and in every source and doc that carried it.
+
+Also for the tally: my own `OPEN_SYSTEM_FCB` header from `01477bf` said COPY "removes" the entry,
+when the delete is the first step of rewriting it. A correction that needed correcting, which is
+now two of those in this thread.
+
+### E3. Open
+
+* **An audit gap I could not close.** The 60K BDOS header already said the test was "against the
+  current user" while both 44K files said "the BDOS default-FCB byte". Audit 3 missed it because
+  its polarity list covers opposite *states*, not different *nouns*. Extending it that far would be
+  very noisy. A narrow alternative worth building: flag a label whose header is `[?]`/UNKNOWN in
+  one tree but explained in another. Not built.
+* **No historical report of the failure.** Three searches found no account of a 2.20 disk being
+  destroyed by a 2.23 system, and no cross-version warning in the community reference. The
+  mechanism is documented; the hazard is documented nowhere. Absence of a report is not absence of
+  the failure, and I would not assert either way in print.
+* `CAT.asm`, `PATCH.asm`, `AUTORUN.asm` never examined.
