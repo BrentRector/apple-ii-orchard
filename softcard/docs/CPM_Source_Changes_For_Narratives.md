@@ -231,3 +231,98 @@ being at the same level of understanding as the 44K pair.
 * Keep the human/AI division of labour honest. For this batch: the inverted polarity was
   caught by reading the instructions against the comment, and the third DPB was found by
   searching for literals inside a known address range after a name search came up empty.
+
+---
+
+# Part 2, 2026-07-31: two disk images withdrawn from the archive
+
+Separate from the source-annotation work above, and with a direct editorial consequence: the
+archive's disk-image counts changed.
+
+**Commits:** `3a7fa43`, `2333aba`. Full evidence for the first withdrawal is in
+`softcard/docs/CPM_Archive_2.23B_Counterfeit.md`.
+
+## What was withdrawn, and why
+
+**1. `os/softcard-cpm2.23b-63k-system.dsk` was never a release.** It is
+`os/softcard-cpm2.20b-56k-system.dsk` with 40 bytes edited: the copyright line, the no-card
+message, the banner's memory size and version, and the machine serial at both sites where it
+appears. Every string substitution is exactly as long as what it replaced, which a sector editor
+forces and an assembler has no reason to produce. Verified independently before acting.
+
+**2. `os/softcard-cpm2.20b-56k-system-workingcopy.dsk` was a pirated, user-patched disk**, not a
+release: ADVEN and DUMP added, ASM and ED removed, one jump target patched. ADVEN had already
+been extracted to `games/adventure-adven.com`, which was the only thing it was wanted for.
+
+Both `MANIFEST.csv` rows are **kept** and marked `WITHDRAWN`, rather than deleted. A removed row
+would read as "the archive never had this", which is weaker than "had it and rejected it".
+
+## The counts, before and after
+
+| | before | after |
+|---|---:|---:|
+| disk images in the archive | 22 | **20** |
+| images under `os/` | 11 | **9** |
+| `role=system` disks | 10 | **8** |
+| distinct (version, config) OS cells | 6 | **5** |
+
+The five cells are 2.20/44K, 2.20B/44K, 2.20B/56K, 2.23/44K, 2.23/60K. `languages/` (6),
+`apps/` (4) and `utilities/` (1) are unchanged.
+
+**This is the reconciliation the "twelve SoftCard disk images" figure needs.** That number appears
+in 15 places in the wiseowl article and 4 in `editorial/FACTS.md`. Nothing on the repo side has
+been renumbered; the two corpora were deliberately left to be reconciled in one deliberate pass
+rather than drifting apart. Whatever "twelve" was counting, it is now two lower if either
+withdrawn image was inside the count.
+
+## Three claims that are now false and may be in the prose
+
+1. **"Six configurations."** There are five. The sixth was the counterfeit's fictitious 63K.
+2. **"A 2.23B that tracks the older 2.20 lineage" / "inherited rather than repaired its `$7F`
+   DPB" / "a third party's derivative".** None of that happened, because nothing was rebuilt.
+   The `$7F` / `$8B` DPB split between the 2.20 lineage and Microsoft's 1982 rewrite is clean,
+   with **no exception**. The apparent eighth `$7F` image does not exist.
+3. **Anything treating "2.23B" as a version.** There is no 2.23B. The string was typed over
+   "2.20B" with a sector editor.
+
+I grepped this repo and found no prose asserting any of these, so the corrections are for the
+wiseowl corpus only.
+
+## One argument to state carefully if you write this up
+
+The tempting line is "40 bytes is too few to be a build". **Do not use it**, the archive refutes
+it. A genuine 2.20 to 2.20B revision, same memory size, costs 42 bytes. All four scales, each
+measured over the same 12,288-byte system area between images still held:
+
+| Change | Cost |
+|---|---:|
+| two archived copies of one build | 4 bytes |
+| minor revision, same version family and size | 42 bytes |
+| memory-size change, same version (44K to 56K) | 1,301 bytes |
+| version change (2.20 lineage to Microsoft's 2.23) | ~11,500 bytes |
+
+The correct argument is about *which* change is claimed. This disk asserts a different memory
+size **and** a different version. Those cost 1,301 and ~11,500 bytes in this same archive. It
+exhibits 40, the budget of a revision that changes neither, every byte of it a same-length
+string or the serial.
+
+That framing is also the better story: the forger's budget is visible, and it is the budget of
+someone who could not assemble anything.
+
+## The archive is complete for this hardware
+
+Checked against asimov's full `images/cpm/os/` listing, the apple2.org.za SoftCard mirror, and by
+downloading and identifying every applicable candidate. Nothing is missing:
+
+* `CPM_Z80SoftCard.dsk`, system tracks byte-identical to our 2.20-44K image;
+* `CPM_Zs_ETC.dsk`, one byte from our 2.20B-56K image;
+* `softcard.zip`, contains md5-identical copies of two images already held;
+* `CPM.DSK`, `CPM_.DSK`, `CPM_Apple_CPM._B.dsk`, not SoftCard CP/M system captures (the last
+  has no CP/M banner strings anywhere in the image, despite its name);
+* CP/M 2.25 and 2.28B exist on asimov but run on the **Premium SoftCard IIe** and **SoftCard II**,
+  different cards, out of scope here;
+* `CPM3.1_Z80_Softcard.zip` (seven disks) runs on the original card but is a community port, not
+  a Microsoft release, so it would belong in a different category if ever taken.
+
+So "the archive holds every Microsoft release for the original Z-80 SoftCard that is known to
+survive on asimov" is now a defensible sentence, where before today it was not checked.
