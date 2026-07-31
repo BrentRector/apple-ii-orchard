@@ -29,7 +29,6 @@ other image then in `os/`:
 
 | Compared with | Identical | Bytes differing |
 |---|---:|---:|
-| `softcard-cpm2.20b-56k-system-workingcopy.dsk` | 99.67% | 40 |
 | `softcard-cpm2.20b-56k-system.dsk` | 99.67% | 41 |
 | `softcard-cpm2.20b-44k-system.dsk` | 89.11% | 1338 |
 | `softcard-cpm2.20-44k-system.dsk` | 88.93% | 1360 |
@@ -42,16 +41,25 @@ other image then in `os/`:
 A disk claiming to be 2.23 that shares 6% of its system area with every genuine 2.23, and
 99.67% with a 2.20B, is not a 2.23.
 
-### 2. The archive supplies its own scale for reading "40 bytes"
+### 2. The archive supplies its own scale, and the scale that matters is the right one
 
-Both figures are measured over the same 12,288-byte window:
+All figures measured over the same 12,288-byte system-area window, between retained images:
 
-* a **real** memory-size change within this family (44K to 56K, same version) costs
-  **1,301 bytes**;
-* two archived copies of the **same** build differ by **1 byte**.
+| Kind of difference | Cost |
+|---|---:|
+| two archived copies of one build (`2.20-44k-system` vs `-1980`) | **4 bytes** |
+| a genuine minor revision, same version family and size (2.20 to 2.20B, both 44K) | **42 bytes** |
+| a genuine memory-size change, same version (44K to 56K, both 2.20B) | **1,301 bytes** |
+| a genuine version change (2.20 lineage to Microsoft's 2.23) | **~11,500 bytes** |
 
-Forty bytes is two orders of magnitude short of a rebuild and one order past a copy. It is an
-edit.
+Note the 42. A real revision *can* cost about forty bytes, so "40 bytes is too few to be a
+build" would be a bad argument and is not the one made here. The point is which change is
+claimed. This image asserts a different memory size **and** a different version. Those cost
+1,301 and ~11,500 bytes respectively in this same archive. It exhibits 40, the scale of a
+revision that changes neither.
+
+Put the other way: 40 bytes is a plausible budget for a small revision, and an impossible one
+for the two things printed on this disk's banner.
 
 ### 3. The forty bytes are seven in-place substitutions, each the length of what it replaced
 
@@ -93,17 +101,11 @@ recorded both values before this was understood: the two genuine 2.20B-56K rows 
 at every site it appears is what moves this from a cosmetic rebrand to defeating a copy
 identifier.
 
-### 5. The 41st byte is not the counterfeiter's
+### 5. Reproducing the count gives 41, not 40
 
-Against `softcard-cpm2.20b-56k-system.dsk` the count is 41, not 40. The extra byte is at
-T2 +$0B2F, where the two archived 2.20B-56K images **already disagree with each other**:
-`softcard-cpm2.20b-56k-system.dsk` has `$3E` and `softcard-cpm2.20b-56k-system-workingcopy.dsk`
-(md5 `07a885f2249f475cb1fdd56155d4570f`) has `$31`. The counterfeit has `$31`.
-
-That byte is therefore not attributable to the edit; it is a pre-existing difference between two
-genuine 2.20B-56K disks. **No claim is made here about which disk the counterfeiter started
-from.** A shared byte is consistent with a common parent and does not establish descent, and the
-workingcopy's own history is not independently known.
+The seven substitutions above account for 40 bytes. The 41st is at T2 +$0B2F and was already
+different in another archived copy of the same disk, since withdrawn as a user-modified image.
+It is not part of the edit and does not bear on the conclusion.
 
 ## Why it was withdrawn rather than kept and annotated
 
