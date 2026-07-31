@@ -2,7 +2,11 @@
 
 Authoritative reconcile anchor for machine-generated comments in the disassembled OS source.
 
-**Source manuals:** Microsoft SoftCard CP/M 2.20, (C) 1980 (Microsoft / Digital Research). Specifically: *Software and Hardware Details*, the bundled Digital Research *CP/M 2.2 Reference Manual*, and *SoftCard Volume 1 & Volume 2*.
+**Source manuals:** Microsoft SoftCard CP/M 2.20, (C) 1980 (Microsoft / Digital Research). Specifically: *Software and Hardware Details* (`S&HD`), the bundled Digital Research *CP/M 2.2 Reference Manual* (`CPMREF`), and *SoftCard Volume 1 & Volume 2*.
+
+**One governing manual is NOT in the SoftCard box** and is cited as `CPMAG`: Digital Research's *CP/M 2.2 Alteration Guide* (1979). SoftCard CP/M is licensed DRI CP/M 2.2, so the Guide governs everything the bundled *Reference Manual* omits — most importantly **the Disk Parameter Block layout**, which `CPMREF` never gives because it documents only the BDOS call that returns a DPB pointer (fn 31). Before marking anything DPB- or BIOS-related as undocumented, check `CPMAG` — three DPB headers in this tree carried "not `[DOC]`-citable" until 2026-07-31, which was true of the archive and misleading about the world. Scan: <https://bitsavers.trailing-edge.com/pdf/digitalResearch/cpm/2.2/CPM_2.2_Alteration_Guide_1979.pdf>
+
+⚠ **`CPMAG` defines all ten DPB fields but never spells the acronyms out.** "Disk Size Max" / "DiRectory Max" and the rest are conventional readings, not DRI's; the Guide's own shorthand is `;disk size-1` and `;directory max` in the DISKDEF listing. Do not attribute an expansion to the manual.
 
 **Reconstruction caveat:** the transcribed Markdown these facts were extracted from is an AI vision-reconstruction of scanned PDFs. The scanned PDFs remain the authoritative source. Any value carrying a trailing **[needs-PDF-check]** marker must be confirmed against the scanned PDF before being treated as final. All such items are collected in the checklist at the end.
 

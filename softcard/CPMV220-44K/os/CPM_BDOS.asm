@@ -1547,7 +1547,7 @@ REC_DIV4_SETUP:
 ; stepping in sectors-per-track units.
 ;   In: CUR_BLOCK_NUMBER = 16-bit search target (record/4, set by REC_DIV4_SETUP); (DEBLOCK_HSTREC_PTR1) -> a 16-bit
 ;       running record-boundary accumulator; (DEBLOCK_HSTREC_PTR0) -> the current track number; DPB_SPT = SPT
-;       (sectors per track, low word of the copied DPB).
+;       (128-byte records per track, low word of the copied DPB).
 ;   Out: loads BC = target, DE = current boundary accumulator, HL = current track number, then
 ;        enters the search loop (RECORD_TO_TRACK_BACK). On a match it branches to
 ;        DISK_STORE_SEC_TRK_1, which sets the BIOS track/sector.
@@ -1556,7 +1556,7 @@ REC_DIV4_SETUP:
 ;              through (DEBLOCK_HSTREC_PTR1)), and the current track number into HL (dereferenced through
 ;              (DEBLOCK_HSTREC_PTR0)), then fall into the back/forward search that walks the accumulator by SPT
 ;              until the target record falls inside one track.
-; [RE] DPB_SPT is the first word of the 15-byte DPB copied at $9F86 = SPT (sectors per track);
+; [RE] DPB_SPT is the first word of the 15-byte DPB copied at $9F86 = SPT (128-byte records per track);
 ; MAX_BLOCK_DSM/$A9C6 is DSM at DPB offset 5, DPB_OFF is OFF at offset 13. The exit
 ; DISK_STORE_SEC_TRK_1 adds DPB_OFF (OFF) and calls the BIOS SETTRK vector ($AA1E), confirming the
 ; walked quantity is a track, not an allocation block.
@@ -1583,7 +1583,7 @@ RECORD_TO_TRACK:
 ; RECORD_TO_TRACK_BACK -- 'overshoot' branch: step the track number back while the boundary
 ; accumulator exceeds the target.
 ;   In: BC = target; DE = current boundary accumulator; HL = current track number; DPB_SPT = SPT
-;       (sectors per track).
+;       (128-byte records per track).
 ;   Out: loops, or when target >= accumulator falls into RECORD_TO_TRACK_FWD (forward branch).
 ;   Clobbers: A, DE, HL, F.
 ;   Algorithm: compute target - accumulator (BC - DE) via SUB E / SBC A,D; if no borrow (target >=
@@ -1604,7 +1604,7 @@ RECORD_TO_TRACK_BACK:
         ; target >= accumulator: switch to the forward search.
         JP NC,RECORD_TO_TRACK_FWD
         PUSH HL
-        ; HL = SPT (sectors per track); back the boundary accumulator down by one track.
+        ; HL = SPT (128-byte records per track); back the boundary accumulator down by one track.
         LD HL,(DPB_SPT)
         LD A,E
         SUB L
@@ -1634,7 +1634,7 @@ RECORD_TO_TRACK_BACK:
 ; ----------------------------------------------------------------------
 RECORD_TO_TRACK_FWD:
         PUSH HL
-        ; HL = SPT (sectors per track).
+        ; HL = SPT (128-byte records per track).
         LD HL,(DPB_SPT)
         ; Advance the boundary accumulator by one track's sectors.
         ADD HL,DE

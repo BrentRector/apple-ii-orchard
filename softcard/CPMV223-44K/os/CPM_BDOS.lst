@@ -4833,7 +4833,7 @@
 4694  A9BF              ALLOC_VEC_PTR:
 4695  A9BF 00 00                DEFB    "\0\0"
 4696  A9C1              ; ----------------------------------------------------------------------
-4697  A9C1              ; DPB_SPT -- DPB field SPT: sectors per track for the current drive. [RE]
+4697  A9C1              ; DPB_SPT -- DPB field SPT: 128-byte records per track for the current drive. [RE]
 4698  A9C1              ; ----------------------------------------------------------------------
 4699  A9C1              DPB_SPT:
 4700  A9C1 00 00                DEFB    "\0\0"

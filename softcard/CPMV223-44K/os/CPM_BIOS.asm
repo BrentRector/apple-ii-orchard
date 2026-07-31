@@ -114,18 +114,23 @@ DPH_TABLE:
 ; ----------------------------------------------------------------------
 ; DPB -- the shared Disk Parameter Block (5.25" floppy; every DPH points here).
 ;   One label per field, so the field names are symbols rather than prose. The ten names
-;   are Digital Research's CP/M 2.2 DPB field names. NOT [DOC]-citable from this archive:
-;   the SoftCard manual set documents only the BDOS call that RETURNS a DPB pointer
-;   (fn 31, Get Addr (disk parms)), not the block's layout.
+;   are Digital Research's CP/M 2.2 DPB field names. Not [DOC]-citable from THIS archive
+;   -- the SoftCard set bundles DRI's CP/M 2.2 *Reference Manual*, which documents only
+;   the BDOS call that RETURNS a DPB pointer (fn 31, Get Addr (disk parms)), not the
+;   block's layout. The layout IS normatively specified by a DRI manual not in the box:
+;   the CP/M 2.2 *Alteration Guide* (1979), sec. Disk Parameter Tables. SoftCard CP/M is
+;   licensed DRI CP/M 2.2, so that manual governs this block. [DOC CPMAG "Disk Parameter
+;   Tables"]  NOTE: the Guide defines every field but NEVER spells the acronyms out; the
+;   expansions in the comments below are the conventional readings, not DRI's. [?]
 ;   Geometry derived from these bytes: BSH=3/BLM=7 -> 8 records per allocation block =
 ;   1 KB blocks; SPT=32 records/track -> 4 blocks per track. [RE]
 ;   This block is byte-identical to the 2.20-44K twin's except for DSM (see below). [RE]
 ; ----------------------------------------------------------------------
 DPB:
-SPT:    DEFW    $0020                    ; records per track: 32 x 128-byte records
-BSH:    DEFB    $03                      ; block shift: log2(records per block) -> 8 records
-BLM:    DEFB    $07                      ; block mask: (records per block) - 1 -> 1 KB blocks
-EXM:    DEFB    $00                      ; extent mask
+SPT:    DEFW    $0020                    ; Sectors Per Track: counts 128-byte RECORDS, not 256-byte sectors -> 32
+BSH:    DEFB    $03                      ; Block SHift: log2(records per block) -> 8 records
+BLM:    DEFB    $07                      ; BLock Mask: (records per block) - 1 -> 1 KB blocks
+EXM:    DEFB    $00                      ; EXtent Mask
 ; DSM is the ONLY byte in which this DPB differs from the 2.20-44K twin ($7F there).
 ;   The arithmetic does not close: 140 blocks / 4 blocks per track = 35 tracks of file
 ;   area, which with OFF=3 implies a 38-track disk; the medium is 35 tracks total. The
@@ -136,12 +141,12 @@ EXM:    DEFB    $00                      ; extent mask
 ;   number, so that entry is honoured and those twelve blocks stay marked in use.
 ;   Whether $8B is an error masked by that entry or a deliberate convention is NOT
 ;   determinable from any byte on these disks. [RE]
-DSM:    DEFW    $008B                    ; highest allocation block number: 139 -> 140 blocks
-DRM:    DEFW    $002F                    ; highest directory entry number: 47 -> 48 entries
-AL0:    DEFB    $C0                      ; directory-reserved blocks, bitmap, high byte -> 2
+DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
+DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
+AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2
 AL1:    DEFB    $00                      ; ditto, low byte
-CKS:    DEFW    $000C                    ; directory checksum bytes
-OFF:    DEFW    $0003                    ; reserved tracks before the file area
+CKS:    DEFW    $000C                    ; ChecKSum: directory checksum bytes
+OFF:    DEFW    $0003                    ; OFFset: reserved tracks before the file area
 ; ----------------------------------------------------------------------
 ; PROBE_DEVICES -- scan the SoftCard device/config area and mark presence.
 ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).

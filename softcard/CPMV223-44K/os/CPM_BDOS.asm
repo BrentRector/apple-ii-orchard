@@ -4694,7 +4694,7 @@ REC_BYTE_OFFSET:
 ALLOC_VEC_PTR:
         DEFB    "\0\0"
 ; ----------------------------------------------------------------------
-; DPB_SPT -- DPB field SPT: sectors per track for the current drive. [RE]
+; DPB_SPT -- DPB field SPT: 128-byte records per track for the current drive. [RE]
 ; ----------------------------------------------------------------------
 DPB_SPT:
         DEFB    "\0\0"
