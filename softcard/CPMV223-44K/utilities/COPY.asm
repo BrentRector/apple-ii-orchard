@@ -464,8 +464,14 @@ ERR_NO_DIR_SPACE:
 ; [AI] Common message-print-and-restart tail for the three system-file error cases.
 ERR_PRINT_RESTART:
         JP PRINT_ERR_RESTART             ; $03D0  C3 88 04
-; [AI] Resets the disk system (BDOS 13), selects the working drive (BDOS 14), and opens the system
-;       FCB at $03EA (BDOS 15).
+; DELETE_SYSTEM_PLACEHOLDER -- remove the 'cp/m    sys' reservation entry from a disk.
+;   In:  CHECK_SOURCE_SYSTEM_3 = drive.  Out: the entry is gone.  Clobbers: A,BC,DE,flags.
+;   Algorithm: DRV_ALLRESET (fn 13), DRV_SET (fn 14), then F_DELETE (fn $13) on the FCB at
+;     $03EA, whose name is the lowercase 'cp/m    sys'. It DELETES; it does not open. An
+;     earlier [AI] header read "opens the system FCB (BDOS 15)", which is wrong twice: the
+;     call is fn $13 (F_DELETE), and 15 is open.
+;   That entry is the twelve-block reservation CPM60.COM writes (see CPM60_installer.asm).
+;     COPY removes it; the installer creates it. [RE]
 OPEN_SYSTEM_FCB:
         LD C,DRV_ALLRESET                         ; $03D3  0E 0D
         CALL BDOS                    ; $03D5  CD 05 00

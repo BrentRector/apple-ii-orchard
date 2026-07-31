@@ -10,7 +10,9 @@
 ; Reassembles BYTE-IDENTICAL to CPM60.COM[0x000:0x260] (608 bytes), verified.
 ;
 ; --- BDOS calls used (LD C,n / CALL $0005) ---
-;   $20 set/get user        $1F (E=$1F) -> get current user number
+;   $20 set/get user        E=$1F -> SET user 31. Per CPMREF fn 32, E=$FF GETS;
+;                           any other E SETS (mod 32). $1F is a set, and it is what
+;                           puts user byte $1F on the reservation entry made below.
 ;   $19 get current disk    $1B get allocation-vector / DPB address (returns HL)
 ;   $0E select disk         $13 delete file       $16 make (create) file
 ;   $10 close file          $06 direct console I/O (E=$FF -> poll keyboard)
@@ -68,13 +70,18 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
 ;              48-page image through the RPC loop; (6) hand off to the relocator.
 ; ===========================================================================
 ; 1) DETERMINE TARGET DRIVE
-;    Get current user (fn $20/$1F). If a drive was given on the command line
+;    SET the user number to 31 (fn $20, E=$1F -- NOT a get; fn 32 gets only on
+;    E=$FF). Everything this program creates therefore lands under user 31, which
+;    is outside the 0-15 the CCP's DIR and USER commands reach. If a drive was given
+;    on the command line
 ;    (FCB drive byte != 0) use it; else query current disk (fn $19) and +1.
 ;    Save (drive & 3) -> DRV_MASK for the 6502 RWTS.  C = 1-based drive index.
 ; ---------------------------------------------------------------------------
 TPA_START:
-        LD C,$20                ; BDOS fn $20 set/get user code...
-        LD E,$1F                ; E=$1F -> "get" current user number
+        LD C,$20                ; BDOS fn 32 set/get user code
+        LD E,$1F                ; SET user = 31. NOT a get: fn 32 gets only when E=$FF
+                                ; [DOC CPMREF fn 32: "If register E is not 0FFH, then the
+                                ; current user number is changed to the value of E (modulo 32)"]
         CALL BDOS
         LD A,(TFCB)      ; FCB drive byte (cmdline "X:" if supplied)
         OR A
