@@ -56,7 +56,6 @@ WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIO
 IOBYTE_ADDR               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
 CDISK_ADDR                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
 BDOS             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-RST2_VEC             EQU $0010               ; Z-80 RST 2 ($10) restart vector — 8 bytes. Available for application/debugger use.
 TFCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 TBUFF          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
@@ -848,8 +847,8 @@ CMD_REN:
         JR NZ,SUB_D707_32                ; $D8A8  20 50
         LD HL,SUB_DB06_12                ; $D8AA  21 86 DB
         LD DE,SUB_DB06_16                ; $D8AD  11 96 DB
-        LD BC,RST2_VEC                   ; $D8B0  01 10 00
-        LDIR                             ; $D8B3  ED B0
+        LD BC,$0010                      ; $D8B0  01 10 00  16 = a byte COUNT, not an address
+        LDIR                             ; $D8B3  ED B0     copy 16 bytes
         LD HL,(PARSE_PTR)                   ; $D8B5  2A 88 D3
         EX DE,HL                         ; $D8B8  EB
         CALL SKIP_SPACES                    ; $D8B9  CD 21 D5

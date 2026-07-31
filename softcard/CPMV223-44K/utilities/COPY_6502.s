@@ -471,19 +471,38 @@ SUB_0CC1_1:
         STA $0478,Y                  ; $0CD6  99 78 04
 SUB_0CC1_2:
         RTS                          ; $0CD9  60
+; SUB_0CC1_3 -- write one freshly formatted track. This is 2.23's formatter, embedded in
+;   COPY.COM rather than shipped as a separate FORMAT.COM. It is the 2.20 FORMAT_TRACK
+;   ($17DA in CPMV220-44K/utilities/FORMAT_6502.s) relocated, with the buffers moved from
+;   $1B00 to $1F00; the two fill constants are IDENTICAL, so the behaviour is unchanged.
+;
+;   Both constants encode $E5, so every data field this routine lays down decodes to $E5.
+;   A CP/M directory slot whose first byte is $E5 is a FREE slot, so filling the medium with
+;   $E5 leaves a valid, EMPTY CP/M directory as a side effect of formatting. Nothing else
+;   initialises the directory and nothing needs to. See docs/CPM_Disk_Creation.md.
+;
+;   In Apple 6-and-2 the primary buffer holds byte>>2 and the secondary packs three 2-bit
+;   fields, each the byte's low two bits with the bit order REVERSED:
+;       $E5 = %11100101 -> primary = $E5>>2 = $39;  low two = %01 reversed = %10;
+;                          three of them packed = %00101010 = $2A
+;   No neighbouring value produces both: $E6 would need a secondary of $15. [RE]
+;
+;   Consequence for the DSM=139 defect: a disk formatted WITHOUT /S gets this empty directory
+;   and no "cp/m    sys" reservation entry, so its last twelve blocks are addressable and
+;   absent. The reservation is written only on the /S path (COPY.asm $037F).
 SUB_0CC1_3:
         LDA #$CD                     ; $0CDA  A9 CD
         STA $2F                      ; $0CDC  85 2F
         LDA #$AA                     ; $0CDE  A9 AA
         STA $50                      ; $0CE0  85 50
         LDY #$00                     ; $0CE2  A0 00
-        LDA #$39                     ; $0CE4  A9 39
+        LDA #$39                     ; $0CE4  A9 39   primary nibbles of $E5
 SUB_0CC1_4:
-        STA $1F00,Y                  ; $0CE6  99 00 1F
+        STA $1F00,Y                  ; $0CE6  99 00 1F  fill all 256 primary bytes
         DEY                          ; $0CE9  88
         BNE SUB_0CC1_4               ; $0CEA  D0 FA
-        LDY #$56                     ; $0CEC  A0 56
-        LDA #$2A                     ; $0CEE  A9 2A
+        LDY #$56                     ; $0CEC  A0 56   86 secondary bytes
+        LDA #$2A                     ; $0CEE  A9 2A   secondary nibbles of $E5
 SUB_0CC1_5:
         STA $1FFF,Y                  ; $0CF0  99 FF 1F
         DEY                          ; $0CF3  88

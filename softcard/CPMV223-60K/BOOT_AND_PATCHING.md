@@ -38,11 +38,16 @@ reachable from the Z-80 as `$E08x`.
 driver; the rest is the embedded 60K system image.
 
 1. **Validate entirely through BDOS first** (`CPM60_installer.asm $0100-$012F`):
-   fn `$20`/`$1F` get-user, fn `$19` get-disk (or the explicit FCB drive byte,
-   stashed as `drive & 3` in `$F3E4`), fn `$0E` select, fn `$13` delete a stale
-   `CP/M.SYS`, fn `$1B` read the DPB + a geometry sanity check, fn `$16` make
+   fn `$20` with E=`$1F` **sets** the user number to 31 (fn 32 gets only on
+   E=`$FF`), fn `$19` get-disk (or the explicit FCB drive byte, stashed as
+   `drive & 3` in `$F3E4`), fn `$0E` select, fn `$13` delete a stale
+   `cp/m    sys`, fn `$1B` Get Addr(Alloc) followed by a **free-space check on
+   blocks 128-139** (bitmap byte `$10` all-clear, next byte `AND $F0` clear) —
+   this is not a DPB geometry check, since the DPB is fn `$1F` — fn `$16` make
    `cp/m    sys` (proves the disk is writable **and** reserves a directory
    entry), fill the FCB alloc map with blocks `$80-$8B`, fn `$10` close.
+   `COPY.COM /S` runs this same sequence, so two shipped tools write the
+   reservation; see `docs/CPM_Disk_Creation.md`.
 2. **Raw-write the embedded image** (`$0168-$0197`): set `$F3EB`=2 (sector count),
    `$F3E9`=`$14` (track 20), `B`=`$30` (48 pages), source page in `H`. Each pass
    pokes `$F3E0`, loads `HL`=`$0E03` (page `$0E`, function `$03` = write), and

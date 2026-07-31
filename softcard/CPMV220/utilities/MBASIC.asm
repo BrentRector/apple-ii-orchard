@@ -9892,7 +9892,7 @@ SUB_4868_38:
         LD A,(HL)                        ; $48B5  7E
 SUB_4868_39:
         RET NZ                           ; $48B6  C0
-        LD DE,RST2_VEC                   ; $48B7  11 10 00
+        LD DE,$0010                      ; $48B7  11 10 00  16 passed to the routine below; not an address
         JP ERR_26                   ; $48BA  C3 AC 0D
 L_48BD:
         DEFB    $23                                              ; $48BD

@@ -1761,9 +1761,9 @@ FILE_STATUS_MAIN_11:
         LD HL,FILE_COUNT                ; $0EB9  21 B8 15
         CALL SUB16_MEM_FROM_DE                    ; $0EBC  CD F8 14
         SBC A,A                          ; $0EBF  9F
-        LD DE,RST2_VEC                   ; $0EC0  11 10 00
+        LD DE,$0010                      ; $0EC0  11 10 00  +16 = a byte OFFSET, not an address
         LD HL,($29BC)                    ; $0EC3  2A BC 29
-        ADD HL,DE                        ; $0EC6  19
+        ADD HL,DE                        ; $0EC6  19        step 16 bytes into the record at ($29BC)
         EX DE,HL                         ; $0EC7  EB
         LD HL,$0006                      ; $0EC8  21 06 00
         PUSH AF                          ; $0ECB  F5

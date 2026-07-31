@@ -1,5 +1,55 @@
 # Resume Prompt — Microsoft SoftCard CP/M Investigation
 
+## >> 2026-07-31: disk creation traced; TWO shipped tools write the `cp/m sys` reservation
+
+**Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` =
+1121 passed, 1 skipped. Tree CLEAN. Byte-identical throughout: every change here is
+comment/label-level and no emitted byte of any disk image or `.COM` moved.**
+
+Answered the write-up session's eight disk-creation questions. Deliverable
+`softcard/docs/CPM_Disk_Creation.md`; handoff = Part 3 of
+`softcard/docs/CPM_Source_Changes_For_Narratives.md`.
+
+**THE FINDING, which overturns a published conclusion.** `COPY.COM` writes the `cp/m    sys`
+entry, not just `CPM60.COM`. Its routine at `$037F`, annotated "opens the source CPM*.SYS file
+... reads the OS image into the copy buffer", opens nothing and reads nothing: it runs the
+installer's exact sequence (set user 31, `F_DELETE` the stale entry, verify blocks 128-139 free,
+`F_MAKE`, hand-fill the block map `$80..$8B`, `RC=$60`/`EX=0`, `F_CLOSE`). So the twelve-block
+reservation is a DESIGNED convention written by two shipped Microsoft tools, not a mastering-time
+patch. Any user typing `COPY B:=A:/S` writes one.
+
+What settled it: fn `$1B` is `Get Addr(Alloc)` (the DPB is `$1F`), so the two tests after it read
+bitmap byte `$10` (blocks 128-135) and the next `AND $F0` (blocks 136-139) — exactly the twelve
+blocks about to be claimed. `COPY` routes both failures to its shipped string **`Disk space
+already in use`**, which names the test. Four places had called this a "DPB geometry sanity
+check", which is what hid the mechanism.
+
+Also established: the 6502 formatter fills every data field with **`$E5`** (proved from the
+6-and-2 constants `$39`/`$2A`; `$E6` would need `$15`), identical in 2.20's `FORMAT_6502.s` and
+2.23's `COPY_6502.s`. So a format alone leaves a valid EMPTY directory and **nothing separately
+initialises the directory** — CP/M needs no such step. `COPY /F` is a standalone terminal path,
+so a disk formatted without `/S` has no reservation and IS exposed to the `$8B` over-count.
+`BOOT.COM` writes nothing at all (it is a density-selecting re-boot utility).
+
+**Files updated this pass** (all byte-neutral): `CPMV223-44K/utilities/COPY.asm` (5 corrections),
+`CPMV223-60K/CPM60_installer.asm`, `CPMV223-60K/CPM60_COM.md`,
+`CPMV223-60K/BOOT_AND_PATCHING.md`, `CPMV220-44K/utilities/FORMAT_6502.s`,
+`CPMV223-44K/utilities/COPY_6502.s`, `CPMV223-44K/utilities/BOOT.asm`, `docs/CPM_Filesystem.md`
+(its "zero-fill gives an empty directory" was wrong — a zero slot is a VALID user-0 entry; it
+must be `$E5`), plus a new **audit 4** in `cpm_pipeline/annotation_audit.py` (+4 tests) that
+flags any comment or doc naming a BDOS function number alongside another function's terms.
+
+**Same defect class swept repo-wide:** six blind `cpm22.inc` renames of `$0010` to `RST2_VEC`
+were all the NUMBER 16 (two pointer offsets, an `LDIR` byte count, two routine arguments), in
+`STAT.asm` x2, `GBASIC.asm` x2, `MBASIC.asm`, `src/os/CPM_CCP.asm`. All restored to literals; the
+two duplicate local `RST2_VEC EQU` definitions removed (the cpm22.inc one is genuine and stays).
+
+**Open:** whether `/S` without `/F` also writes the entry (call graph says yes; the flag
+interlocks at `$01D0`-`$0233` were not enumerated); where the system tracks come from on a `/S`
+copy. `CAT.asm`, `PATCH.asm`, `AUTORUN.asm` not examined.
+
+---
+
 ## >> 2026-07-30: 6502 core completed; CP/M annotation fixes; 60K brought to the 44K standard
 
 **Gate `cd /e/Orchard && source shared/toolchain/env.sh && python -m pytest softcard/ shared/` =

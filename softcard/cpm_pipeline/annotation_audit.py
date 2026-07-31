@@ -225,6 +225,60 @@ def audit_cross_tree_contradiction():
     return hits
 
 
+# ── audit 4: a BDOS function number described as a different function ────
+#
+# cpm22.inc is the single source of truth for the BDOS ABI, so a comment that
+# names a function number AND a term belonging to a DIFFERENT function is a
+# contradiction against it. Two such confusions have been found by hand, both in
+# annotation that had already been through review:
+#
+#   fn $1B is Get Addr(Alloc) -- it returns the allocation BITMAP. It was
+#     described as returning the DPB in four places (CPM60_installer.asm, COPY's
+#     twin of the same code, CPM60_COM.md, BOOT_AND_PATCHING.md). That mislabel
+#     hid what the twelve-block "cp/m sys" reservation is for, because the
+#     free-space test on the bitmap reads as a "geometry sanity check" on a DPB.
+#     The DPB is fn $1F.
+#
+#   fn $13 is F_DELETE. A COPY.asm header called it an open, and named BDOS 15
+#     (which IS open) in the same breath.
+#
+# Unlike audits 1-3 this one scans .md as well as .asm/.s: both bad fn $1B
+# claims had propagated into the 60K markdown, and a doc that contradicts
+# cpm22.inc misleads exactly as effectively as a comment that does.
+_FN_CLAIMS = [
+    # (fn byte, what it actually is, regex for terms that belong to another fn)
+    ("$1B", "Get Addr(Alloc), which returns the allocation bitmap; the DPB is fn $1F",
+     re.compile(r"\bDPB\b|\bdisk param", re.I)),
+    ("$13", "F_DELETE; open is fn $0F",
+     re.compile(r"\bopens?\b|\bopening\b", re.I)),
+]
+_FN_MENTION = "(?:fn|function|BDOS)\\s*{}"
+
+
+def audit_bdos_function_misdescription(paths=None):
+    """Comments/docs naming a BDOS function number alongside another function's terms."""
+    if paths is None:
+        paths = sorted(list(SOFTCARD.rglob("*.asm")) + list(SOFTCARD.rglob("*.s"))
+                       + list(SOFTCARD.rglob("*.md")))
+    hits = []
+    for p in paths:
+        if "reference" in rel(p).split("/") or p.suffix == ".lst":
+            continue          # the archive transcribes vendor manuals verbatim
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").split("\n")
+        except OSError:
+            continue
+        for n, line in enumerate(lines, 1):
+            text = line if p.suffix == ".md" else line[comment_index(line):]
+            if not text:
+                continue
+            for fn, truth, wrong in _FN_CLAIMS:
+                mention = re.compile(_FN_MENTION.format(re.escape(fn)), re.I)
+                if mention.search(text) and wrong.search(text):
+                    hits.append((rel(p), n, fn, truth, text.strip()[:110]))
+    return hits
+
+
 def main():
     paths = sources()
     print(f"scanned {len(paths)} .asm files under softcard/\n")
@@ -244,7 +298,12 @@ def main():
     for label, pos, tp, neg, tn in h3:
         print(f"   {label}: {tp} say '{pos}'; {tn} say '{neg}'")
 
-    print(f"\ntotal candidates: {len(h1) + len(h2) + len(h3)} "
+    h4 = audit_bdos_function_misdescription()
+    print(f"\n== 4. BDOS function number described as a different function: {len(h4)} ==")
+    for f, ln, fn, truth, txt in h4:
+        print(f"   {f}:{ln}  {fn} is {truth}\n      {txt}")
+
+    print(f"\ntotal candidates: {len(h1) + len(h2) + len(h3) + len(h4)} "
           f"(all require human judgement; none is auto-corrected)")
 
 

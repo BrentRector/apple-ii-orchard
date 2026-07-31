@@ -60,11 +60,11 @@ Step by step:
 
 2. **Validate the disk entirely through BDOS, before any raw write:**
    - fn `$0E` select-disk
-   - fn `$13` delete-file — remove any stale `CP/M.SYS` placeholder
-   - fn `$1B` get-alloc/DPB — returns `HL` → DPB; sanity-check two geometry bytes at DPB+`$10`
+   - fn `$13` delete-file — remove any stale `cp/m    sys` reservation entry
+   - fn `$1B` Get Addr(Alloc) — returns `HL` → the allocation **bitmap** (the DPB is fn `$1F`, not this). The two tests that follow are a **free-space check on blocks 128-139**, not a geometry sanity check: byte `$10` of the bitmap covers blocks 128-135 and must be all-clear, and the next byte masked `$F0` covers blocks 136-139. Exactly the twelve blocks about to be claimed. `COPY.COM` runs the identical sequence and routes the same failure to its `"Disk space already in use"` message, which names the test. The hard-coded `$10` assumes `DSM`=139.
    - fn `$16` make-file on `"cp/m    sys"` (FCB at `$0355`) — both proves the disk is writable and reserves directory space. A `$FF` failure prints `"Disk space already in use"`.
 
-3. **Commit the directory entry.** Fill the new file's allocation map with 12 blocks `$80-$8B`, set the record/extent fields, and CLOSE the file (fn `$10`).
+3. **Commit the directory entry.** Fill the new file's allocation map with the 12 block numbers `$80-$8B` (blocks 128-139), set `RC`=`$60`/`EX`=`$00`, and CLOSE the file (fn `$10`). This is the reservation that absorbs the twelve surplus blocks the `DSM`=139 DPB over-counts; see `docs/CPM_Disk_Creation.md`.
 
 4. **Prompt the operator.** Build drive-letter glyphs (the `'Z'` at `$0284` is patched to the real drive letter), print the banner / `"Insert 16 sector disk into drive Z: Press RETURN to begin"`, and wait for a key via direct console I/O (fn `$06`, E=`$FF` polled).
 

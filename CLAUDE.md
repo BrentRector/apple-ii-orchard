@@ -49,11 +49,12 @@ Python packages live inside the trees but import by **bare name**; a repo-root
 ```bash
 source shared/toolchain/env.sh   # no install; also puts ca65/ld65/sjasmplus on PATH (+ packages on PYTHONPATH)
 # or: pip install -e .
-python -m pytest softcard/ shared/   # the CP/M gate: 1110 passed, 1 skipped with env.sh active (2026-07-30)
+python -m pytest softcard/ shared/   # the CP/M gate: 1121 passed, 1 skipped with env.sh active (2026-07-31)
 python -m pytest                      # whole repo incl. apple-ii (larger total; fewer + skips without the toolchain)
 ```
 The canonical CP/M byte-identical gate is `source shared/toolchain/env.sh && python -m pytest softcard/ shared/`
-(**1110 passed, 1 skipped** as of 2026-07-30, after the 6502-core completion + the 60K equivalence pass;
+(**1121 passed, 1 skipped** as of 2026-07-31, after the 6502-core completion, the 60K equivalence pass
+and the disk-creation trace;
 the single skip is Klaus Dormann's GPL-3.0 functional-test binary, deliberately not vendored into this MIT
 repo -- see `shared/nibbler/tests/test_functional_suite.py` for the one-line fetch that turns it on).
 Note: WITHOUT sourcing env.sh, sjasmplus/ca65 are off PATH and the byte-identical

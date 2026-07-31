@@ -5,6 +5,17 @@
 ; Source: BOOT
 ; Range:  $0100-$02FF  (512 bytes)
 
+; WHAT BOOT.COM IS: a re-boot utility with a DENSITY SELECTOR, for booting 13-sector media on a
+;   16-sector system. It prompts "<3>=13 sector, <CR>=16 sector: ", LDIRs a 269-byte 6502 read
+;   engine into Apple RAM at $5000, picks an entry address ($C600 = the Disk II controller's own
+;   boot PROM in slot 6 for 16-sector, $6000 for 13-sector), stores it in the SoftCard hand-off
+;   slot, and JP $000B to give the machine to the 6502.
+;
+; IT WRITES NOTHING. There is no disk write anywhere in this program, no embedded OS image, and
+;   no copy of the running system. It does not create or update boot tracks, so it plays no part
+;   in making a disk bootable -- that is COPY.COM /S. Stated explicitly because the 512-byte size
+;   next to the name "BOOT" invites the opposite assumption. See docs/CPM_Disk_Creation.md. [RE]
+
     DEVICE NOSLOT64K
     INCLUDE "apple_softcard.inc"   ; Apple/SoftCard external names (single source of truth)
 

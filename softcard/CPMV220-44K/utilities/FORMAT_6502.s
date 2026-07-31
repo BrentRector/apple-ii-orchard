@@ -554,19 +554,36 @@ BUF_SELECT_1:
         STA $0478,Y                  ; $17D6  99 78 04
 BUF_SELECT_2:
         RTS                          ; $17D9  60
+; FORMAT_TRACK -- write one freshly formatted track.
+;   Pre-loads the two 6-and-2 nibble buffers with the encoding of $E5, so every data field
+;   this routine lays down decodes to $E5 throughout.
+;
+;   WHY $E5 MATTERS: a CP/M directory slot whose first byte is $E5 is a FREE slot. Track 3
+;   holds the directory, so filling the whole medium with $E5 leaves a valid, EMPTY CP/M
+;   directory as a side effect. Nothing else in the system writes a directory structure,
+;   and nothing needs to. See docs/CPM_Disk_Creation.md.
+;
+;   The two constants ARE $E5, not arbitrary fill. In Apple 6-and-2 the primary buffer holds
+;   byte>>2 and the secondary packs three 2-bit fields, each the byte's low two bits with the
+;   bit order REVERSED:
+;       $E5 = %11100101 -> primary   = $E5>>2                   = $39
+;                          low two   = %01 reversed             = %10
+;                          three of them packed                 = %00101010 = $2A
+;   No neighbouring value produces both: $E6 would need a secondary of $15. The 2.23 formatter
+;   embedded in COPY.COM uses the identical pair (COPY_6502.s), with the buffers at $1F00. [RE]
 FORMAT_TRACK:
         LDA #$CD                     ; $17DA  A9 CD
         STA $2F                      ; $17DC  85 2F
         LDA #$AA                     ; $17DE  A9 AA
         STA $50                      ; $17E0  85 50
         LDY #$00                     ; $17E2  A0 00
-        LDA #$39                     ; $17E4  A9 39
+        LDA #$39                     ; $17E4  A9 39   primary nibbles of $E5
 FORMAT_TRACK_1:
-        STA $1B00,Y                  ; $17E6  99 00 1B
+        STA $1B00,Y                  ; $17E6  99 00 1B  fill all 256 primary bytes
         DEY                          ; $17E9  88
         BNE FORMAT_TRACK_1           ; $17EA  D0 FA
-        LDY #$56                     ; $17EC  A0 56
-        LDA #$2A                     ; $17EE  A9 2A
+        LDY #$56                     ; $17EC  A0 56   86 secondary bytes
+        LDA #$2A                     ; $17EE  A9 2A   secondary nibbles of $E5
 FORMAT_TRACK_2:
         STA $1BFF,Y                  ; $17F0  99 FF 1B
         DEY                          ; $17F3  88

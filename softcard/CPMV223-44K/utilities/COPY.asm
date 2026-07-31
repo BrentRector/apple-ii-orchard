@@ -496,7 +496,7 @@ ERR_PRINT_RESTART:
 ;   Algorithm: DRV_ALLRESET (fn 13), DRV_SET (fn 14), then F_DELETE (fn $13) on the FCB at
 ;     $03EA, whose name is the lowercase 'cp/m    sys'. It DELETES; it does not open. An
 ;     earlier [AI] header read "opens the system FCB (BDOS 15)", which is wrong twice: the
-;     call is fn $13 (F_DELETE), and 15 is open.
+;     call made here is F_DELETE, and the function it named is a different one.
 ;   That entry is the twelve-block reservation (blocks 128-139) that CPM60.COM writes; see
 ;     CPM60_installer.asm. COPY deletes it HERE only as the first step of rewriting it: the
 ;     caller WRITE_SYSTEM_RESERVATION ($037F) re-creates it immediately afterwards. So this

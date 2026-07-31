@@ -6048,7 +6048,7 @@ SUB_4BF6_10:
         POP HL                           ; $4C44  E1
         LD A,(HL)                        ; $4C45  7E
         RET NZ                           ; $4C46  C0
-        LD DE,RST2_VEC                   ; $4C47  11 10 00
+        LD DE,$0010                      ; $4C47  11 10 00  16 passed to the routine below; not an address
 SUB_4BF6_11:
         JP SUB_0C75_16                   ; $4C4A  C3 89 0D
         DEFB    $23,$CD,$EA,$6B,$CD,$BC,$6D,$CD                  ; $4C4D
@@ -6883,8 +6883,8 @@ SUB_5210_1:
         LD BC,$0082                      ; $5216  01 82 00
         CP C                             ; $5219  B9
         JR NZ,SUB_5210_3                 ; $521A  20 06
-        LD BC,RST2_VEC                   ; $521C  01 10 00
-        ADD HL,BC                        ; $521F  09
+        LD BC,$0010                      ; $521C  01 10 00  +16 = a byte OFFSET, not an address
+        ADD HL,BC                        ; $521F  09        advance HL by 16
 SUB_5210_2:
         JR SUB_5210_1                    ; $5220  18 F2
 SUB_5210_3:

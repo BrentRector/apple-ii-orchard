@@ -17,7 +17,8 @@ number so that a THIRD hit fails the test.
 import tempfile
 from pathlib import Path
 
-from cpm_pipeline.annotation_audit import (audit_bit_polarity,
+from cpm_pipeline.annotation_audit import (audit_bdos_function_misdescription,
+                                           audit_bit_polarity,
                                            audit_cross_tree_contradiction,
                                            audit_data_that_may_be_code,
                                            sources)
@@ -102,3 +103,49 @@ def test_no_cross_tree_contradictions():
         "the same label is described in opposite terms by different trees:\n  "
         + "\n  ".join(f"{lab}: {tp} say {pos!r}; {tn} say {neg!r}"
                       for lab, pos, tp, neg, tn in hits))
+
+
+# ── audit 4: a BDOS function number described as a different function ────
+
+def test_bdos_fn_audit_catches_the_alloc_vector_defect():
+    """The pre-fix installer text: fn $1B called a DPB read with a geometry check.
+
+    This is the mislabel that hid the "cp/m sys" reservation. fn $1B is
+    Get Addr(Alloc) and returns the allocation bitmap, so the two tests that
+    follow it are a free-space check on blocks 128-139. Reading it as a DPB made
+    them look like a geometry sanity check on unrelated bytes.
+    """
+    pre = (
+        "        LD C,$1B                ; fn $1B get allocation vector / DPB; HL->DPB\n"
+        "        CALL BDOS\n"
+        "        LD DE,RST2_VEC          ; +$10 into the DPB\n"
+    )
+    p = _tmp_source(pre, name="CPM60_installer.asm")
+    hits = audit_bdos_function_misdescription([p])
+    assert hits, "audit 4 no longer catches fn $1B described as returning the DPB"
+    assert hits[0][2] == "$1B"
+
+
+def test_bdos_fn_audit_catches_the_delete_called_open_defect():
+    """The pre-fix COPY.asm header: fn $13 (F_DELETE) described as an open."""
+    pre = ("; [AI] opens the system FCB (BDOS 15) via fn $13 before copying.\n"
+           "OPEN_SYSTEM_FCB:\n")
+    p = _tmp_source(pre, name="COPY.asm")
+    hits = audit_bdos_function_misdescription([p])
+    assert hits, "audit 4 no longer catches fn $13 described as an open"
+    assert hits[0][2] == "$13"
+
+
+def test_bdos_fn_audit_ignores_a_correct_description():
+    ok = ("        LD C,$1B   ; fn $1B Get Addr(Alloc); HL -> allocation bitmap\n"
+          "        LD C,$1F   ; fn $1F returns the DPB\n")
+    p = _tmp_source(ok, name="CPM_BIOS.asm")
+    assert audit_bdos_function_misdescription([p]) == []
+
+
+def test_no_bdos_function_misdescriptions():
+    hits = audit_bdos_function_misdescription()
+    assert hits == [], (
+        "a BDOS function number is described as a different function:\n  "
+        + "\n  ".join(f"{f}:{ln}  {fn} is really {truth}\n      {txt}"
+                      for f, ln, fn, truth, txt in hits))
