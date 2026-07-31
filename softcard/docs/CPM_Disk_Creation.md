@@ -193,12 +193,22 @@ So blocks 128-139 alias onto the reserved system tracks, and `cp/m    sys` is th
 names them. The `CP $8B` gate is the evidence of intent: a clamp that merely kept the head on the
 medium would not need to know `DSM`.
 
-The exposure is therefore worse, not milder, than section 4 says. On a disk with no reservation
-entry the allocator hands those blocks out once 0-127 are full, and the write does **not** fail:
-it silently overwrites tracks 0-2. Measured in the emulator, `SAVE 4 Z.ZZZ` on a 12 KB-free disk
-reported success, committed a directory entry naming block 128, and changed 689 bytes of track 0.
-Read section 4 with that substitution: "addressable and absent" should read "aliased onto the
-operating system".
+On a **data** disk the aliasing is the point: it recovers the boot area as 12 KB of usable
+storage. The entry exists to protect a **boot** image. CiderPress2's CP/M format notes describe
+this same entry independently (user 31, lower-case name, blocks `$80`-`$8B` wrapping to the start
+of the disk) and attribute the technique to the Microsoft SoftCard, "used to allow extra storage
+on non-bootable disks".
+
+So the exposure is **narrower but sharper** than section 4 says. The hazard is a disk that carries
+a boot image and *not* the protecting entry, which is every 2.20-lineage system disk read under
+2.23. There the allocator hands those blocks out once 0-127 are full and the write does **not**
+fail: it silently overwrites tracks 0-2. Measured in the emulator, `SAVE 4 Z.ZZZ` on a 12 KB-free
+disk reported success, committed a directory entry naming block 128, and changed 689 bytes of
+track 0. A non-bootable disk made with `COPY /F` is **not** at risk; there the same writes are the
+intended use of the space.
+
+Read section 4 with those substitutions: "addressable and absent" should read "aliased onto the
+system tracks", and its case 2 (a `/F` disk) is not a hazard.
 
 ## 4. What this means for the `DSM = $8B` exposure
 

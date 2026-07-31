@@ -23,7 +23,9 @@
 ; It does NOT use BDOS file writes to lay down the system tracks. It pokes the
 ; 60K BIOS's own RWTS-bridge variables in high RAM and triggers a 6502 "RPC":
 ;   $F3D0 <- RPC parameter word (HL); A written through trampoline ptr ($F3DE)
-;   $F3E0/$F3E9/$F3EB = sector / track / sector-count for the raw disk write
+;   $F3E0/$F3E1 = IOB track/sector, $F3E9 = IOB buffer page, $F3EB = IOB command (2 = write).
+;   These are the SAME page-3 IOB cells the deblock uses (CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm);
+;   an earlier EQU set here called them sector / track / sector-count, all three wrong.
 ;   $F3EA = error/status returned by the 6502 side (0 = OK)
 ; A store to Z-80 $E700 (= Apple $C700, slot-7 access) is what actually invokes
 ; the 6502 RWTS; RPC_WRITE here writes the opcode byte through ($F3DE) to do the
@@ -45,9 +47,9 @@ TFCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
 RPC_PARM    EQU $F3D0   ; RPC parameter word (page/opcode passed to 6502)
 RPC_TRAMP   EQU $F3DE   ; ptr to live RPC trampoline; opcode byte written thru it
 RPC_STAT    EQU $F3EA   ; 6502-returned status (0=ok, $10=protected, else=I/O err)
-RW_SECCNT   EQU $F3EB   ; sector count for a raw write
-RW_TRACK    EQU $F3E9   ; starting track
-RW_SECTOR   EQU $F3E0   ; sector value
+IOB_CMD     EQU $F3EB   ; IOB command byte; 2 = WRITE (bit 0 set = read). NOT a sector count.
+IOB_BUF_HI  EQU $F3E9   ; high byte of the IOB buffer pointer ($03E8/$03E9). NOT a track.
+IOB_TRACK   EQU $F3E0   ; IOB TRACK cell; $F3E1 is the sector. A 16-bit store here sets both.
 DRV_MASK    EQU $F3E4   ; (current drive & 3) - target drive for the 6502 RWTS
 DRV_NAME    EQU $F3E6   ; drive letter glyph for messages
 
@@ -187,23 +189,27 @@ TPA_START_2:
 
 ; ---------------------------------------------------------------------------
 ; 5) WRITE THE EMBEDDED SYSTEM TO THE SYSTEM TRACKS  (the actual install).
-;    Set up the raw-write bridge:  sector-count=2, track=$14 (20), source page
-;    starting at $0E (the $0E00 payload page = start of CCP/BDOS/BIOS image in
-;    this loaded .COM), and loop B=$30 (48) pages. Each pass:
+;    Set up the raw-write bridge: IOB command = 2 (write), IOB buffer page = $14
+;    (Apple $1400, the start of the system image), and HL = $0000 so the first
+;    unit goes to TRACK 0, SECTOR 0. Loop B=$30 (48) units. Because L is the track
+;    and H the sector, and H wraps at 16, this walks sectors 0-15 of track 0, then
+;    track 1, then track 2: 48 x 256 = 12,288 bytes = THE THREE SYSTEM TRACKS.
+;    That is independent confirmation, from a different routine, that the region
+;    the 'cp/m    sys' entry claims is the system area. Each pass:
 ;      - RPC_WRITE: RPC write of one unit ($F3D0 <- $0E03 opcode; A=page byte
 ;        written thru ($F3DE)) -> 6502 RWTS lays the page onto the disk.
 ;      - read RPC_STAT ($F3EA): 0 = OK; $10 = write protected; other = I/O error
-;      - advance source pointer (H = page hi), tick RW_TRACK on page wrap.
+;      - advance the IOB buffer page, then the sector; on sector wrap, the track.
 ;    On any error, print the matching message and bail to the reboot prompt.
 ; ---------------------------------------------------------------------------
         LD A,$02
-        LD (RW_SECCNT),A        ; F3EB = 2 sectors per RPC unit
+        LD (IOB_CMD),A          ; $F3EB = 2 = WRITE command
         LD A,$14
-        LD (RW_TRACK),A         ; F3E9 = start at track $14 (20) = system tracks
-        LD HL,WBOOTV         ; HL = $0000 (source pointer; really page in H)
-        LD B,$30                ; 48 pages of system image to write
+        LD (IOB_BUF_HI),A       ; $F3E9 = buffer page $14 -> Apple $1400 (image start)
+        LD HL,WBOOTV            ; HL = $0000: L = TRACK 0, H = SECTOR 0
+        LD B,$30                ; 48 units = 3 tracks x 16 sectors = 12,288 bytes
 TPA_START_3:
-        LD (RW_SECTOR),HL       ; F3E0 = current sector/source word
+        LD (IOB_TRACK),HL       ; L -> $03E0 track, H -> $03E1 sector
         PUSH BC
         PUSH HL
         LD HL,$0E03             ; RPC opcode/parm: page $0E, function $03 (write)
@@ -219,15 +225,15 @@ TPA_START_4:
         CALL PRINT_STR
         JP TPA_START_7          ; -> reboot prompt
 TPA_START_5:
-        LD HL,RW_TRACK
-        INC (HL)                ; advance to next track
+        LD HL,IOB_BUF_HI
+        INC (HL)                ; next 256 bytes of the image
         POP HL
-        INC H                   ; next source page
+        INC H                   ; next SECTOR
         LD A,H
-        SUB $10                 ; wrapped past $10xx ?
+        SUB $10                 ; all 16 sectors of this track done?
         JP NZ,TPA_START_6
-        INC L                   ; carry into source-bank low byte
-        LD H,A
+        INC L                   ; yes: next TRACK
+        LD H,A                  ; A is 0 here, so sector := 0
 TPA_START_6:
         POP BC
         DEC B

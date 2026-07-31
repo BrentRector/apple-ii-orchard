@@ -171,9 +171,11 @@ EXM:    DEFB    $00                      ; EXtent Mask
 ;   ARE the reserved system tracks, addressable through the ordinary file system. The directory
 ;   entry (user $1F, lowercase "cp/m    sys", block map exactly 128-139) is what NAMES them, and
 ;   TWO shipped Microsoft tools write it: CPM60.COM (../CPM60_installer.asm) and COPY.COM /S.
-;   CONSEQUENCE: a disk with no such entry lets the allocator hand out those blocks once 0-127
-;   are full, and writing there SILENTLY OVERWRITES TRACKS 0-2 rather than failing.
-;   See docs/CPM_Disk_Creation.md. [RE]
+;   On a DATA disk the aliasing is the point (12 KB of recovered storage); the entry exists to
+;   protect a BOOT image. CONSEQUENCE: a disk carrying a boot image but no entry -- every
+;   2.20-lineage system disk read under 2.23 -- lets the allocator hand out those blocks once
+;   0-127 are full, and writing there SILENTLY OVERWRITES TRACKS 0-2 rather than failing. A
+;   non-bootable data disk is not at risk. See docs/CPM_Disk_Creation.md. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2

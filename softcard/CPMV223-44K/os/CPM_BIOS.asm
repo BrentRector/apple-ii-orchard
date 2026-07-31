@@ -149,12 +149,17 @@ EXM:    DEFB    $00                      ; EXtent Mask
 ;   of intent: a defensive clamp would not need to test DSM.
 ;   That entry is written by two shipped tools -- CPM60.COM (CPMV223-60K/CPM60_installer.asm)
 ;   and COPY.COM on its /S path (CPMV223-44K/utilities/COPY.asm $037F).
-;   CONSEQUENCE: a disk with NO such entry (every 2.20-lineage disk; any disk made with
-;   COPY /F rather than /S) lets the allocator hand out blocks 128-139 once 0-127 are full.
-;   Writing there does not fail and does not reach a drive error -- it SILENTLY OVERWRITES
-;   TRACKS 0-2 and destroys the boot pipeline. Verified in the emulator: SAVE into block 128
-;   reported success and changed 689 bytes of track 0. See docs/CPM_Disk_Creation.md and
-;   docs/CPM_Source_Changes_For_Narratives.md Part 5. [RE]
+;   On a DATA disk the aliasing is the point: it recovers the boot area as 12 KB of usable
+;   storage. [DOC CiderPress2 CP/M format notes] describes this same entry independently and
+;   attributes the technique to the Microsoft SoftCard, "used to allow extra storage on
+;   non-bootable disks".
+;   CONSEQUENCE, and the hazard is SPECIFIC: a disk carrying a boot image but NOT the
+;   protecting entry -- every 2.20-lineage system disk (DSM=$7F, so it never needed one) read
+;   on a 2.23 system. Once blocks 0-127 are full the allocator hands out 128-139, and the write
+;   does not fail and does not reach a drive error: it SILENTLY OVERWRITES TRACKS 0-2 and
+;   destroys the boot pipeline. Verified in the emulator: SAVE into block 128 reported success
+;   and changed 689 bytes of track 0. A non-bootable data disk is NOT at risk. See
+;   docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Parts 5 and 7. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2

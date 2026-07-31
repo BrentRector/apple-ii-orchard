@@ -162,1384 +162,1389 @@
  149  FA78              ;   of intent: a defensive clamp would not need to test DSM.
  150  FA78              ;   That entry is written by two shipped tools -- CPM60.COM (CPMV223-60K/CPM60_installer.asm)
  151  FA78              ;   and COPY.COM on its /S path (CPMV223-44K/utilities/COPY.asm $037F).
- 152  FA78              ;   CONSEQUENCE: a disk with NO such entry (every 2.20-lineage disk; any disk made with
- 153  FA78              ;   COPY /F rather than /S) lets the allocator hand out blocks 128-139 once 0-127 are full.
- 154  FA78              ;   Writing there does not fail and does not reach a drive error -- it SILENTLY OVERWRITES
- 155  FA78              ;   TRACKS 0-2 and destroys the boot pipeline. Verified in the emulator: SAVE into block 128
- 156  FA78              ;   reported success and changed 689 bytes of track 0. See docs/CPM_Disk_Creation.md and
- 157  FA78              ;   docs/CPM_Source_Changes_For_Narratives.md Part 5. [RE]
- 158  FA78 8B 00        DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
- 159  FA7A 2F 00        DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
- 160  FA7C C0           AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2
- 161  FA7D 00           AL1:    DEFB    $00                      ; ditto, low byte
- 162  FA7E 0C 00        CKS:    DEFW    $000C                    ; ChecKSum: directory checksum bytes
- 163  FA80 03 00        OFF:    DEFW    $0003                    ; OFFset: reserved tracks before the file area
- 164  FA82              ; ----------------------------------------------------------------------
- 165  FA82              ; PROBE_DEVICES -- scan the SoftCard device/config area and mark presence.
- 166  FA82              ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).
- 167  FA82              ;   Out: config bytes updated in place; per-device init called when a device is found.
- 168  FA82              ;   Clobbers: A,DE,HL.
- 169  FA82              ;   Algorithm: for E = 7 down to 1, read config[$F3B8 + E].  If it equals 3 the slot
- 170  FA82              ;     holds a recognized device, so call SLOT_IO_ADDR and store $03 then $15 into the
- 171  FA82              ;     cell to flag it configured.  A secondary DEC A test (original value 4, e.g. a
- 172  FA82              ;     Videx-class 80-col console) runs SET_SCREEN_BASE and claims the $C800 shared
- 173  FA82              ;     expansion-ROM window via RPC_TRIGGER; a value-2 path repoints a vector via
- 174  FA82              ;     PLOT_CHAR_RPC ($0DD0 param).  Same shape as the 2.20 twin's PROBE_DEVICES. [RE]
- 175  FA82              ; ----------------------------------------------------------------------
- 176  FA82              PROBE_DEVICES:
- 177  FA82                      ; DE = 7 entries to scan (index walks down to 1)
- 178  FA82 11 07 00             LD DE,$0007
- 179  FA85              PROBE_DEVICES_LOOP:
- 180  FA85                      ; z80 $F3B8 = Apple $03B8 = base of the SoftCard device config block
- 181  FA85 21 B8 F3             LD HL,$F3B8
- 182  FA88 19                   ADD HL,DE
- 183  FA89 7E                   LD A,(HL)
- 184  FA8A                      ; config value 3 = a recognized/present device in this slot
- 185  FA8A D6 03                SUB $03
- 186  FA8C 20 07                JR NZ,PROBE_DEVICES_CHK4
- 187  FA8E                      ; build the slot I/O base for the found device (SLOT_IO_ADDR)
- 188  FA8E CD 81 FE             CALL SLOT_IO_ADDR
- 189  FA91                      ; rewrite the cell: $03 then $15 = mark this device configured
- 190  FA91 36 03                LD (HL),$03
- 191  FA93 36 15                LD (HL),$15
- 192  FA95              PROBE_DEVICES_CHK4:
- 193  FA95                      ; after the SUB, A==1 means the original value was 4 (Videx-class 80-col console)
- 194  FA95 3D                   DEC A
- 195  FA96 20 0B                JR NZ,PROBE_DEVICES_CHK2
- 196  FA98                      ; console probe / select the 80-col screen base (SET_SCREEN_BASE)
- 197  FA98 CD 83 FD             CALL SET_SCREEN_BASE
- 198  FA9B                      ; z80 $C800 = Apple $C800 shared expansion-ROM window for the configured card
- 199  FA9B 21 00 C8             LD HL,$C800
- 200  FA9E CD 45 FB             CALL RPC_TRIGGER
- 201  FAA1 18 0A                JR PROBE_DEVICES_NEXT
- 202  FAA3              PROBE_DEVICES_CHK2:
- 203  FAA3                      ; value 2 = a different device class (e.g. printer/serial); takes the PLOT_CHAR_RPC path
- 204  FAA3 FE 02                CP $02
- 205  FAA5 20 06                JR NZ,PROBE_DEVICES_NEXT
- 206  FAA7                      ; param for the value-2 vector init ($0DD0)
- 207  FAA7 21 D0 0D             LD HL,$0DD0
- 208  FAAA CD B0 FD             CALL PLOT_CHAR_RPC
- 209  FAAD              PROBE_DEVICES_NEXT:
- 210  FAAD                      ; next config entry; loop until all 7 scanned
- 211  FAAD 1D                   DEC E
- 212  FAAE 20 D5                JR NZ,PROBE_DEVICES_LOOP
- 213  FAB0 C9                   RET
- 214  FAB1              ; ----------------------------------------------------------------------
- 215  FAB1              ; DEVICE_IO_BASE -- form a SoftCard I/O / soft-switch address from a device/offset index.
- 216  FAB1              ;   In:  E = low offset within the I/O page.
- 217  FAB1              ;   Out: HL = ((E | $E0) << 8), an address in z80 $E000-$EFFF = Apple I/O $C000-$CFFF;
- 218  FAB1              ;        A clobbered.
- 219  FAB1              ;   Algorithm: H = $E0 base; A = E OR H forces the high nibble into the $C0xx I/O
- 220  FAB1              ;        page, then H = A.  Used to reach keyboard / soft switches / slot I/O.
- 221  FAB1              ;        Same as the 2.20 twin's DEVICE_IO_BASE (distinct from SLOT_IO_ADDR at $FE81). [RE]
- 222  FAB1              ; ----------------------------------------------------------------------
- 223  FAB1              DEVICE_IO_BASE:
- 224  FAB1                      ; z80 $E000 = Apple $C000 = base of the soft-switch / slot I/O page
- 225  FAB1 21 00 E0             LD HL,$E000
- 226  FAB4 7B                   LD A,E
- 227  FAB5                      ; force the high byte into the $C0xx I/O range
- 228  FAB5 B4                   OR H
- 229  FAB6 67                   LD H,A
- 230  FAB7 C9                   RET
- 231  FAB8              ; ----------------------------------------------------------------------
- 232  FAB8              ; WBOOT -- CP/M warm boot: re-init the console, rebuild page zero, re-enter the CCP.
- 233  FAB8              ;   In:  none.  Out: jumps to the CCP at $9300; does not return.  Clobbers: all.
- 234  FAB8              ;   Algorithm: set SP to the default DMA top ($0080); touch the 80-col soft switch
- 235  FAB8              ;     (z80 $E051 = Apple $C051 TXTSET); re-init the console via RPC_TRIGGER; re-run
- 236  FAB8              ;     PROBE_DEVICES.  If the CCP image signature at $9C08 is intact ($9C) it falls
- 237  FAB8              ;     into PAGEZERO_REBUILD; otherwise it reloads the CCP/system via a page-zero JP.
- 238  FAB8              ;   Note: 2.23 reloads through a self-built $000B jump and enters the CCP at $9300
- 239  FAB8              ;     (the 2.20 twin used $9400). [RE]
- 240  FAB8              ; ----------------------------------------------------------------------
- 241  FAB8              WBOOT:
- 242  FAB8                      ; stack at the default DMA buffer top (page-zero $0080)
- 243  FAB8 31 80 00             LD SP,$0080
- 244  FABB                      ; z80 $E051 = Apple $C051 TXTSET soft switch (console video reset)
- 245  FABB 3A 51 E0             LD A,($E051)
- 246  FABE 21 00 0E             LD HL,$0E00
- 247  FAC1                      ; re-init the console I/O vectors (RPC_TRIGGER) for warm restart
- 248  FAC1 CD 45 FB             CALL RPC_TRIGGER
- 249  FAC4                      ; re-scan devices so warm boot rebuilds the I/O table
- 250  FAC4 CD 82 FA             CALL PROBE_DEVICES
- 251  FAC7                      ; read the CCP-image signature byte at $9C08
- 252  FAC7 3A 08 9C             LD A,($9C08)
- 253  FACA                      ; signature $9C present = CCP image intact, skip the reload
- 254  FACA FE 9C                CP $9C
- 255  FACC 28 11                JR Z,PAGEZERO_REBUILD
- 256  FACE 21 59 FF             LD HL,SIGNON_PRINT
- 257  FAD1 22 D0 F3             LD ($F3D0),HL
- 258  FAD4 2A DE F3             LD HL,($F3DE)
- 259  FAD7 3E 77                LD A,$77
- 260  FAD9                      ; plant a $77 byte at page-zero $000B to bridge into the reload path
- 261  FAD9 32 0B 00             LD ($000B),A
- 262  FADC                      ; jump into the self-built page-zero reload bridge
- 263  FADC C3 0B 00             JP $000B
- 264  FADF              ; ----------------------------------------------------------------------
- 265  FADF              ; PAGEZERO_REBUILD -- clear the CCP-restart flag, then write the page-zero hooks.
- 266  FADF              ;   In:  none.  Out: falls into CCP_LAUNCH; no return.  Clobbers: A,HL,BC.
- 267  FADF              ;   Algorithm: zero the CCP restart flag at $9307, then (PAGEZERO_REBUILD_HOOKS)
- 268  FADF              ;     plant JP ($C3) at $0000 -> the BIOS WBOOT entry (BIOS_VECTOR+3, BIOS_VECTOR_WBOOT) and
- 269  FADF              ;     JP at $0005 -> the BDOS entry $9C06; clear two self-modified BIOS state cells
- 270  FADF              ;     ($FEDD/$FED8); set the default DMA to $0080 via SETDMA. [RE]
- 271  FADF              ; ----------------------------------------------------------------------
- 272  FADF              PAGEZERO_REBUILD:
- 273  FADF AF                   XOR A
- 274  FAE0                      ; clear the CCP restart/cold flag at $9307
- 275  FAE0 32 07 93             LD ($9307),A
- 276  FAE3              PAGEZERO_REBUILD_HOOKS:
- 277  FAE3 AF                   XOR A
- 278  FAE4                      ; clear a self-modified BIOS state cell ($FEDD)
- 279  FAE4 32 DD FE             LD (BOOT_TMPL_IOBYTE),A
- 280  FAE7                      ; clear a self-modified BIOS state cell ($FED8)
- 281  FAE7 32 D8 FE             LD (DISK_HSTACT),A
- 282  FAEA                      ; $C3 = Z-80 JP opcode to plant at the page-zero hooks
- 283  FAEA 3E C3                LD A,$C3
- 284  FAEC                      ; page-zero $0000 = JP to WBOOT (CP/M warm-boot hook)
- 285  FAEC 32 00 00             LD ($0000),A
- 286  FAEF                      ; operand of the $0000 JP = BIOS vector+3 (WBOOT entry)
- 287  FAEF 21 03 FA             LD HL,BIOS_VECTOR_WBOOT
- 288  FAF2 22 01 00             LD ($0001),HL
- 289  FAF5                      ; page-zero $0005 = JP to BDOS (the CP/M BDOS call hook)
- 290  FAF5 32 05 00             LD ($0005),A
- 291  FAF8                      ; BDOS entry point ($9C06) for the $0005 hook
- 292  FAF8 21 06 9C             LD HL,$9C06
- 293  FAFB 22 06 00             LD ($0006),HL
- 294  FAFE                      ; default DMA address = $0080 (page-zero buffer)
- 295  FAFE 01 80 00             LD BC,$0080
- 296  FB01                      ; install the default DMA pointer (SETDMA)
- 297  FB01 CD F9 FB             CALL SETDMA
- 298  FB04              ; ----------------------------------------------------------------------
- 299  FB04              ; CCP_LAUNCH -- final warm/cold-boot tail: set the CCP entry flag, jump to the CCP.
- 300  FB04              ;   In:  none.  Out: JP $9300 (CCP cold/warm entry); no return.  Clobbers: A,C.
- 301  FB04              ;   Algorithm: store a CCP-mode flag ($01) into $974E, pass the current default
- 302  FB04              ;     drive (page-zero $0004) in C, and jump to the CCP at $9300. [RE]
+ 152  FA78              ;   On a DATA disk the aliasing is the point: it recovers the boot area as 12 KB of usable
+ 153  FA78              ;   storage. [DOC CiderPress2 CP/M format notes] describes this same entry independently and
+ 154  FA78              ;   attributes the technique to the Microsoft SoftCard, "used to allow extra storage on
+ 155  FA78              ;   non-bootable disks".
+ 156  FA78              ;   CONSEQUENCE, and the hazard is SPECIFIC: a disk carrying a boot image but NOT the
+ 157  FA78              ;   protecting entry -- every 2.20-lineage system disk (DSM=$7F, so it never needed one) read
+ 158  FA78              ;   on a 2.23 system. Once blocks 0-127 are full the allocator hands out 128-139, and the write
+ 159  FA78              ;   does not fail and does not reach a drive error: it SILENTLY OVERWRITES TRACKS 0-2 and
+ 160  FA78              ;   destroys the boot pipeline. Verified in the emulator: SAVE into block 128 reported success
+ 161  FA78              ;   and changed 689 bytes of track 0. A non-bootable data disk is NOT at risk. See
+ 162  FA78              ;   docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Parts 5 and 7. [RE]
+ 163  FA78 8B 00        DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
+ 164  FA7A 2F 00        DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
+ 165  FA7C C0           AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2
+ 166  FA7D 00           AL1:    DEFB    $00                      ; ditto, low byte
+ 167  FA7E 0C 00        CKS:    DEFW    $000C                    ; ChecKSum: directory checksum bytes
+ 168  FA80 03 00        OFF:    DEFW    $0003                    ; OFFset: reserved tracks before the file area
+ 169  FA82              ; ----------------------------------------------------------------------
+ 170  FA82              ; PROBE_DEVICES -- scan the SoftCard device/config area and mark presence.
+ 171  FA82              ;   In:  none (walks Apple $03B8.. via z80 $F3B8 = the SoftCard config block).
+ 172  FA82              ;   Out: config bytes updated in place; per-device init called when a device is found.
+ 173  FA82              ;   Clobbers: A,DE,HL.
+ 174  FA82              ;   Algorithm: for E = 7 down to 1, read config[$F3B8 + E].  If it equals 3 the slot
+ 175  FA82              ;     holds a recognized device, so call SLOT_IO_ADDR and store $03 then $15 into the
+ 176  FA82              ;     cell to flag it configured.  A secondary DEC A test (original value 4, e.g. a
+ 177  FA82              ;     Videx-class 80-col console) runs SET_SCREEN_BASE and claims the $C800 shared
+ 178  FA82              ;     expansion-ROM window via RPC_TRIGGER; a value-2 path repoints a vector via
+ 179  FA82              ;     PLOT_CHAR_RPC ($0DD0 param).  Same shape as the 2.20 twin's PROBE_DEVICES. [RE]
+ 180  FA82              ; ----------------------------------------------------------------------
+ 181  FA82              PROBE_DEVICES:
+ 182  FA82                      ; DE = 7 entries to scan (index walks down to 1)
+ 183  FA82 11 07 00             LD DE,$0007
+ 184  FA85              PROBE_DEVICES_LOOP:
+ 185  FA85                      ; z80 $F3B8 = Apple $03B8 = base of the SoftCard device config block
+ 186  FA85 21 B8 F3             LD HL,$F3B8
+ 187  FA88 19                   ADD HL,DE
+ 188  FA89 7E                   LD A,(HL)
+ 189  FA8A                      ; config value 3 = a recognized/present device in this slot
+ 190  FA8A D6 03                SUB $03
+ 191  FA8C 20 07                JR NZ,PROBE_DEVICES_CHK4
+ 192  FA8E                      ; build the slot I/O base for the found device (SLOT_IO_ADDR)
+ 193  FA8E CD 81 FE             CALL SLOT_IO_ADDR
+ 194  FA91                      ; rewrite the cell: $03 then $15 = mark this device configured
+ 195  FA91 36 03                LD (HL),$03
+ 196  FA93 36 15                LD (HL),$15
+ 197  FA95              PROBE_DEVICES_CHK4:
+ 198  FA95                      ; after the SUB, A==1 means the original value was 4 (Videx-class 80-col console)
+ 199  FA95 3D                   DEC A
+ 200  FA96 20 0B                JR NZ,PROBE_DEVICES_CHK2
+ 201  FA98                      ; console probe / select the 80-col screen base (SET_SCREEN_BASE)
+ 202  FA98 CD 83 FD             CALL SET_SCREEN_BASE
+ 203  FA9B                      ; z80 $C800 = Apple $C800 shared expansion-ROM window for the configured card
+ 204  FA9B 21 00 C8             LD HL,$C800
+ 205  FA9E CD 45 FB             CALL RPC_TRIGGER
+ 206  FAA1 18 0A                JR PROBE_DEVICES_NEXT
+ 207  FAA3              PROBE_DEVICES_CHK2:
+ 208  FAA3                      ; value 2 = a different device class (e.g. printer/serial); takes the PLOT_CHAR_RPC path
+ 209  FAA3 FE 02                CP $02
+ 210  FAA5 20 06                JR NZ,PROBE_DEVICES_NEXT
+ 211  FAA7                      ; param for the value-2 vector init ($0DD0)
+ 212  FAA7 21 D0 0D             LD HL,$0DD0
+ 213  FAAA CD B0 FD             CALL PLOT_CHAR_RPC
+ 214  FAAD              PROBE_DEVICES_NEXT:
+ 215  FAAD                      ; next config entry; loop until all 7 scanned
+ 216  FAAD 1D                   DEC E
+ 217  FAAE 20 D5                JR NZ,PROBE_DEVICES_LOOP
+ 218  FAB0 C9                   RET
+ 219  FAB1              ; ----------------------------------------------------------------------
+ 220  FAB1              ; DEVICE_IO_BASE -- form a SoftCard I/O / soft-switch address from a device/offset index.
+ 221  FAB1              ;   In:  E = low offset within the I/O page.
+ 222  FAB1              ;   Out: HL = ((E | $E0) << 8), an address in z80 $E000-$EFFF = Apple I/O $C000-$CFFF;
+ 223  FAB1              ;        A clobbered.
+ 224  FAB1              ;   Algorithm: H = $E0 base; A = E OR H forces the high nibble into the $C0xx I/O
+ 225  FAB1              ;        page, then H = A.  Used to reach keyboard / soft switches / slot I/O.
+ 226  FAB1              ;        Same as the 2.20 twin's DEVICE_IO_BASE (distinct from SLOT_IO_ADDR at $FE81). [RE]
+ 227  FAB1              ; ----------------------------------------------------------------------
+ 228  FAB1              DEVICE_IO_BASE:
+ 229  FAB1                      ; z80 $E000 = Apple $C000 = base of the soft-switch / slot I/O page
+ 230  FAB1 21 00 E0             LD HL,$E000
+ 231  FAB4 7B                   LD A,E
+ 232  FAB5                      ; force the high byte into the $C0xx I/O range
+ 233  FAB5 B4                   OR H
+ 234  FAB6 67                   LD H,A
+ 235  FAB7 C9                   RET
+ 236  FAB8              ; ----------------------------------------------------------------------
+ 237  FAB8              ; WBOOT -- CP/M warm boot: re-init the console, rebuild page zero, re-enter the CCP.
+ 238  FAB8              ;   In:  none.  Out: jumps to the CCP at $9300; does not return.  Clobbers: all.
+ 239  FAB8              ;   Algorithm: set SP to the default DMA top ($0080); touch the 80-col soft switch
+ 240  FAB8              ;     (z80 $E051 = Apple $C051 TXTSET); re-init the console via RPC_TRIGGER; re-run
+ 241  FAB8              ;     PROBE_DEVICES.  If the CCP image signature at $9C08 is intact ($9C) it falls
+ 242  FAB8              ;     into PAGEZERO_REBUILD; otherwise it reloads the CCP/system via a page-zero JP.
+ 243  FAB8              ;   Note: 2.23 reloads through a self-built $000B jump and enters the CCP at $9300
+ 244  FAB8              ;     (the 2.20 twin used $9400). [RE]
+ 245  FAB8              ; ----------------------------------------------------------------------
+ 246  FAB8              WBOOT:
+ 247  FAB8                      ; stack at the default DMA buffer top (page-zero $0080)
+ 248  FAB8 31 80 00             LD SP,$0080
+ 249  FABB                      ; z80 $E051 = Apple $C051 TXTSET soft switch (console video reset)
+ 250  FABB 3A 51 E0             LD A,($E051)
+ 251  FABE 21 00 0E             LD HL,$0E00
+ 252  FAC1                      ; re-init the console I/O vectors (RPC_TRIGGER) for warm restart
+ 253  FAC1 CD 45 FB             CALL RPC_TRIGGER
+ 254  FAC4                      ; re-scan devices so warm boot rebuilds the I/O table
+ 255  FAC4 CD 82 FA             CALL PROBE_DEVICES
+ 256  FAC7                      ; read the CCP-image signature byte at $9C08
+ 257  FAC7 3A 08 9C             LD A,($9C08)
+ 258  FACA                      ; signature $9C present = CCP image intact, skip the reload
+ 259  FACA FE 9C                CP $9C
+ 260  FACC 28 11                JR Z,PAGEZERO_REBUILD
+ 261  FACE 21 59 FF             LD HL,SIGNON_PRINT
+ 262  FAD1 22 D0 F3             LD ($F3D0),HL
+ 263  FAD4 2A DE F3             LD HL,($F3DE)
+ 264  FAD7 3E 77                LD A,$77
+ 265  FAD9                      ; plant a $77 byte at page-zero $000B to bridge into the reload path
+ 266  FAD9 32 0B 00             LD ($000B),A
+ 267  FADC                      ; jump into the self-built page-zero reload bridge
+ 268  FADC C3 0B 00             JP $000B
+ 269  FADF              ; ----------------------------------------------------------------------
+ 270  FADF              ; PAGEZERO_REBUILD -- clear the CCP-restart flag, then write the page-zero hooks.
+ 271  FADF              ;   In:  none.  Out: falls into CCP_LAUNCH; no return.  Clobbers: A,HL,BC.
+ 272  FADF              ;   Algorithm: zero the CCP restart flag at $9307, then (PAGEZERO_REBUILD_HOOKS)
+ 273  FADF              ;     plant JP ($C3) at $0000 -> the BIOS WBOOT entry (BIOS_VECTOR+3, BIOS_VECTOR_WBOOT) and
+ 274  FADF              ;     JP at $0005 -> the BDOS entry $9C06; clear two self-modified BIOS state cells
+ 275  FADF              ;     ($FEDD/$FED8); set the default DMA to $0080 via SETDMA. [RE]
+ 276  FADF              ; ----------------------------------------------------------------------
+ 277  FADF              PAGEZERO_REBUILD:
+ 278  FADF AF                   XOR A
+ 279  FAE0                      ; clear the CCP restart/cold flag at $9307
+ 280  FAE0 32 07 93             LD ($9307),A
+ 281  FAE3              PAGEZERO_REBUILD_HOOKS:
+ 282  FAE3 AF                   XOR A
+ 283  FAE4                      ; clear a self-modified BIOS state cell ($FEDD)
+ 284  FAE4 32 DD FE             LD (BOOT_TMPL_IOBYTE),A
+ 285  FAE7                      ; clear a self-modified BIOS state cell ($FED8)
+ 286  FAE7 32 D8 FE             LD (DISK_HSTACT),A
+ 287  FAEA                      ; $C3 = Z-80 JP opcode to plant at the page-zero hooks
+ 288  FAEA 3E C3                LD A,$C3
+ 289  FAEC                      ; page-zero $0000 = JP to WBOOT (CP/M warm-boot hook)
+ 290  FAEC 32 00 00             LD ($0000),A
+ 291  FAEF                      ; operand of the $0000 JP = BIOS vector+3 (WBOOT entry)
+ 292  FAEF 21 03 FA             LD HL,BIOS_VECTOR_WBOOT
+ 293  FAF2 22 01 00             LD ($0001),HL
+ 294  FAF5                      ; page-zero $0005 = JP to BDOS (the CP/M BDOS call hook)
+ 295  FAF5 32 05 00             LD ($0005),A
+ 296  FAF8                      ; BDOS entry point ($9C06) for the $0005 hook
+ 297  FAF8 21 06 9C             LD HL,$9C06
+ 298  FAFB 22 06 00             LD ($0006),HL
+ 299  FAFE                      ; default DMA address = $0080 (page-zero buffer)
+ 300  FAFE 01 80 00             LD BC,$0080
+ 301  FB01                      ; install the default DMA pointer (SETDMA)
+ 302  FB01 CD F9 FB             CALL SETDMA
  303  FB04              ; ----------------------------------------------------------------------
- 304  FB04              CCP_LAUNCH:
- 305  FB04                      ; CCP-mode flag value
- 306  FB04 3E 01                LD A,$01
- 307  FB06                      ; store the CCP entry/mode flag into CCP workspace at $974E
- 308  FB06 32 4E 97             LD ($974E),A
- 309  FB09                      ; page-zero $0004 = current default drive byte
- 310  FB09 3A 04 00             LD A,($0004)
- 311  FB0C 4F                   LD C,A
- 312  FB0D                      ; enter the CCP at $9300, C = default drive (2.20 used $9400)
- 313  FB0D C3 00 93             JP $9300
- 314  FB10              ; ----------------------------------------------------------------------
- 315  FB10              ; CONST -- CP/M console status: return $FF if a console char is ready, else $00.
- 316  FB10              ;   In:  none.  Out: A = $FF (ready) / $00 (not).  Clobbers: A,HL.
- 317  FB10              ;   Algorithm: load the console-status handler address from the SoftCard I/O vector
- 318  FB10              ;     cell (z80 $F380 = Apple $0380) and JP (HL) to the 6502-serviced handler, which
- 319  FB10              ;     returns the status in A.  Same as the 2.20 twin's CONST. [RE]
- 320  FB10              ; ----------------------------------------------------------------------
- 321  FB10              CONST:
- 322  FB10                      ; z80 $F380 = Apple $0380 = console-status handler vector cell
- 323  FB10 2A 80 F3             LD HL,($F380)
- 324  FB13                      ; dispatch to the selected console-status handler (returns A)
- 325  FB13 E9                   JP (HL)
- 326  FB14              ; ----------------------------------------------------------------------
- 327  FB14              ; KBD_STATUS_40COL -- 40-column console status via the Apple keyboard strobe.
- 328  FB14              ;   In:  none.  Out: A = $FF if a key is waiting (bit 7 set at $C000), else $00.
- 329  FB14              ;   Clobbers: A.
- 330  FB14              ;   Algorithm: read z80 $E000 = Apple $C000 keyboard register; RLA shifts bit 7
- 331  FB14              ;     (key-ready) into carry; SBC A,A expands carry to $FF/$00.  The built-in 40-col
- 332  FB14              ;     CONST path used when no Videx/80-col card supplies the status vector. [RE]
- 333  FB14              ; ----------------------------------------------------------------------
- 334  FB14              KBD_STATUS_40COL:
- 335  FB14                      ; z80 $E000 = Apple $C000 keyboard register (bit 7 = key ready)
- 336  FB14 3A 00 E0             LD A,($E000)
- 337  FB17                      ; rotate key-ready bit 7 into carry
- 338  FB17 17                   RLA
- 339  FB18                      ; carry -> A = $FF (ready) or $00 (none)
- 340  FB18 9F                   SBC A,A
- 341  FB19 C9                   RET
- 342  FB1A              ; ----------------------------------------------------------------------
- 343  FB1A              ; CONIN -- read a console character: IOBYTE-route the input, then remap the key.
- 344  FB1A              ;   In:  none.  Out: A = (translated) key.  Clobbers: A,B,C,DE,HL.
- 345  FB1A              ;   Algorithm: CALL CONIN_DISPATCH to fetch a raw key (routed by the IOBYTE CONSOLE
- 346  FB1A              ;     field); clear the high bit; then scan a small remap table at Apple $03AB
- 347  FB1A              ;     (z80 $F3AB) of up to 6 entries (function/arrow keys), returning the paired
- 348  FB1A              ;     replacement byte on a match, else the raw key.
- 349  FB1A              ;   Note: 2.23's CONIN jump-vector entry runs this remap wrapper; the 2.20 twin's
- 350  FB1A              ;     equivalent is CONSOLE_IN_40COL.  Differs from a bare dispatcher. [RE]
- 351  FB1A              ; ----------------------------------------------------------------------
- 352  FB1A              CONIN:
- 353  FB1A                      ; fetch a raw key in A via the IOBYTE-routed CONIN dispatcher
- 354  FB1A CD 5A FB             CALL CONIN_DISPATCH_IOBYTE
- 355  FB1D                      ; strip the high bit (7-bit ASCII)
- 356  FB1D E6 7F                AND $7F
- 357  FB1F                      ; HL = key-remap table base (z80 $F3AB = Apple $03AB; first entry pair at $03AC)
- 358  FB1F 21 AB F3             LD HL,$F3AB
- 359  FB22                      ; up to 6 remap-table entries
- 360  FB22 06 06                LD B,$06
- 361  FB24                      ; C = raw key
- 362  FB24 4F                   LD C,A
- 363  FB25              ; ----------------------------------------------------------------------
- 364  FB25              ; CONIN_XLATE_LOOP -- scan the function/arrow-key remap table.
- 365  FB25              ;   In:  C = raw key; B = entry count; HL -> table base.
- 366  FB25              ;   Out: A = translated key on match (returns), else loops; A = C on table end.
- 367  FB25              ;   Algorithm: each entry = [match byte, replacement byte]; a high-bit sentinel
- 368  FB25              ;     match byte ends the table. [RE]
- 369  FB25              ; ----------------------------------------------------------------------
- 370  FB25              CONIN_XLATE_LOOP:
- 371  FB25 23                   INC HL
- 372  FB26                      ; entry's match byte
- 373  FB26 7E                   LD A,(HL)
- 374  FB27 23                   INC HL
- 375  FB28 B7                   OR A
- 376  FB29                      ; high-bit sentinel ends the table
- 377  FB29 FA 31 FB             JP M,CONIN_XLATE_DONE
- 378  FB2C                      ; raw key == this entry?
- 379  FB2C B9                   CP C
- 380  FB2D                      ; paired replacement byte
- 381  FB2D 7E                   LD A,(HL)
- 382  FB2E                      ; match -> return the translated key
- 383  FB2E C8                   RET Z
- 384  FB2F 10 F4                DJNZ CONIN_XLATE_LOOP
- 385  FB31              ; ----------------------------------------------------------------------
- 386  FB31              ; CONIN_XLATE_DONE -- no remap match: return the raw key in A. [RE]
- 387  FB31              ; ----------------------------------------------------------------------
- 388  FB31              CONIN_XLATE_DONE:
- 389  FB31                      ; no match -> return the raw key
- 390  FB31 79                   LD A,C
- 391  FB32 C9                   RET
- 392  FB33              ; ----------------------------------------------------------------------
- 393  FB33              ; CONIN_KEYWAIT -- seed the keyboard-wait dispatch index, then wait for a key.
- 394  FB33              ;   In:  none.  Out: A = 7-bit key (via KBD_WAIT_KEY).  Clobbers: A,DE.
- 395  FB33              ;   Algorithm: load DE = 3 (the default console index), then JP through the
- 396  FB33              ;     self-modified CONIN_DISPATCH cell; at boot that target is patched to the
- 397  FB33              ;     selected keyboard-wait handler (default KBD_WAIT_KEY). [RE]
- 398  FB33              ; ----------------------------------------------------------------------
- 399  FB33              CONIN_KEYWAIT:
- 400  FB33                      ; DE = 3 = default console-device index
- 401  FB33 11 03 00             LD DE,$0003
- 402  FB36              ; ----------------------------------------------------------------------
- 403  FB36              ; CONIN_DISPATCH -- self-modified keyboard-wait vector.
- 404  FB36              ;   The JP target ($FB39 / KBD_WAIT_KEY by default) is patched at boot per the
- 405  FB36              ;   selected console card.  Referenced as CONIN_DISPATCH+1 by the patch site. [RE]
- 406  FB36              ; ----------------------------------------------------------------------
- 407  FB36              CONIN_DISPATCH:
- 408  FB36                      ; target (CONIN_DISPATCH+1) patched at boot to the chosen keyboard-wait handler
- 409  FB36 C3 39 FB             JP KBD_WAIT_KEY
- 410  FB39              ; ----------------------------------------------------------------------
- 411  FB39              ; KBD_WAIT_KEY -- spin on the Apple keyboard register until a key is down.
- 412  FB39              ;   In:  none.  Out: A = 7-bit key (high bit cleared).  Clobbers: A.
- 413  FB39              ;   Algorithm: poll z80 $E000 = Apple $C000; RLA puts key-ready (bit 7) into carry,
- 414  FB39              ;     spin while clear; on a key, clear the strobe at $E010 = Apple $C010 and return
- 415  FB39              ;     the 7-bit key (CCF/RRA). [RE]
- 416  FB39              ; ----------------------------------------------------------------------
- 417  FB39              KBD_WAIT_KEY:
- 418  FB39                      ; poll z80 $E000 = Apple $C000 keyboard register
- 419  FB39 3A 00 E0             LD A,($E000)
- 420  FB3C                      ; key-ready (bit 7) -> carry
- 421  FB3C 17                   RLA
- 422  FB3D                      ; spin until a key is down
- 423  FB3D 30 FA                JR NC,KBD_WAIT_KEY
- 424  FB3F                      ; clear the keyboard strobe (z80 $E010 = Apple $C010)
- 425  FB3F 32 10 E0             LD ($E010),A
- 426  FB42 3F                   CCF
- 427  FB43                      ; A = 7-bit key
- 428  FB43 1F                   RRA
- 429  FB44 C9                   RET
- 430  FB45              ; ----------------------------------------------------------------------
- 431  FB45              ; RPC_TRIGGER -- fire a SoftCard 6502<->Z80 RPC.
- 432  FB45              ;   In:  HL = command/params; A = trigger value.  Out: per the 6502 service routine.
- 433  FB45              ;   Algorithm: stash HL to the command mailbox (z80 $F3D0 = Apple $03D0), then poke
- 434  FB45              ;     the trigger cell.  The trigger store-address ($0000 here) is self-modified per
- 435  FB45              ;     config at boot, so the store site is RPC_TRIGGER_STORE+1. [RE]
- 436  FB45              ; ----------------------------------------------------------------------
- 437  FB45              RPC_TRIGGER:
- 438  FB45                      ; z80 $F3D0 = Apple $03D0 = RPC command/params mailbox
- 439  FB45 22 D0 F3             LD ($F3D0),HL
- 440  FB48              RPC_TRIGGER_STORE:
- 441  FB48 32 00 00             LD ($0000),A
- 442  FB4B C9                   RET
- 443  FB4C              ; ----------------------------------------------------------------------
- 444  FB4C              ; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE.
- 445  FB4C              ;   In:  A = character (the BIOS CONOUT arg).  The jump-vector CONOUT entry targets
- 446  FB4C              ;        CONOUT_DISPATCH+1 ($FB4D), skipping the leading LD C,A; the fall-through
- 447  FB4C              ;        entry here (from the dispatcher) keeps it.
- 448  FB4C              ;   Out: none.  Clobbers: A,C,HL.
- 449  FB4C              ;   Algorithm: read IOBYTE ($0003), mask the 2-bit CONSOLE field (AND $03).  Field
- 450  FB4C              ;     value 2 dispatches through the SoftCard I/O vector at $F392 (Apple $0392) with
- 451  FB4C              ;     JP (HL); otherwise fall into the column/tab filter. [RE]
- 452  FB4C              ; ----------------------------------------------------------------------
- 453  FB4C              CONOUT_DISPATCH:
- 454  FB4C                      ; save the character to emit in C for the filter path (skipped by the +1 entry)
- 455  FB4C 4F                   LD C,A
- 456  FB4D                      ; read the CP/M IOBYTE (page-zero $0003)
- 457  FB4D 3A 03 00             LD A,($0003)
- 458  FB50                      ; isolate the 2-bit CONSOLE device field of the IOBYTE
- 459  FB50 E6 03                AND $03
- 460  FB52                      ; device value 2 = direct console; anything else takes the filter path
- 461  FB52 FE 02                CP $02
- 462  FB54 20 4B                JR NZ,CONOUT_FILTER_NOEXPAND
- 463  FB56              CONOUT_VIA_VEC_F392:
- 464  FB56                      ; load console-output handler addr from SoftCard I/O vector ($F392 = Apple $0392)
- 465  FB56 2A 92 F3             LD HL,($F392)
- 466  FB59 E9                   JP (HL)
- 467  FB5A              ; ----------------------------------------------------------------------
- 468  FB5A              ; CONIN_DISPATCH_IOBYTE -- read a console character, routed by the IOBYTE CONSOLE field.
- 469  FB5A              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
- 470  FB5A              ;   Algorithm: read IOBYTE, mask the CONSOLE field (AND $03).  Value 2 uses vector
- 471  FB5A              ;     $F38A; the high value ($02<x) uses the preloaded $F384; low values use $F382;
- 472  FB5A              ;     then JP (HL) into the chosen handler.  ($F38x = Apple $038x I/O vector.)
- 473  FB5A              ;     Called by CONIN (the remap wrapper) and reused by READER. [RE]
- 474  FB5A              ; ----------------------------------------------------------------------
- 475  FB5A              CONIN_DISPATCH_IOBYTE:
- 476  FB5A                      ; read the CP/M IOBYTE
- 477  FB5A 3A 03 00             LD A,($0003)
- 478  FB5D                      ; isolate the 2-bit CONSOLE device field
- 479  FB5D E6 03                AND $03
- 480  FB5F FE 02                CP $02
- 481  FB61                      ; preload the input vector for the high CONSOLE value ($F384 = Apple $0384)
- 482  FB61 2A 84 F3             LD HL,($F384)
- 483  FB64 28 06                JR Z,CONIN_VIA_VEC_F38A
- 484  FB66 30 07                JR NC,DISPATCH_VIA_HL
- 485  FB68              CONIN_VIA_VEC_F382:
- 486  FB68                      ; input vector for the low CONSOLE values ($F382 = Apple $0382)
- 487  FB68 2A 82 F3             LD HL,($F382)
- 488  FB6B E9                   JP (HL)
- 489  FB6C              CONIN_VIA_VEC_F38A:
- 490  FB6C                      ; input vector for CONSOLE value 2 ($F38A = Apple $038A)
- 491  FB6C 2A 8A F3             LD HL,($F38A)
- 492  FB6F              DISPATCH_VIA_HL:
- 493  FB6F E9                   JP (HL)
- 494  FB70              ; ----------------------------------------------------------------------
- 495  FB70              ; LIST -- emit a character to the list device, routed by the IOBYTE LIST field.
- 496  FB70              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
- 497  FB70              ;   Algorithm: read IOBYTE, mask the top 2-bit LIST field (AND $C0).  Below $80
- 498  FB70              ;     routes to the column/tab filter; == $80 reuses the console vector path
- 499  FB70              ;     (CONOUT_VIA_VEC_F392); higher values dispatch through list vector $F394
- 500  FB70              ;     (Apple $0394). [RE]
- 501  FB70              ; ----------------------------------------------------------------------
- 502  FB70              LIST:
- 503  FB70 3A 03 00             LD A,($0003)
- 504  FB73                      ; isolate the 2-bit LIST device field (top bits of the IOBYTE)
- 505  FB73 E6 C0                AND $C0
- 506  FB75 FE 80                CP $80
- 507  FB77                      ; field < $80 -> no-device / filter path
- 508  FB77 38 27                JR C,DISPATCH_NODEV
- 509  FB79                      ; field == $80 -> reuse the console output vector path
- 510  FB79 28 DB                JR Z,CONOUT_VIA_VEC_F392
- 511  FB7B                      ; list-handler vector ($F394 = Apple $0394)
- 512  FB7B 2A 94 F3             LD HL,($F394)
- 513  FB7E E9                   JP (HL)
- 514  FB7F              ; ----------------------------------------------------------------------
- 515  FB7F              ; PUNCH -- emit a character to the punch device, routed by the IOBYTE PUNCH field.
- 516  FB7F              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
- 517  FB7F              ;   Algorithm: read IOBYTE, mask the PUNCH field (AND $30).  Below $10 takes the
- 518  FB7F              ;     column/tab filter; == $10 dispatches through vector $F38E; higher values use
- 519  FB7F              ;     vector $F390.  ($F38E/$F390 = Apple $038E/$0390.) [RE]
- 520  FB7F              ; ----------------------------------------------------------------------
- 521  FB7F              PUNCH:
- 522  FB7F 3A 03 00             LD A,($0003)
- 523  FB82                      ; isolate the 2-bit PUNCH device field of the IOBYTE
- 524  FB82 E6 30                AND $30
- 525  FB84 FE 10                CP $10
- 526  FB86                      ; field < $10 -> no-device / filter path
- 527  FB86 38 18                JR C,DISPATCH_NODEV
- 528  FB88                      ; punch vector for the higher PUNCH values ($F38E = Apple $038E)
- 529  FB88 2A 8E F3             LD HL,($F38E)
- 530  FB8B                      ; field == $10 -> use the $F390 vector below
- 531  FB8B 28 E2                JR Z,DISPATCH_VIA_HL
- 532  FB8D                      ; punch vector for PUNCH value $10 ($F390 = Apple $0390)
- 533  FB8D 2A 90 F3             LD HL,($F390)
- 534  FB90 E9                   JP (HL)
- 535  FB91              ; ----------------------------------------------------------------------
- 536  FB91              ; READER -- read a character from the reader device, routed by the IOBYTE READER field.
- 537  FB91              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
- 538  FB91              ;   Algorithm: read IOBYTE, mask the READER field (AND $0C), compare against $08. Field
- 539  FB91              ;     < $08 ($00/$04) reuses the CONIN $F382 vector; == $08 reuses the CONIN $F38A vector;
- 540  FB91              ;     > $08 ($0C) uses the reader vector $F38C (Apple $038C). [RE]
- 541  FB91              ; ----------------------------------------------------------------------
- 542  FB91              READER:
- 543  FB91 3A 03 00             LD A,($0003)
- 544  FB94                      ; isolate the 2-bit READER device field of the IOBYTE
- 545  FB94 E6 0C                AND $0C
- 546  FB96 FE 08                CP $08
- 547  FB98                      ; field < $08 ($00/$04) -> reuse the CONIN $F382 vector path
- 548  FB98 38 CE                JR C,CONIN_VIA_VEC_F382
- 549  FB9A                      ; field == $08 -> reuse the CONIN $F38A vector path
- 550  FB9A 28 D0                JR Z,CONIN_VIA_VEC_F38A
- 551  FB9C                      ; reader-handler vector ($F38C = Apple $038C)
- 552  FB9C 2A 8C F3             LD HL,($F38C)
- 553  FB9F E9                   JP (HL)
- 554  FBA0              ; ----------------------------------------------------------------------
- 555  FBA0              ; DISPATCH_NODEV -- IOBYTE field selects no physical device: fall into the filter.
- 556  FBA0              ;   In:  carry set by the caller (no-device).  Out: enters CONOUT_FILTER_NOEXPAND
- 557  FBA0              ;        with the carry folded into the COL_FLAG byte.  Clobbers: A,HL.
- 558  FBA0              ;   Algorithm: SCF then (CONOUT_FILTER_NOEXPAND) SBC A,A turns carry into a 0/$FF
- 559  FBA0              ;     flag stored in COL_FLAG ($FECB); clear bit 7 of the char in C; if the pending-
- 560  FBA0              ;     column counter ($FECC) is nonzero, apply a config-driven column offset, else
- 561  FBA0              ;     fall through to the tab/control expansion (SETDMA_1). [RE]
- 562  FBA0              ; ----------------------------------------------------------------------
- 563  FBA0              DISPATCH_NODEV:
- 564  FBA0                      ; carry-set entry: mark the expand flag before SBC A,A turns it into $FF
- 565  FBA0 37                   SCF
- 566  FBA1              CONOUT_FILTER_NOEXPAND:
- 567  FBA1                      ; convert carry into a 0/$FF flag byte for COL_FLAG
- 568  FBA1 9F                   SBC A,A
- 569  FBA2 21 A2 F3             LD HL,$F3A2
- 570  FBA5 6E                   LD L,(HL)
- 571  FBA6 2C                   INC L
- 572  FBA7 CA A4 FC             JP Z,SCREEN_EMIT
- 573  FBAA                      ; HL -> COL_FLAG cell ($FECB)
- 574  FBAA 21 CB FE             LD HL,COL_FLAG
- 575  FBAD                      ; store the entry flag into COL_FLAG
- 576  FBAD 77                   LD (HL),A
- 577  FBAE                      ; strip the high bit of the character (7-bit ASCII)
- 578  FBAE CB B9                RES 7,C
- 579  FBB0 23                   INC HL
- 580  FBB1                      ; load COL_PENDING (pending column-skip / fill count, $FECC)
- 581  FBB1 7E                   LD A,(HL)
- 582  FBB2 B7                   OR A
- 583  FBB3                      ; no pending column work -> run tab/control expansion
- 584  FBB3 CA 56 FC             JP Z,SETDMA_1
- 585  FBB6                      ; consume one pending column step
- 586  FBB6 35                   DEC (HL)
- 587  FBB7                      ; read screen-width / left-margin config byte ($F396 = Apple $0396)
- 588  FBB7 3A 96 F3             LD A,($F396)
- 589  FBBA                      ; HL -> the column cell in the $FE85 deblock/screen-state band ($FED4)
- 590  FBBA 21 D4 FE             LD HL,BOOT_TMPL_XORA
- 591  FBBD                      ; config byte zero -> derive the offset from the running width
- 592  FBBD 28 0C                JR Z,COL_OFFSET_FROM_WIDTH
- 593  FBBF B7                   OR A
- 594  FBC0 F2 C6 FB             JP P,COL_APPLY_OFFSET_RAW
- 595  FBC3 2B                   DEC HL
- 596  FBC4              ; ----------------------------------------------------------------------
- 597  FBC4              ; COL_APPLY_OFFSET -- apply a signed config offset to the running column position.
- 598  FBC4              ;   In:  A = config byte (sign bit = direction); C = current column; HL -> column cell.
- 599  FBC4              ;   Out: (HL) = C - offset.  Clobbers: A,E.
- 600  FBC4              ;   Algorithm: AND $7F drops the sign bit to the magnitude, subtract it from the
- 601  FBC4              ;     current column in C, store the new column.  Reached when the config byte's sign
- 602  FBC4              ;     indicates a subtractive column adjust. [RE]
- 603  FBC4              ; ----------------------------------------------------------------------
- 604  FBC4              COL_APPLY_OFFSET:
- 605  FBC4                      ; drop the sign bit to get the offset magnitude
- 606  FBC4 E6 7F                AND $7F
- 607  FBC6              COL_APPLY_OFFSET_RAW:
- 608  FBC6 5F                   LD E,A
- 609  FBC7 79                   LD A,C
- 610  FBC8                      ; new column = current column (C) minus the offset
- 611  FBC8 93                   SUB E
- 612  FBC9                      ; store the updated column position
- 613  FBC9 77                   LD (HL),A
- 614  FBCA C9                   RET
- 615  FBCB              ; ----------------------------------------------------------------------
- 616  FBCB              ; COL_OFFSET_FROM_WIDTH -- derive the column offset from the running screen width.
- 617  FBCB              ;   In:  C = current column; the BOOT-overlaid base word at (BOOT+2).
- 618  FBCB              ;   Out: updates the column and emits via SCREEN_EMIT; combines a base address with
- 619  FBCB              ;        the offset.  Clobbers: A,B,C,DE,HL.
- 620  FBCB              ;   Algorithm: pick the column cell by the config sign, CALL COL_APPLY_OFFSET, then
- 621  FBCB              ;     load the base word (BOOT+2 = the cold-boot operand reused as deblock
- 622  FBCB              ;     scratch), fold in config $F3A1, and ADD to form the screen address before
- 623  FBCB              ;     emitting (SCREEN_EMIT). [RE]
- 624  FBCB              ; ----------------------------------------------------------------------
- 625  FBCB              COL_OFFSET_FROM_WIDTH:
- 626  FBCB B7                   OR A
- 627  FBCC                      ; config sign negative -> keep the higher column cell
- 628  FBCC FA D0 FB             JP M,COL_OFFSET_FROM_WIDTH_1
- 629  FBCF 2B                   DEC HL
- 630  FBD0              COL_OFFSET_FROM_WIDTH_1:
- 631  FBD0                      ; apply the signed column offset (COL_APPLY_OFFSET)
- 632  FBD0 CD C4 FB             CALL COL_APPLY_OFFSET
- 633  FBD3                      ; base word = the BOOT-overlaid deblock scratch ($FED3)
- 634  FBD3 2A D3 FE             LD HL,(BOOT+2)
- 635  FBD6                      ; config byte $F3A1 = Apple $03A1 (screen-base modifier)
- 636  FBD6 3A A1 F3             LD A,($F3A1)
- 637  FBD9 B7                   OR A
- 638  FBDA                      ; config positive -> use HL as-is, skip the byte swap
- 639  FBDA F2 E2 FB             JP P,COL_COMBINE_BASE
- 640  FBDD                      ; negative: drop the sign bit, then swap H<->L below
- 641  FBDD E6 7F                AND $7F
- 642  FBDF 5D                   LD E,L
- 643  FBE0 6C                   LD L,H
- 644  FBE1 63                   LD H,E
- 645  FBE2              ; ----------------------------------------------------------------------
- 646  FBE2              ; COL_COMBINE_BASE -- fold the config offset into the base address, emit the char.
- 647  FBE2              ;   In:  A = config offset; HL = base word; C will receive the high result.
- 648  FBE2              ;   Out: pushes the low result, emits via SCREEN_EMIT with B=7, then re-enters the
- 649  FBE2              ;        emit path with B=$0A.  Clobbers: A,B,C,DE,HL.
- 650  FBE2              ;   Algorithm: C = offset + H; A = offset + L; CALL SCREEN_EMIT (B=7), then fall into
- 651  FBE2              ;     CONOUT_EMIT_B with B=$0A. [RE]
- 652  FBE2              ; ----------------------------------------------------------------------
- 653  FBE2              COL_COMBINE_BASE:
- 654  FBE2 5F                   LD E,A
- 655  FBE3                      ; C = config offset + base high byte
- 656  FBE3 84                   ADD A,H
- 657  FBE4 4F                   LD C,A
- 658  FBE5 7B                   LD A,E
- 659  FBE6                      ; A = config offset + base low byte
- 660  FBE6 85                   ADD A,L
- 661  FBE7 F5                   PUSH AF
- 662  FBE8                      ; mode/count code 7 for the screen emit
- 663  FBE8 06 07                LD B,$07
- 664  FBEA                      ; emit via the screen handler (SCREEN_EMIT)
- 665  FBEA CD A4 FC             CALL SCREEN_EMIT
- 666  FBED F1                   POP AF
- 667  FBEE                      ; mode/count code $0A for the follow-up emit
- 668  FBEE 06 0A                LD B,$0A
- 669  FBF0              CHAR_C_TO_SCREEN:
- 670  FBF0 4F                   LD C,A
- 671  FBF1 C3 A4 FC             JP SCREEN_EMIT
- 672  FBF4              ; ----------------------------------------------------------------------
- 673  FBF4              ; SETSEC -- BIOS jump-vector entry 11 ($FA24 -> $FBF4): set the requested sector.
- 674  FBF4              ;   In:  C = sector number. Out: none. Clobbers: A.
- 675  FBF4              ;   Algorithm: store C into the sector cell BOOT+1 ($FED2 = the cold-boot LD SP operand
- 676  FBF4              ;        low byte, reused post-boot as the requested-sector cell). The off-image RWTS
- 677  FBF4              ;        ($AC39/$AC49) is the consumer; this image only WRITES it. Mirrors 2.20 SETSEC.
- 678  FBF4              ;        [RE, transferred from 2.20; the off-image consumer is not in this image]
- 679  FBF4              ; ----------------------------------------------------------------------
- 680  FBF4              SETSEC:
- 681  FBF4 79                   LD A,C
- 682  FBF5                      ; store the requested sector into BOOT+1 (reused as the seksec cell)
- 683  FBF5 32 D2 FE             LD (BOOT+1),A
- 684  FBF8 C9                   RET
- 685  FBF9              ; ----------------------------------------------------------------------
- 686  FBF9              ; SETDMA -- BIOS jump-vector entry 12 ($FA27 -> $FBF9): set the DMA address.
- 687  FBF9              ;   In:  BC = DMA buffer address (the 128-byte CP/M record source/destination).
- 688  FBF9              ;   Out: none. Clobbers: none.
- 689  FBF9              ;   Algorithm: store BC into the dmaadr cell (SECTOR_BLOCK_PATCH+2 = $FEE1, the
- 690  FBF9              ;        operand region of the install-template 'LD ($0003),A'). The OFF-IMAGE
- 691  FBF9              ;        deblock copy uses dmaadr as the host<->record transfer endpoint. The 2.20
- 692  FBF9              ;        deblock did the LDIR itself; in 2.23 the value is read off-image. [RE]
- 693  FBF9              ; ----------------------------------------------------------------------
- 694  FBF9              SETDMA:
- 695  FBF9                      ; store BC into dmaadr ($FEE1, overlaid on the install-template LD ($0003),A operand)
- 696  FBF9 ED 43 E1 FE          LD (DISK_DMAADR+2),BC
- 697  FBFD C9                   RET
- 698  FBFE 00 00 00...          DEFS    88, $00                  ; fill
- 699  FC56              SETDMA_1:
- 700  FC56 47                   LD B,A
- 701  FC57 21 CD FE             LD HL,COL_STATE
- 702  FC5A 7E                   LD A,(HL)
- 703  FC5B 5F                   LD E,A
- 704  FC5C B7                   OR A
- 705  FC5D 20 12                JR NZ,SETDMA_3
- 706  FC5F 3A 97 F3             LD A,($F397)
- 707  FC62 B7                   OR A
- 708  FC63 28 06                JR Z,SETDMA_2
- 709  FC65 B9                   CP C
- 710  FC66 20 03                JR NZ,SETDMA_2
- 711  FC68 36 80                LD (HL),$80
- 712  FC6A C9                   RET
- 713  FC6B              SETDMA_2:
- 714  FC6B 3E 1F                LD A,$1F
- 715  FC6D B9                   CP C
- 716  FC6E DA A4 FC             JP C,SCREEN_EMIT
- 717  FC71              SETDMA_3:
- 718  FC71 21 A0 F3             LD HL,$F3A0
- 719  FC74 06 09                LD B,$09
- 720  FC76              SETDMA_4:
- 721  FC76 7E                   LD A,(HL)
- 722  FC77 B7                   OR A
- 723  FC78 28 04                JR Z,SETDMA_5
- 724  FC7A AB                   XOR E
- 725  FC7B B9                   CP C
- 726  FC7C 28 05                JR Z,SETDMA_6
- 727  FC7E              SETDMA_5:
- 728  FC7E 2B                   DEC HL
- 729  FC7F 10 F5                DJNZ SETDMA_4
- 730  FC81 18 21                JR SCREEN_EMIT
- 731  FC83              SETDMA_6:
- 732  FC83 11 0B 00             LD DE,$000B
- 733  FC86 19                   ADD HL,DE
- 734  FC87 7E                   LD A,(HL)
- 735  FC88 B7                   OR A
- 736  FC89 4F                   LD C,A
- 737  FC8A F2 9A FC             JP P,SETDMA_7
- 738  FC8D E6 7F                AND $7F
- 739  FC8F 4F                   LD C,A
- 740  FC90 C5                   PUSH BC
- 741  FC91 3A A2 F3             LD A,($F3A2)
- 742  FC94 06 07                LD B,$07
- 743  FC96 CD F0 FB             CALL CHAR_C_TO_SCREEN
- 744  FC99 C1                   POP BC
- 745  FC9A              SETDMA_7:
- 746  FC9A 78                   LD A,B
- 747  FC9B FE 07                CP $07
- 748  FC9D 20 05                JR NZ,SCREEN_EMIT
- 749  FC9F 3E 02                LD A,$02
- 750  FCA1 32 CC FE             LD (COL_PENDING),A
- 751  FCA4              SCREEN_EMIT:
- 752  FCA4 AF                   XOR A
- 753  FCA5 32 CD FE             LD (COL_STATE),A
- 754  FCA8 3A CB FE             LD A,(COL_FLAG)
- 755  FCAB B7                   OR A
- 756  FCAC 2A 88 F3             LD HL,($F388)
- 757  FCAF 28 03                JR Z,SCREEN_EMIT_1
- 758  FCB1 2A 86 F3             LD HL,($F386)
- 759  FCB4              SCREEN_EMIT_1:
- 760  FCB4 E9                   JP (HL)
- 761  FCB5              SCREEN_EMIT_2:
- 762  FCB5 11 03 00             LD DE,$0003
- 763  FCB8              SCREEN_EMIT_3:
- 764  FCB8 C3 BB FC             JP SCREEN_EMIT_4
- 765  FCBB              SCREEN_EMIT_4:
- 766  FCBB 2A CE FE             LD HL,(SCREEN_CURSOR_PTR)
- 767  FCBE 3A D0 FE             LD A,(SCREEN_CHAR)
- 768  FCC1 77                   LD (HL),A
- 769  FCC2 CD E2 FC             CALL CTRL_CHAR_DISPATCH
- 770  FCC5 2A 28 F0             LD HL,($F028)
- 771  FCC8 3A 24 F0             LD A,($F024)
- 772  FCCB 5F                   LD E,A
- 773  FCCC 16 F0                LD D,$F0
- 774  FCCE 19                   ADD HL,DE
- 775  FCCF 22 CE FE             LD (SCREEN_CURSOR_PTR),HL
- 776  FCD2 7E                   LD A,(HL)
- 777  FCD3 32 D0 FE             LD (SCREEN_CHAR),A
- 778  FCD6 FE E0                CP $E0
- 779  FCD8 38 02                JR C,SCREEN_EMIT_5
- 780  FCDA EE 20                XOR $20
- 781  FCDC              SCREEN_EMIT_5:
- 782  FCDC E6 3F                AND $3F
- 783  FCDE F6 40                OR $40
- 784  FCE0 77                   LD (HL),A
- 785  FCE1 C9                   RET
- 786  FCE2              CTRL_CHAR_DISPATCH:
- 787  FCE2 78                   LD A,B
- 788  FCE3 B7                   OR A
- 789  FCE4 28 0B                JR Z,CTRL_PLAIN_CHAR
- 790  FCE6 21 45 FB             LD HL,RPC_TRIGGER
- 791  FCE9 E5                   PUSH HL
- 792  FCEA 21 66 FD             LD HL,CTRL_HANDLER_OFFSET_TBL
- 793  FCED 85                   ADD A,L
- 794  FCEE 6F 6E E9             DEFB    $6F,$6E,$E9
- 795  FCF1              CTRL_PLAIN_CHAR:
- 796  FCF1 79 FE 0D 20          DEFB    $79,$FE,$0D,$20,$05
- 796  FCF5 05
- 797  FCF6 AF 32 24 F0          DEFB    $AF,$32,$24,$F0,$C9,$F6,$80 ; "/2$pIv"
- 797  FCFA C9 F6 80
- 798  FCFD FE E0 38 04          DEFB    $FE,$E0,$38,$04
- 799  FD01 21 DD F3 AE          DEFB    $21,$DD,$F3,$AE,$32,$45,$F0,$21,$F0,$FD,$C3,$80 ; "!]s.2Ep!p}C"
- 799  FD05 32 45 F0 21
- 799  FD09 F0 FD C3 80
- 800  FD0D FD CD 81 FE          DEFB    $FD,$CD,$81,$FE,$C6,$8F
- 800  FD11 C6 8F
- 801  FD13 CB 4E 28 FC          DEFB    $CB,$4E,$28,$FC,$21,$2F,$F0,$36,$60,$2B,$36,$C0,$2B,$77,$2B,$36 ; "KN(|!/p6`+6@+w+6"
- 801  FD17 21 2F F0 36
- 801  FD1B 60 2B 36 C0
- 801  FD1F 2B 77 2B 36
- 802  FD23 8D                   DEFB    $8D
- 803  FD24 62 C3 7C FD          DEFB    $62,$C3,$7C,$FD,$3E,$FF,$01,$3E,$3F,$32,$32,$F0,$E1,$C9,$21,$F4
- 803  FD28 3E FF 01 3E
- 803  FD2C 3F 32 32 F0
- 803  FD30 E1 C9 21 F4
- 804  FD34 FB C9 AF 6F          DEFB    $FB,$C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0,$21,$C1,$FB,$C9,$2E
- 804  FD38 67 22 24 F0
- 804  FD3C 32 45 F0 21
- 804  FD40 C1 FB C9 2E
- 805  FD44 42 01 2E 9C          DEFB    $42,$01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A,$D3,$FE
- 805  FD48 01 2E 1A 01
- 805  FD4C 2E 58 26 FC
- 805  FD50 C9 2A D3 FE
- 806  FD54 7D FE 28 38          DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24
- 806  FD58 02 2E 00 7C
- 806  FD5C FE 18 38 02
- 806  FD60 26 00 22 24
- 807  FD64 F0 18                DEFB    $F0,$18
- 808  FD66              CTRL_HANDLER_OFFSET_TBL:
- 809  FD66 D5 4C 43 46          DEFB    $D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD ; "ULCF(+60I2QM"
- 809  FD6A 28 2B 36 30
- 809  FD6E 49 32 51 CD
- 810  FD72 83 FD 21 78          DEFB    $83,$FD,$21,$78,$F6,$19,$71,$21,$AA,$C9,$79,$32,$45,$F0,$C3,$45
- 810  FD76 F6 19 71 21
- 810  FD7A AA C9 79 32
- 810  FD7E 45 F0 C3 45
- 811  FD82 FB                   DEFB    $FB
- 812  FD83              SET_SCREEN_BASE:
- 813  FD83 CD 7C FE             CALL SLOT_IO_ADDR_W
- 814  FD86 32 F8 F6             LD ($F6F8),A
- 815  FD89 32 47 F0             LD ($F047),A
- 816  FD8C 3A FF EF             LD A,($EFFF)
- 817  FD8F CD B1 FA             CALL DEVICE_IO_BASE
- 818  FD92 D6 20                SUB $20
- 819  FD94 32 46 F0             LD ($F046),A
- 820  FD97 7E                   LD A,(HL)
- 821  FD98 C9                   RET
- 822  FD99              SET_SCREEN_BASE_1:
- 823  FD99 21 14 0E             LD HL,$0E14
- 824  FD9C 1E 03                LD E,$03
- 825  FD9E 3E 01                LD A,$01
- 826  FDA0 CD AD FD             CALL SET_CURSOR_COL_AND_BASE
- 827  FDA3 3A 48 F0             LD A,($F048)
- 828  FDA6 1F                   RRA
- 829  FDA7 9F                   SBC A,A
- 830  FDA8 C9                   RET
- 831  FDA9 21 E1 0D 79          DEFB    $21,$E1,$0D,$79
- 832  FDAD              SET_CURSOR_COL_AND_BASE:
- 833  FDAD 32 45 F0             LD ($F045),A
- 834  FDB0              PLOT_CHAR_RPC:
- 835  FDB0 7B                   LD A,E
- 836  FDB1 32 47 F0             LD ($F047),A
- 837  FDB4 C3 45 FB             JP RPC_TRIGGER
- 838  FDB7              PLOT_CHAR_RPC_1:
- 839  FDB7 21 06 0E             LD HL,$0E06
- 840  FDBA CD B0 FD             CALL PLOT_CHAR_RPC
- 841  FDBD 3A 45 F0             LD A,($F045)
- 842  FDC0 C9                   RET
- 843  FDC1              ; SCREEN_RPC_HELPER -- read back a screen byte via the RPC: position, fire the RPC, fetch.
- 844  FDC1              SCREEN_RPC_HELPER:
- 845  FDC1 CD 83 FD             CALL SET_SCREEN_BASE                    ; compute the screen base for the current row
- 846  FDC4 21 4D C8             LD HL,$C84D                      ; 6502 RPC parameter (Apple expansion-ROM addr)
- 847  FDC7 CD 45 FB             CALL RPC_TRIGGER                 ; run the embedded 6502 service on the 6502
- 848  FDCA 21 78 F6             LD HL,$F678                      ; HL = row buffer base (Apple $0678)
- 849  FDCD 19                   ADD HL,DE
- 850  FDCE 7E                   LD A,(HL)                        ; read back the character
- 851  FDCF C9                   RET
- 852  FDD0              ; RPC6502_SERVICE_223 -- the embedded 6502 RPC service ($FDD0-$FE41 = Apple $0DD0); its
- 853  FDD0              ; own ca65 source CPM_RPC6502_223.s is sub-assembled and INCBIN'd here (the 2.20
- 854  FDD0              ; CPM_RPC6502 pattern). It forms a slot-ROM pointer ($CFFF disables expansion ROM),
- 855  FDD0              ; LDA ($F6),Y, and JMP ($00F6) dispatches into the selected slot-ROM/firmware routine.
- 856  FDD0              RPC6502_SERVICE_223:
- 857  FDD0              ;   >>> CPM_RPC6502_223.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
- 858  FDD0              ;
- 859  FDD0              ; .org $0DD0
- 860  FDD0              ;
- 861  FDD0              ; L_0DD0:
- 862  FDD0              ;         PHA                          ; $0DD0  48
- 863  FDD0              ;         JSR SUB_0E1D                 ; $0DD1  20 1D 0E
- 864  FDD0              ;         LDY #$0D                     ; $0DD4  A0 0D
- 865  FDD0              ; L_0DD6:
- 866  FDD0              ;         LDA ($F6),Y                  ; $0DD6  B1 F6
- 867  FDD0              ;         STA $F6                      ; $0DD8  85 F6
- 868  FDD0              ;         LDY $06F8                    ; $0DDA  AC F8 06
- 869  FDD0              ;         PLA                          ; $0DDD  68
- 870  FDD0              ;         JMP ($00F6)                ; $0DDE  6C F6 00
- 871  FDD0              ; L_0DE1:
- 872  FDD0              ;         PHA                          ; $0DE1  48
- 873  FDD0              ;         LDA #$00                     ; $0DE2  A9 00
- 874  FDD0              ;         JSR SUB_0DEF                 ; $0DE4  20 EF 0D
- 875  FDD0              ;         JSR SUB_0E1D                 ; $0DE7  20 1D 0E
- 876  FDD0              ;         LDY #$0F                     ; $0DEA  A0 0F
- 877  FDD0              ;         JMP L_0DD6                   ; $0DEC  4C D6 0D
- 878  FDD0              ; SUB_0DEF:
- 879  FDD0              ;         STY $F5                      ; $0DEF  84 F5
- 880  FDD0              ;         PHA                          ; $0DF1  48
- 881  FDD0              ;         JSR SUB_0E14                 ; $0DF2  20 14 0E
- 882  FDD0              ;         PLA                          ; $0DF5  68
- 883  FDD0              ;         LDY $F5                      ; $0DF6  A4 F5
- 884  FDD0              ;         BCC SUB_0DEF                 ; $0DF8  90 F5
- 885  FDD0              ;         RTS                          ; $0DFA  60
- 886  FDD0              ;         .byte   $00, $00, $00, $00, $00, $4C, $E9, $BB, $4C, $04, $BE, $A9, $01, $20, $EF, $0D ; $0DFB
- 887  FDD0              ;         .byte   $20, $1D, $0E, $48, $A0, $0E, $4C, $D6, $0D      ; $0E0B
- 888  FDD0              ; SUB_0E14:
- 889  FDD0              ;         PHA                          ; $0E14  48
- 890  FDD0              ;         JSR SUB_0E1D                 ; $0E15  20 1D 0E
- 891  FDD0              ;         LDY #$10                     ; $0E18  A0 10
- 892  FDD0              ;         JMP L_0DD6                   ; $0E1A  4C D6 0D
- 893  FDD0              ; SUB_0E1D:
- 894  FDD0              ;         TYA                          ; $0E1D  98
- 895  FDD0              ;         ORA #$C0                     ; $0E1E  09 C0
- 896  FDD0              ;         TAX                          ; $0E20  AA
- 897  FDD0              ;         TYA                          ; $0E21  98
- 898  FDD0              ;         ASL                          ; $0E22  0A
- 899  FDD0              ;         ASL                          ; $0E23  0A
- 900  FDD0              ;         ASL                          ; $0E24  0A
- 901  FDD0              ;         ASL                          ; $0E25  0A
- 902  FDD0              ;         TAY                          ; $0E26  A8
- 903  FDD0              ;         STY $06F8                    ; $0E27  8C F8 06
- 904  FDD0              ;         LDA #$00                     ; $0E2A  A9 00
- 905  FDD0              ;         STA $F6                      ; $0E2C  85 F6
- 906  FDD0              ;         STX $F7                      ; $0E2E  86 F7
- 907  FDD0              ;         LDA $CFFF                    ; $0E30  AD FF CF
- 908  FDD0              ;         LDA ($F6),Y                  ; $0E33  B1 F6
- 909  FDD0              ;         RTS                          ; $0E35  60
- 910  FDD0              ; SUB_0E1D_1:
- 911  FDD0              ;         LDA $48                      ; $0E36  A5 48
- 912  FDD0              ;         PHA                          ; $0E38  48
- 913  FDD0              ;         LDA $45                      ; $0E39  A5 45
- 914  FDD0              ;         LDX $46                      ; $0E3B  A6 46
- 915  FDD0              ;         LDY $47                      ; $0E3D  A4 47
- 916  FDD0              ;         PLP                          ; $0E3F  28
- 917  FDD0              ;         CLI                          ; $0E40  58
- 918  FDD0              ;         RTS                          ; $0E41  60
- 919  FDD0              ;   <<< end listing <<<
- 920  FDD0                      INCBIN "CPM_RPC6502_223.bin"     ; 114 bytes of 6502 (runs on the 6502 via the RPC)
- 921  FE42              ; DEV_READ_BIT -- device handler: poll a status bit until set, then read the data byte.
- 922  FE42              DEV_READ_BIT:
- 923  FE42 CD 81 FE             CALL SLOT_IO_ADDR
- 924  FE45              DEV_READ_WAIT:
- 925  FE45 7E                   LD A,(HL)
- 926  FE46 1F                   RRA                              ; ready bit -> carry
- 927  FE47 30 FC                JR NC,DEV_READ_WAIT
- 928  FE49 2C                   INC L
- 929  FE4A 7E                   LD A,(HL)                        ; read the data byte
- 930  FE4B C9                   RET
- 931  FE4C              DEV_OUT_1:                               ; default I/O vector handler (LIST stub)
- 932  FE4C 11 01 00             LD DE,$0001
- 933  FE4F              DEV_OUT_1_JP:
- 934  FE4F C3 5F FE             JP DEV_RET                       ; target (DEV_OUT_1_JP+1) patched at boot
- 935  FE52              ; DEV_WR_BIT -- device handler: wait for ready, then write C to the slot I/O port.
- 936  FE52              DEV_WR_BIT:
- 937  FE52 CD B1 FA             CALL DEVICE_IO_BASE
- 938  FE55 2E C1                LD L,$C1
- 939  FE57              DEV_WR_WAIT:
- 940  FE57 7E                   LD A,(HL)
- 941  FE58 17                   RLA                              ; ready bit -> carry
- 942  FE59 38 FC                JR C,DEV_WR_WAIT
- 943  FE5B CD 7C FE             CALL SLOT_IO_ADDR_W
- 944  FE5E 71                   LD (HL),C
- 945  FE5F              DEV_RET:
- 946  FE5F C9                   RET                              ; shared return (DEV_OUT_1/_2 JP here)
- 947  FE60              DEV_OUT_2:                               ; default I/O vector handler (PUNCH stub)
- 948  FE60 11 02 00             LD DE,$0002
- 949  FE63              DEV_OUT_2_JP:
- 950  FE63 C3 5F FE             JP DEV_RET                       ; target (DEV_OUT_2_JP+1) patched at boot
- 951  FE66              DEV_OUT_3:                               ; default I/O vector handler (READER stub)
- 952  FE66 11 02 00             LD DE,$0002
- 953  FE69              DEV_OUT_3_JP:
- 954  FE69 C3 00 00             JP $0000                         ; whole instruction built at boot (DEV_OUT_3_JP+0/+1/+2)
- 955  FE6C              ; ----------------------------------------------------------------------
- 956  FE6C              ; HOME -- BIOS jump-vector entry 8 ($FA18): seek the selected drive to track 0. [RE]
- 957  FE6C              ;   In:  none. Out: none. Clobbers: A,C.
- 958  FE6C              ;   Algorithm: if the host buffer still holds a pending write (hstwrt nonzero) leave
- 959  FE6C              ;     hstact set so the dirty buffer is not dropped; else clear hstact (host buffer
- 960  FE6C              ;     inactive). Then fall through into SETTRK_STORE with track 0. Mirrors the 2.20
- 961  FE6C              ;     twin HOME exactly; the actual head step happens later in the deblock path. [RE]
- 962  FE6C              ; ----------------------------------------------------------------------
- 963  FE6C              HOME:
- 964  FE6C                      ; read hstwrt (host-write-pending flag; lives in the BOOT install-template cells)
- 965  FE6C 3A D9 FE             LD A,(DISK_HSTWRT)
- 966  FE6F B7                   OR A
- 967  FE70                      ; pending write -> keep hstact set, skip the clear
- 968  FE70 20 03                JR NZ,SETTRK_STORE
- 969  FE72                      ; no pending write: clear hstact so the host buffer is reloaded on next access
- 970  FE72 32 D8 FE             LD (DISK_HSTACT),A
- 971  FE75              ; ----------------------------------------------------------------------
- 972  FE75              ; SETTRK_STORE -- HOME falls in here with track 0; common tail with SETTRK. [RE]
- 973  FE75              ;   In:  (HOME path) forces C=0. Out: stores sektrk. Clobbers: A,C.
- 974  FE75              ;   Algorithm: load C=0, then fall into SETTRK's store (the $FE77 vector body) which
- 975  FE75              ;     writes the track into the BOOT 'LD SP' operand byte reused as sektrk. [RE]
+ 304  FB04              ; CCP_LAUNCH -- final warm/cold-boot tail: set the CCP entry flag, jump to the CCP.
+ 305  FB04              ;   In:  none.  Out: JP $9300 (CCP cold/warm entry); no return.  Clobbers: A,C.
+ 306  FB04              ;   Algorithm: store a CCP-mode flag ($01) into $974E, pass the current default
+ 307  FB04              ;     drive (page-zero $0004) in C, and jump to the CCP at $9300. [RE]
+ 308  FB04              ; ----------------------------------------------------------------------
+ 309  FB04              CCP_LAUNCH:
+ 310  FB04                      ; CCP-mode flag value
+ 311  FB04 3E 01                LD A,$01
+ 312  FB06                      ; store the CCP entry/mode flag into CCP workspace at $974E
+ 313  FB06 32 4E 97             LD ($974E),A
+ 314  FB09                      ; page-zero $0004 = current default drive byte
+ 315  FB09 3A 04 00             LD A,($0004)
+ 316  FB0C 4F                   LD C,A
+ 317  FB0D                      ; enter the CCP at $9300, C = default drive (2.20 used $9400)
+ 318  FB0D C3 00 93             JP $9300
+ 319  FB10              ; ----------------------------------------------------------------------
+ 320  FB10              ; CONST -- CP/M console status: return $FF if a console char is ready, else $00.
+ 321  FB10              ;   In:  none.  Out: A = $FF (ready) / $00 (not).  Clobbers: A,HL.
+ 322  FB10              ;   Algorithm: load the console-status handler address from the SoftCard I/O vector
+ 323  FB10              ;     cell (z80 $F380 = Apple $0380) and JP (HL) to the 6502-serviced handler, which
+ 324  FB10              ;     returns the status in A.  Same as the 2.20 twin's CONST. [RE]
+ 325  FB10              ; ----------------------------------------------------------------------
+ 326  FB10              CONST:
+ 327  FB10                      ; z80 $F380 = Apple $0380 = console-status handler vector cell
+ 328  FB10 2A 80 F3             LD HL,($F380)
+ 329  FB13                      ; dispatch to the selected console-status handler (returns A)
+ 330  FB13 E9                   JP (HL)
+ 331  FB14              ; ----------------------------------------------------------------------
+ 332  FB14              ; KBD_STATUS_40COL -- 40-column console status via the Apple keyboard strobe.
+ 333  FB14              ;   In:  none.  Out: A = $FF if a key is waiting (bit 7 set at $C000), else $00.
+ 334  FB14              ;   Clobbers: A.
+ 335  FB14              ;   Algorithm: read z80 $E000 = Apple $C000 keyboard register; RLA shifts bit 7
+ 336  FB14              ;     (key-ready) into carry; SBC A,A expands carry to $FF/$00.  The built-in 40-col
+ 337  FB14              ;     CONST path used when no Videx/80-col card supplies the status vector. [RE]
+ 338  FB14              ; ----------------------------------------------------------------------
+ 339  FB14              KBD_STATUS_40COL:
+ 340  FB14                      ; z80 $E000 = Apple $C000 keyboard register (bit 7 = key ready)
+ 341  FB14 3A 00 E0             LD A,($E000)
+ 342  FB17                      ; rotate key-ready bit 7 into carry
+ 343  FB17 17                   RLA
+ 344  FB18                      ; carry -> A = $FF (ready) or $00 (none)
+ 345  FB18 9F                   SBC A,A
+ 346  FB19 C9                   RET
+ 347  FB1A              ; ----------------------------------------------------------------------
+ 348  FB1A              ; CONIN -- read a console character: IOBYTE-route the input, then remap the key.
+ 349  FB1A              ;   In:  none.  Out: A = (translated) key.  Clobbers: A,B,C,DE,HL.
+ 350  FB1A              ;   Algorithm: CALL CONIN_DISPATCH to fetch a raw key (routed by the IOBYTE CONSOLE
+ 351  FB1A              ;     field); clear the high bit; then scan a small remap table at Apple $03AB
+ 352  FB1A              ;     (z80 $F3AB) of up to 6 entries (function/arrow keys), returning the paired
+ 353  FB1A              ;     replacement byte on a match, else the raw key.
+ 354  FB1A              ;   Note: 2.23's CONIN jump-vector entry runs this remap wrapper; the 2.20 twin's
+ 355  FB1A              ;     equivalent is CONSOLE_IN_40COL.  Differs from a bare dispatcher. [RE]
+ 356  FB1A              ; ----------------------------------------------------------------------
+ 357  FB1A              CONIN:
+ 358  FB1A                      ; fetch a raw key in A via the IOBYTE-routed CONIN dispatcher
+ 359  FB1A CD 5A FB             CALL CONIN_DISPATCH_IOBYTE
+ 360  FB1D                      ; strip the high bit (7-bit ASCII)
+ 361  FB1D E6 7F                AND $7F
+ 362  FB1F                      ; HL = key-remap table base (z80 $F3AB = Apple $03AB; first entry pair at $03AC)
+ 363  FB1F 21 AB F3             LD HL,$F3AB
+ 364  FB22                      ; up to 6 remap-table entries
+ 365  FB22 06 06                LD B,$06
+ 366  FB24                      ; C = raw key
+ 367  FB24 4F                   LD C,A
+ 368  FB25              ; ----------------------------------------------------------------------
+ 369  FB25              ; CONIN_XLATE_LOOP -- scan the function/arrow-key remap table.
+ 370  FB25              ;   In:  C = raw key; B = entry count; HL -> table base.
+ 371  FB25              ;   Out: A = translated key on match (returns), else loops; A = C on table end.
+ 372  FB25              ;   Algorithm: each entry = [match byte, replacement byte]; a high-bit sentinel
+ 373  FB25              ;     match byte ends the table. [RE]
+ 374  FB25              ; ----------------------------------------------------------------------
+ 375  FB25              CONIN_XLATE_LOOP:
+ 376  FB25 23                   INC HL
+ 377  FB26                      ; entry's match byte
+ 378  FB26 7E                   LD A,(HL)
+ 379  FB27 23                   INC HL
+ 380  FB28 B7                   OR A
+ 381  FB29                      ; high-bit sentinel ends the table
+ 382  FB29 FA 31 FB             JP M,CONIN_XLATE_DONE
+ 383  FB2C                      ; raw key == this entry?
+ 384  FB2C B9                   CP C
+ 385  FB2D                      ; paired replacement byte
+ 386  FB2D 7E                   LD A,(HL)
+ 387  FB2E                      ; match -> return the translated key
+ 388  FB2E C8                   RET Z
+ 389  FB2F 10 F4                DJNZ CONIN_XLATE_LOOP
+ 390  FB31              ; ----------------------------------------------------------------------
+ 391  FB31              ; CONIN_XLATE_DONE -- no remap match: return the raw key in A. [RE]
+ 392  FB31              ; ----------------------------------------------------------------------
+ 393  FB31              CONIN_XLATE_DONE:
+ 394  FB31                      ; no match -> return the raw key
+ 395  FB31 79                   LD A,C
+ 396  FB32 C9                   RET
+ 397  FB33              ; ----------------------------------------------------------------------
+ 398  FB33              ; CONIN_KEYWAIT -- seed the keyboard-wait dispatch index, then wait for a key.
+ 399  FB33              ;   In:  none.  Out: A = 7-bit key (via KBD_WAIT_KEY).  Clobbers: A,DE.
+ 400  FB33              ;   Algorithm: load DE = 3 (the default console index), then JP through the
+ 401  FB33              ;     self-modified CONIN_DISPATCH cell; at boot that target is patched to the
+ 402  FB33              ;     selected keyboard-wait handler (default KBD_WAIT_KEY). [RE]
+ 403  FB33              ; ----------------------------------------------------------------------
+ 404  FB33              CONIN_KEYWAIT:
+ 405  FB33                      ; DE = 3 = default console-device index
+ 406  FB33 11 03 00             LD DE,$0003
+ 407  FB36              ; ----------------------------------------------------------------------
+ 408  FB36              ; CONIN_DISPATCH -- self-modified keyboard-wait vector.
+ 409  FB36              ;   The JP target ($FB39 / KBD_WAIT_KEY by default) is patched at boot per the
+ 410  FB36              ;   selected console card.  Referenced as CONIN_DISPATCH+1 by the patch site. [RE]
+ 411  FB36              ; ----------------------------------------------------------------------
+ 412  FB36              CONIN_DISPATCH:
+ 413  FB36                      ; target (CONIN_DISPATCH+1) patched at boot to the chosen keyboard-wait handler
+ 414  FB36 C3 39 FB             JP KBD_WAIT_KEY
+ 415  FB39              ; ----------------------------------------------------------------------
+ 416  FB39              ; KBD_WAIT_KEY -- spin on the Apple keyboard register until a key is down.
+ 417  FB39              ;   In:  none.  Out: A = 7-bit key (high bit cleared).  Clobbers: A.
+ 418  FB39              ;   Algorithm: poll z80 $E000 = Apple $C000; RLA puts key-ready (bit 7) into carry,
+ 419  FB39              ;     spin while clear; on a key, clear the strobe at $E010 = Apple $C010 and return
+ 420  FB39              ;     the 7-bit key (CCF/RRA). [RE]
+ 421  FB39              ; ----------------------------------------------------------------------
+ 422  FB39              KBD_WAIT_KEY:
+ 423  FB39                      ; poll z80 $E000 = Apple $C000 keyboard register
+ 424  FB39 3A 00 E0             LD A,($E000)
+ 425  FB3C                      ; key-ready (bit 7) -> carry
+ 426  FB3C 17                   RLA
+ 427  FB3D                      ; spin until a key is down
+ 428  FB3D 30 FA                JR NC,KBD_WAIT_KEY
+ 429  FB3F                      ; clear the keyboard strobe (z80 $E010 = Apple $C010)
+ 430  FB3F 32 10 E0             LD ($E010),A
+ 431  FB42 3F                   CCF
+ 432  FB43                      ; A = 7-bit key
+ 433  FB43 1F                   RRA
+ 434  FB44 C9                   RET
+ 435  FB45              ; ----------------------------------------------------------------------
+ 436  FB45              ; RPC_TRIGGER -- fire a SoftCard 6502<->Z80 RPC.
+ 437  FB45              ;   In:  HL = command/params; A = trigger value.  Out: per the 6502 service routine.
+ 438  FB45              ;   Algorithm: stash HL to the command mailbox (z80 $F3D0 = Apple $03D0), then poke
+ 439  FB45              ;     the trigger cell.  The trigger store-address ($0000 here) is self-modified per
+ 440  FB45              ;     config at boot, so the store site is RPC_TRIGGER_STORE+1. [RE]
+ 441  FB45              ; ----------------------------------------------------------------------
+ 442  FB45              RPC_TRIGGER:
+ 443  FB45                      ; z80 $F3D0 = Apple $03D0 = RPC command/params mailbox
+ 444  FB45 22 D0 F3             LD ($F3D0),HL
+ 445  FB48              RPC_TRIGGER_STORE:
+ 446  FB48 32 00 00             LD ($0000),A
+ 447  FB4B C9                   RET
+ 448  FB4C              ; ----------------------------------------------------------------------
+ 449  FB4C              ; CONOUT_DISPATCH -- emit a console character, routed by the CP/M IOBYTE.
+ 450  FB4C              ;   In:  A = character (the BIOS CONOUT arg).  The jump-vector CONOUT entry targets
+ 451  FB4C              ;        CONOUT_DISPATCH+1 ($FB4D), skipping the leading LD C,A; the fall-through
+ 452  FB4C              ;        entry here (from the dispatcher) keeps it.
+ 453  FB4C              ;   Out: none.  Clobbers: A,C,HL.
+ 454  FB4C              ;   Algorithm: read IOBYTE ($0003), mask the 2-bit CONSOLE field (AND $03).  Field
+ 455  FB4C              ;     value 2 dispatches through the SoftCard I/O vector at $F392 (Apple $0392) with
+ 456  FB4C              ;     JP (HL); otherwise fall into the column/tab filter. [RE]
+ 457  FB4C              ; ----------------------------------------------------------------------
+ 458  FB4C              CONOUT_DISPATCH:
+ 459  FB4C                      ; save the character to emit in C for the filter path (skipped by the +1 entry)
+ 460  FB4C 4F                   LD C,A
+ 461  FB4D                      ; read the CP/M IOBYTE (page-zero $0003)
+ 462  FB4D 3A 03 00             LD A,($0003)
+ 463  FB50                      ; isolate the 2-bit CONSOLE device field of the IOBYTE
+ 464  FB50 E6 03                AND $03
+ 465  FB52                      ; device value 2 = direct console; anything else takes the filter path
+ 466  FB52 FE 02                CP $02
+ 467  FB54 20 4B                JR NZ,CONOUT_FILTER_NOEXPAND
+ 468  FB56              CONOUT_VIA_VEC_F392:
+ 469  FB56                      ; load console-output handler addr from SoftCard I/O vector ($F392 = Apple $0392)
+ 470  FB56 2A 92 F3             LD HL,($F392)
+ 471  FB59 E9                   JP (HL)
+ 472  FB5A              ; ----------------------------------------------------------------------
+ 473  FB5A              ; CONIN_DISPATCH_IOBYTE -- read a console character, routed by the IOBYTE CONSOLE field.
+ 474  FB5A              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
+ 475  FB5A              ;   Algorithm: read IOBYTE, mask the CONSOLE field (AND $03).  Value 2 uses vector
+ 476  FB5A              ;     $F38A; the high value ($02<x) uses the preloaded $F384; low values use $F382;
+ 477  FB5A              ;     then JP (HL) into the chosen handler.  ($F38x = Apple $038x I/O vector.)
+ 478  FB5A              ;     Called by CONIN (the remap wrapper) and reused by READER. [RE]
+ 479  FB5A              ; ----------------------------------------------------------------------
+ 480  FB5A              CONIN_DISPATCH_IOBYTE:
+ 481  FB5A                      ; read the CP/M IOBYTE
+ 482  FB5A 3A 03 00             LD A,($0003)
+ 483  FB5D                      ; isolate the 2-bit CONSOLE device field
+ 484  FB5D E6 03                AND $03
+ 485  FB5F FE 02                CP $02
+ 486  FB61                      ; preload the input vector for the high CONSOLE value ($F384 = Apple $0384)
+ 487  FB61 2A 84 F3             LD HL,($F384)
+ 488  FB64 28 06                JR Z,CONIN_VIA_VEC_F38A
+ 489  FB66 30 07                JR NC,DISPATCH_VIA_HL
+ 490  FB68              CONIN_VIA_VEC_F382:
+ 491  FB68                      ; input vector for the low CONSOLE values ($F382 = Apple $0382)
+ 492  FB68 2A 82 F3             LD HL,($F382)
+ 493  FB6B E9                   JP (HL)
+ 494  FB6C              CONIN_VIA_VEC_F38A:
+ 495  FB6C                      ; input vector for CONSOLE value 2 ($F38A = Apple $038A)
+ 496  FB6C 2A 8A F3             LD HL,($F38A)
+ 497  FB6F              DISPATCH_VIA_HL:
+ 498  FB6F E9                   JP (HL)
+ 499  FB70              ; ----------------------------------------------------------------------
+ 500  FB70              ; LIST -- emit a character to the list device, routed by the IOBYTE LIST field.
+ 501  FB70              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
+ 502  FB70              ;   Algorithm: read IOBYTE, mask the top 2-bit LIST field (AND $C0).  Below $80
+ 503  FB70              ;     routes to the column/tab filter; == $80 reuses the console vector path
+ 504  FB70              ;     (CONOUT_VIA_VEC_F392); higher values dispatch through list vector $F394
+ 505  FB70              ;     (Apple $0394). [RE]
+ 506  FB70              ; ----------------------------------------------------------------------
+ 507  FB70              LIST:
+ 508  FB70 3A 03 00             LD A,($0003)
+ 509  FB73                      ; isolate the 2-bit LIST device field (top bits of the IOBYTE)
+ 510  FB73 E6 C0                AND $C0
+ 511  FB75 FE 80                CP $80
+ 512  FB77                      ; field < $80 -> no-device / filter path
+ 513  FB77 38 27                JR C,DISPATCH_NODEV
+ 514  FB79                      ; field == $80 -> reuse the console output vector path
+ 515  FB79 28 DB                JR Z,CONOUT_VIA_VEC_F392
+ 516  FB7B                      ; list-handler vector ($F394 = Apple $0394)
+ 517  FB7B 2A 94 F3             LD HL,($F394)
+ 518  FB7E E9                   JP (HL)
+ 519  FB7F              ; ----------------------------------------------------------------------
+ 520  FB7F              ; PUNCH -- emit a character to the punch device, routed by the IOBYTE PUNCH field.
+ 521  FB7F              ;   In:  C = character.  Out: none.  Clobbers: A,HL.
+ 522  FB7F              ;   Algorithm: read IOBYTE, mask the PUNCH field (AND $30).  Below $10 takes the
+ 523  FB7F              ;     column/tab filter; == $10 dispatches through vector $F38E; higher values use
+ 524  FB7F              ;     vector $F390.  ($F38E/$F390 = Apple $038E/$0390.) [RE]
+ 525  FB7F              ; ----------------------------------------------------------------------
+ 526  FB7F              PUNCH:
+ 527  FB7F 3A 03 00             LD A,($0003)
+ 528  FB82                      ; isolate the 2-bit PUNCH device field of the IOBYTE
+ 529  FB82 E6 30                AND $30
+ 530  FB84 FE 10                CP $10
+ 531  FB86                      ; field < $10 -> no-device / filter path
+ 532  FB86 38 18                JR C,DISPATCH_NODEV
+ 533  FB88                      ; punch vector for the higher PUNCH values ($F38E = Apple $038E)
+ 534  FB88 2A 8E F3             LD HL,($F38E)
+ 535  FB8B                      ; field == $10 -> use the $F390 vector below
+ 536  FB8B 28 E2                JR Z,DISPATCH_VIA_HL
+ 537  FB8D                      ; punch vector for PUNCH value $10 ($F390 = Apple $0390)
+ 538  FB8D 2A 90 F3             LD HL,($F390)
+ 539  FB90 E9                   JP (HL)
+ 540  FB91              ; ----------------------------------------------------------------------
+ 541  FB91              ; READER -- read a character from the reader device, routed by the IOBYTE READER field.
+ 542  FB91              ;   In:  none.  Out: A = character.  Clobbers: A,HL.
+ 543  FB91              ;   Algorithm: read IOBYTE, mask the READER field (AND $0C), compare against $08. Field
+ 544  FB91              ;     < $08 ($00/$04) reuses the CONIN $F382 vector; == $08 reuses the CONIN $F38A vector;
+ 545  FB91              ;     > $08 ($0C) uses the reader vector $F38C (Apple $038C). [RE]
+ 546  FB91              ; ----------------------------------------------------------------------
+ 547  FB91              READER:
+ 548  FB91 3A 03 00             LD A,($0003)
+ 549  FB94                      ; isolate the 2-bit READER device field of the IOBYTE
+ 550  FB94 E6 0C                AND $0C
+ 551  FB96 FE 08                CP $08
+ 552  FB98                      ; field < $08 ($00/$04) -> reuse the CONIN $F382 vector path
+ 553  FB98 38 CE                JR C,CONIN_VIA_VEC_F382
+ 554  FB9A                      ; field == $08 -> reuse the CONIN $F38A vector path
+ 555  FB9A 28 D0                JR Z,CONIN_VIA_VEC_F38A
+ 556  FB9C                      ; reader-handler vector ($F38C = Apple $038C)
+ 557  FB9C 2A 8C F3             LD HL,($F38C)
+ 558  FB9F E9                   JP (HL)
+ 559  FBA0              ; ----------------------------------------------------------------------
+ 560  FBA0              ; DISPATCH_NODEV -- IOBYTE field selects no physical device: fall into the filter.
+ 561  FBA0              ;   In:  carry set by the caller (no-device).  Out: enters CONOUT_FILTER_NOEXPAND
+ 562  FBA0              ;        with the carry folded into the COL_FLAG byte.  Clobbers: A,HL.
+ 563  FBA0              ;   Algorithm: SCF then (CONOUT_FILTER_NOEXPAND) SBC A,A turns carry into a 0/$FF
+ 564  FBA0              ;     flag stored in COL_FLAG ($FECB); clear bit 7 of the char in C; if the pending-
+ 565  FBA0              ;     column counter ($FECC) is nonzero, apply a config-driven column offset, else
+ 566  FBA0              ;     fall through to the tab/control expansion (SETDMA_1). [RE]
+ 567  FBA0              ; ----------------------------------------------------------------------
+ 568  FBA0              DISPATCH_NODEV:
+ 569  FBA0                      ; carry-set entry: mark the expand flag before SBC A,A turns it into $FF
+ 570  FBA0 37                   SCF
+ 571  FBA1              CONOUT_FILTER_NOEXPAND:
+ 572  FBA1                      ; convert carry into a 0/$FF flag byte for COL_FLAG
+ 573  FBA1 9F                   SBC A,A
+ 574  FBA2 21 A2 F3             LD HL,$F3A2
+ 575  FBA5 6E                   LD L,(HL)
+ 576  FBA6 2C                   INC L
+ 577  FBA7 CA A4 FC             JP Z,SCREEN_EMIT
+ 578  FBAA                      ; HL -> COL_FLAG cell ($FECB)
+ 579  FBAA 21 CB FE             LD HL,COL_FLAG
+ 580  FBAD                      ; store the entry flag into COL_FLAG
+ 581  FBAD 77                   LD (HL),A
+ 582  FBAE                      ; strip the high bit of the character (7-bit ASCII)
+ 583  FBAE CB B9                RES 7,C
+ 584  FBB0 23                   INC HL
+ 585  FBB1                      ; load COL_PENDING (pending column-skip / fill count, $FECC)
+ 586  FBB1 7E                   LD A,(HL)
+ 587  FBB2 B7                   OR A
+ 588  FBB3                      ; no pending column work -> run tab/control expansion
+ 589  FBB3 CA 56 FC             JP Z,SETDMA_1
+ 590  FBB6                      ; consume one pending column step
+ 591  FBB6 35                   DEC (HL)
+ 592  FBB7                      ; read screen-width / left-margin config byte ($F396 = Apple $0396)
+ 593  FBB7 3A 96 F3             LD A,($F396)
+ 594  FBBA                      ; HL -> the column cell in the $FE85 deblock/screen-state band ($FED4)
+ 595  FBBA 21 D4 FE             LD HL,BOOT_TMPL_XORA
+ 596  FBBD                      ; config byte zero -> derive the offset from the running width
+ 597  FBBD 28 0C                JR Z,COL_OFFSET_FROM_WIDTH
+ 598  FBBF B7                   OR A
+ 599  FBC0 F2 C6 FB             JP P,COL_APPLY_OFFSET_RAW
+ 600  FBC3 2B                   DEC HL
+ 601  FBC4              ; ----------------------------------------------------------------------
+ 602  FBC4              ; COL_APPLY_OFFSET -- apply a signed config offset to the running column position.
+ 603  FBC4              ;   In:  A = config byte (sign bit = direction); C = current column; HL -> column cell.
+ 604  FBC4              ;   Out: (HL) = C - offset.  Clobbers: A,E.
+ 605  FBC4              ;   Algorithm: AND $7F drops the sign bit to the magnitude, subtract it from the
+ 606  FBC4              ;     current column in C, store the new column.  Reached when the config byte's sign
+ 607  FBC4              ;     indicates a subtractive column adjust. [RE]
+ 608  FBC4              ; ----------------------------------------------------------------------
+ 609  FBC4              COL_APPLY_OFFSET:
+ 610  FBC4                      ; drop the sign bit to get the offset magnitude
+ 611  FBC4 E6 7F                AND $7F
+ 612  FBC6              COL_APPLY_OFFSET_RAW:
+ 613  FBC6 5F                   LD E,A
+ 614  FBC7 79                   LD A,C
+ 615  FBC8                      ; new column = current column (C) minus the offset
+ 616  FBC8 93                   SUB E
+ 617  FBC9                      ; store the updated column position
+ 618  FBC9 77                   LD (HL),A
+ 619  FBCA C9                   RET
+ 620  FBCB              ; ----------------------------------------------------------------------
+ 621  FBCB              ; COL_OFFSET_FROM_WIDTH -- derive the column offset from the running screen width.
+ 622  FBCB              ;   In:  C = current column; the BOOT-overlaid base word at (BOOT+2).
+ 623  FBCB              ;   Out: updates the column and emits via SCREEN_EMIT; combines a base address with
+ 624  FBCB              ;        the offset.  Clobbers: A,B,C,DE,HL.
+ 625  FBCB              ;   Algorithm: pick the column cell by the config sign, CALL COL_APPLY_OFFSET, then
+ 626  FBCB              ;     load the base word (BOOT+2 = the cold-boot operand reused as deblock
+ 627  FBCB              ;     scratch), fold in config $F3A1, and ADD to form the screen address before
+ 628  FBCB              ;     emitting (SCREEN_EMIT). [RE]
+ 629  FBCB              ; ----------------------------------------------------------------------
+ 630  FBCB              COL_OFFSET_FROM_WIDTH:
+ 631  FBCB B7                   OR A
+ 632  FBCC                      ; config sign negative -> keep the higher column cell
+ 633  FBCC FA D0 FB             JP M,COL_OFFSET_FROM_WIDTH_1
+ 634  FBCF 2B                   DEC HL
+ 635  FBD0              COL_OFFSET_FROM_WIDTH_1:
+ 636  FBD0                      ; apply the signed column offset (COL_APPLY_OFFSET)
+ 637  FBD0 CD C4 FB             CALL COL_APPLY_OFFSET
+ 638  FBD3                      ; base word = the BOOT-overlaid deblock scratch ($FED3)
+ 639  FBD3 2A D3 FE             LD HL,(BOOT+2)
+ 640  FBD6                      ; config byte $F3A1 = Apple $03A1 (screen-base modifier)
+ 641  FBD6 3A A1 F3             LD A,($F3A1)
+ 642  FBD9 B7                   OR A
+ 643  FBDA                      ; config positive -> use HL as-is, skip the byte swap
+ 644  FBDA F2 E2 FB             JP P,COL_COMBINE_BASE
+ 645  FBDD                      ; negative: drop the sign bit, then swap H<->L below
+ 646  FBDD E6 7F                AND $7F
+ 647  FBDF 5D                   LD E,L
+ 648  FBE0 6C                   LD L,H
+ 649  FBE1 63                   LD H,E
+ 650  FBE2              ; ----------------------------------------------------------------------
+ 651  FBE2              ; COL_COMBINE_BASE -- fold the config offset into the base address, emit the char.
+ 652  FBE2              ;   In:  A = config offset; HL = base word; C will receive the high result.
+ 653  FBE2              ;   Out: pushes the low result, emits via SCREEN_EMIT with B=7, then re-enters the
+ 654  FBE2              ;        emit path with B=$0A.  Clobbers: A,B,C,DE,HL.
+ 655  FBE2              ;   Algorithm: C = offset + H; A = offset + L; CALL SCREEN_EMIT (B=7), then fall into
+ 656  FBE2              ;     CONOUT_EMIT_B with B=$0A. [RE]
+ 657  FBE2              ; ----------------------------------------------------------------------
+ 658  FBE2              COL_COMBINE_BASE:
+ 659  FBE2 5F                   LD E,A
+ 660  FBE3                      ; C = config offset + base high byte
+ 661  FBE3 84                   ADD A,H
+ 662  FBE4 4F                   LD C,A
+ 663  FBE5 7B                   LD A,E
+ 664  FBE6                      ; A = config offset + base low byte
+ 665  FBE6 85                   ADD A,L
+ 666  FBE7 F5                   PUSH AF
+ 667  FBE8                      ; mode/count code 7 for the screen emit
+ 668  FBE8 06 07                LD B,$07
+ 669  FBEA                      ; emit via the screen handler (SCREEN_EMIT)
+ 670  FBEA CD A4 FC             CALL SCREEN_EMIT
+ 671  FBED F1                   POP AF
+ 672  FBEE                      ; mode/count code $0A for the follow-up emit
+ 673  FBEE 06 0A                LD B,$0A
+ 674  FBF0              CHAR_C_TO_SCREEN:
+ 675  FBF0 4F                   LD C,A
+ 676  FBF1 C3 A4 FC             JP SCREEN_EMIT
+ 677  FBF4              ; ----------------------------------------------------------------------
+ 678  FBF4              ; SETSEC -- BIOS jump-vector entry 11 ($FA24 -> $FBF4): set the requested sector.
+ 679  FBF4              ;   In:  C = sector number. Out: none. Clobbers: A.
+ 680  FBF4              ;   Algorithm: store C into the sector cell BOOT+1 ($FED2 = the cold-boot LD SP operand
+ 681  FBF4              ;        low byte, reused post-boot as the requested-sector cell). The off-image RWTS
+ 682  FBF4              ;        ($AC39/$AC49) is the consumer; this image only WRITES it. Mirrors 2.20 SETSEC.
+ 683  FBF4              ;        [RE, transferred from 2.20; the off-image consumer is not in this image]
+ 684  FBF4              ; ----------------------------------------------------------------------
+ 685  FBF4              SETSEC:
+ 686  FBF4 79                   LD A,C
+ 687  FBF5                      ; store the requested sector into BOOT+1 (reused as the seksec cell)
+ 688  FBF5 32 D2 FE             LD (BOOT+1),A
+ 689  FBF8 C9                   RET
+ 690  FBF9              ; ----------------------------------------------------------------------
+ 691  FBF9              ; SETDMA -- BIOS jump-vector entry 12 ($FA27 -> $FBF9): set the DMA address.
+ 692  FBF9              ;   In:  BC = DMA buffer address (the 128-byte CP/M record source/destination).
+ 693  FBF9              ;   Out: none. Clobbers: none.
+ 694  FBF9              ;   Algorithm: store BC into the dmaadr cell (SECTOR_BLOCK_PATCH+2 = $FEE1, the
+ 695  FBF9              ;        operand region of the install-template 'LD ($0003),A'). The OFF-IMAGE
+ 696  FBF9              ;        deblock copy uses dmaadr as the host<->record transfer endpoint. The 2.20
+ 697  FBF9              ;        deblock did the LDIR itself; in 2.23 the value is read off-image. [RE]
+ 698  FBF9              ; ----------------------------------------------------------------------
+ 699  FBF9              SETDMA:
+ 700  FBF9                      ; store BC into dmaadr ($FEE1, overlaid on the install-template LD ($0003),A operand)
+ 701  FBF9 ED 43 E1 FE          LD (DISK_DMAADR+2),BC
+ 702  FBFD C9                   RET
+ 703  FBFE 00 00 00...          DEFS    88, $00                  ; fill
+ 704  FC56              SETDMA_1:
+ 705  FC56 47                   LD B,A
+ 706  FC57 21 CD FE             LD HL,COL_STATE
+ 707  FC5A 7E                   LD A,(HL)
+ 708  FC5B 5F                   LD E,A
+ 709  FC5C B7                   OR A
+ 710  FC5D 20 12                JR NZ,SETDMA_3
+ 711  FC5F 3A 97 F3             LD A,($F397)
+ 712  FC62 B7                   OR A
+ 713  FC63 28 06                JR Z,SETDMA_2
+ 714  FC65 B9                   CP C
+ 715  FC66 20 03                JR NZ,SETDMA_2
+ 716  FC68 36 80                LD (HL),$80
+ 717  FC6A C9                   RET
+ 718  FC6B              SETDMA_2:
+ 719  FC6B 3E 1F                LD A,$1F
+ 720  FC6D B9                   CP C
+ 721  FC6E DA A4 FC             JP C,SCREEN_EMIT
+ 722  FC71              SETDMA_3:
+ 723  FC71 21 A0 F3             LD HL,$F3A0
+ 724  FC74 06 09                LD B,$09
+ 725  FC76              SETDMA_4:
+ 726  FC76 7E                   LD A,(HL)
+ 727  FC77 B7                   OR A
+ 728  FC78 28 04                JR Z,SETDMA_5
+ 729  FC7A AB                   XOR E
+ 730  FC7B B9                   CP C
+ 731  FC7C 28 05                JR Z,SETDMA_6
+ 732  FC7E              SETDMA_5:
+ 733  FC7E 2B                   DEC HL
+ 734  FC7F 10 F5                DJNZ SETDMA_4
+ 735  FC81 18 21                JR SCREEN_EMIT
+ 736  FC83              SETDMA_6:
+ 737  FC83 11 0B 00             LD DE,$000B
+ 738  FC86 19                   ADD HL,DE
+ 739  FC87 7E                   LD A,(HL)
+ 740  FC88 B7                   OR A
+ 741  FC89 4F                   LD C,A
+ 742  FC8A F2 9A FC             JP P,SETDMA_7
+ 743  FC8D E6 7F                AND $7F
+ 744  FC8F 4F                   LD C,A
+ 745  FC90 C5                   PUSH BC
+ 746  FC91 3A A2 F3             LD A,($F3A2)
+ 747  FC94 06 07                LD B,$07
+ 748  FC96 CD F0 FB             CALL CHAR_C_TO_SCREEN
+ 749  FC99 C1                   POP BC
+ 750  FC9A              SETDMA_7:
+ 751  FC9A 78                   LD A,B
+ 752  FC9B FE 07                CP $07
+ 753  FC9D 20 05                JR NZ,SCREEN_EMIT
+ 754  FC9F 3E 02                LD A,$02
+ 755  FCA1 32 CC FE             LD (COL_PENDING),A
+ 756  FCA4              SCREEN_EMIT:
+ 757  FCA4 AF                   XOR A
+ 758  FCA5 32 CD FE             LD (COL_STATE),A
+ 759  FCA8 3A CB FE             LD A,(COL_FLAG)
+ 760  FCAB B7                   OR A
+ 761  FCAC 2A 88 F3             LD HL,($F388)
+ 762  FCAF 28 03                JR Z,SCREEN_EMIT_1
+ 763  FCB1 2A 86 F3             LD HL,($F386)
+ 764  FCB4              SCREEN_EMIT_1:
+ 765  FCB4 E9                   JP (HL)
+ 766  FCB5              SCREEN_EMIT_2:
+ 767  FCB5 11 03 00             LD DE,$0003
+ 768  FCB8              SCREEN_EMIT_3:
+ 769  FCB8 C3 BB FC             JP SCREEN_EMIT_4
+ 770  FCBB              SCREEN_EMIT_4:
+ 771  FCBB 2A CE FE             LD HL,(SCREEN_CURSOR_PTR)
+ 772  FCBE 3A D0 FE             LD A,(SCREEN_CHAR)
+ 773  FCC1 77                   LD (HL),A
+ 774  FCC2 CD E2 FC             CALL CTRL_CHAR_DISPATCH
+ 775  FCC5 2A 28 F0             LD HL,($F028)
+ 776  FCC8 3A 24 F0             LD A,($F024)
+ 777  FCCB 5F                   LD E,A
+ 778  FCCC 16 F0                LD D,$F0
+ 779  FCCE 19                   ADD HL,DE
+ 780  FCCF 22 CE FE             LD (SCREEN_CURSOR_PTR),HL
+ 781  FCD2 7E                   LD A,(HL)
+ 782  FCD3 32 D0 FE             LD (SCREEN_CHAR),A
+ 783  FCD6 FE E0                CP $E0
+ 784  FCD8 38 02                JR C,SCREEN_EMIT_5
+ 785  FCDA EE 20                XOR $20
+ 786  FCDC              SCREEN_EMIT_5:
+ 787  FCDC E6 3F                AND $3F
+ 788  FCDE F6 40                OR $40
+ 789  FCE0 77                   LD (HL),A
+ 790  FCE1 C9                   RET
+ 791  FCE2              CTRL_CHAR_DISPATCH:
+ 792  FCE2 78                   LD A,B
+ 793  FCE3 B7                   OR A
+ 794  FCE4 28 0B                JR Z,CTRL_PLAIN_CHAR
+ 795  FCE6 21 45 FB             LD HL,RPC_TRIGGER
+ 796  FCE9 E5                   PUSH HL
+ 797  FCEA 21 66 FD             LD HL,CTRL_HANDLER_OFFSET_TBL
+ 798  FCED 85                   ADD A,L
+ 799  FCEE 6F 6E E9             DEFB    $6F,$6E,$E9
+ 800  FCF1              CTRL_PLAIN_CHAR:
+ 801  FCF1 79 FE 0D 20          DEFB    $79,$FE,$0D,$20,$05
+ 801  FCF5 05
+ 802  FCF6 AF 32 24 F0          DEFB    $AF,$32,$24,$F0,$C9,$F6,$80 ; "/2$pIv"
+ 802  FCFA C9 F6 80
+ 803  FCFD FE E0 38 04          DEFB    $FE,$E0,$38,$04
+ 804  FD01 21 DD F3 AE          DEFB    $21,$DD,$F3,$AE,$32,$45,$F0,$21,$F0,$FD,$C3,$80 ; "!]s.2Ep!p}C"
+ 804  FD05 32 45 F0 21
+ 804  FD09 F0 FD C3 80
+ 805  FD0D FD CD 81 FE          DEFB    $FD,$CD,$81,$FE,$C6,$8F
+ 805  FD11 C6 8F
+ 806  FD13 CB 4E 28 FC          DEFB    $CB,$4E,$28,$FC,$21,$2F,$F0,$36,$60,$2B,$36,$C0,$2B,$77,$2B,$36 ; "KN(|!/p6`+6@+w+6"
+ 806  FD17 21 2F F0 36
+ 806  FD1B 60 2B 36 C0
+ 806  FD1F 2B 77 2B 36
+ 807  FD23 8D                   DEFB    $8D
+ 808  FD24 62 C3 7C FD          DEFB    $62,$C3,$7C,$FD,$3E,$FF,$01,$3E,$3F,$32,$32,$F0,$E1,$C9,$21,$F4
+ 808  FD28 3E FF 01 3E
+ 808  FD2C 3F 32 32 F0
+ 808  FD30 E1 C9 21 F4
+ 809  FD34 FB C9 AF 6F          DEFB    $FB,$C9,$AF,$6F,$67,$22,$24,$F0,$32,$45,$F0,$21,$C1,$FB,$C9,$2E
+ 809  FD38 67 22 24 F0
+ 809  FD3C 32 45 F0 21
+ 809  FD40 C1 FB C9 2E
+ 810  FD44 42 01 2E 9C          DEFB    $42,$01,$2E,$9C,$01,$2E,$1A,$01,$2E,$58,$26,$FC,$C9,$2A,$D3,$FE
+ 810  FD48 01 2E 1A 01
+ 810  FD4C 2E 58 26 FC
+ 810  FD50 C9 2A D3 FE
+ 811  FD54 7D FE 28 38          DEFB    $7D,$FE,$28,$38,$02,$2E,$00,$7C,$FE,$18,$38,$02,$26,$00,$22,$24
+ 811  FD58 02 2E 00 7C
+ 811  FD5C FE 18 38 02
+ 811  FD60 26 00 22 24
+ 812  FD64 F0 18                DEFB    $F0,$18
+ 813  FD66              CTRL_HANDLER_OFFSET_TBL:
+ 814  FD66 D5 4C 43 46          DEFB    $D5,$4C,$43,$46,$28,$2B,$36,$30,$49,$32,$51,$CD ; "ULCF(+60I2QM"
+ 814  FD6A 28 2B 36 30
+ 814  FD6E 49 32 51 CD
+ 815  FD72 83 FD 21 78          DEFB    $83,$FD,$21,$78,$F6,$19,$71,$21,$AA,$C9,$79,$32,$45,$F0,$C3,$45
+ 815  FD76 F6 19 71 21
+ 815  FD7A AA C9 79 32
+ 815  FD7E 45 F0 C3 45
+ 816  FD82 FB                   DEFB    $FB
+ 817  FD83              SET_SCREEN_BASE:
+ 818  FD83 CD 7C FE             CALL SLOT_IO_ADDR_W
+ 819  FD86 32 F8 F6             LD ($F6F8),A
+ 820  FD89 32 47 F0             LD ($F047),A
+ 821  FD8C 3A FF EF             LD A,($EFFF)
+ 822  FD8F CD B1 FA             CALL DEVICE_IO_BASE
+ 823  FD92 D6 20                SUB $20
+ 824  FD94 32 46 F0             LD ($F046),A
+ 825  FD97 7E                   LD A,(HL)
+ 826  FD98 C9                   RET
+ 827  FD99              SET_SCREEN_BASE_1:
+ 828  FD99 21 14 0E             LD HL,$0E14
+ 829  FD9C 1E 03                LD E,$03
+ 830  FD9E 3E 01                LD A,$01
+ 831  FDA0 CD AD FD             CALL SET_CURSOR_COL_AND_BASE
+ 832  FDA3 3A 48 F0             LD A,($F048)
+ 833  FDA6 1F                   RRA
+ 834  FDA7 9F                   SBC A,A
+ 835  FDA8 C9                   RET
+ 836  FDA9 21 E1 0D 79          DEFB    $21,$E1,$0D,$79
+ 837  FDAD              SET_CURSOR_COL_AND_BASE:
+ 838  FDAD 32 45 F0             LD ($F045),A
+ 839  FDB0              PLOT_CHAR_RPC:
+ 840  FDB0 7B                   LD A,E
+ 841  FDB1 32 47 F0             LD ($F047),A
+ 842  FDB4 C3 45 FB             JP RPC_TRIGGER
+ 843  FDB7              PLOT_CHAR_RPC_1:
+ 844  FDB7 21 06 0E             LD HL,$0E06
+ 845  FDBA CD B0 FD             CALL PLOT_CHAR_RPC
+ 846  FDBD 3A 45 F0             LD A,($F045)
+ 847  FDC0 C9                   RET
+ 848  FDC1              ; SCREEN_RPC_HELPER -- read back a screen byte via the RPC: position, fire the RPC, fetch.
+ 849  FDC1              SCREEN_RPC_HELPER:
+ 850  FDC1 CD 83 FD             CALL SET_SCREEN_BASE                    ; compute the screen base for the current row
+ 851  FDC4 21 4D C8             LD HL,$C84D                      ; 6502 RPC parameter (Apple expansion-ROM addr)
+ 852  FDC7 CD 45 FB             CALL RPC_TRIGGER                 ; run the embedded 6502 service on the 6502
+ 853  FDCA 21 78 F6             LD HL,$F678                      ; HL = row buffer base (Apple $0678)
+ 854  FDCD 19                   ADD HL,DE
+ 855  FDCE 7E                   LD A,(HL)                        ; read back the character
+ 856  FDCF C9                   RET
+ 857  FDD0              ; RPC6502_SERVICE_223 -- the embedded 6502 RPC service ($FDD0-$FE41 = Apple $0DD0); its
+ 858  FDD0              ; own ca65 source CPM_RPC6502_223.s is sub-assembled and INCBIN'd here (the 2.20
+ 859  FDD0              ; CPM_RPC6502 pattern). It forms a slot-ROM pointer ($CFFF disables expansion ROM),
+ 860  FDD0              ; LDA ($F6),Y, and JMP ($00F6) dispatches into the selected slot-ROM/firmware routine.
+ 861  FDD0              RPC6502_SERVICE_223:
+ 862  FDD0              ;   >>> CPM_RPC6502_223.s -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
+ 863  FDD0              ;
+ 864  FDD0              ; .org $0DD0
+ 865  FDD0              ;
+ 866  FDD0              ; L_0DD0:
+ 867  FDD0              ;         PHA                          ; $0DD0  48
+ 868  FDD0              ;         JSR SUB_0E1D                 ; $0DD1  20 1D 0E
+ 869  FDD0              ;         LDY #$0D                     ; $0DD4  A0 0D
+ 870  FDD0              ; L_0DD6:
+ 871  FDD0              ;         LDA ($F6),Y                  ; $0DD6  B1 F6
+ 872  FDD0              ;         STA $F6                      ; $0DD8  85 F6
+ 873  FDD0              ;         LDY $06F8                    ; $0DDA  AC F8 06
+ 874  FDD0              ;         PLA                          ; $0DDD  68
+ 875  FDD0              ;         JMP ($00F6)                ; $0DDE  6C F6 00
+ 876  FDD0              ; L_0DE1:
+ 877  FDD0              ;         PHA                          ; $0DE1  48
+ 878  FDD0              ;         LDA #$00                     ; $0DE2  A9 00
+ 879  FDD0              ;         JSR SUB_0DEF                 ; $0DE4  20 EF 0D
+ 880  FDD0              ;         JSR SUB_0E1D                 ; $0DE7  20 1D 0E
+ 881  FDD0              ;         LDY #$0F                     ; $0DEA  A0 0F
+ 882  FDD0              ;         JMP L_0DD6                   ; $0DEC  4C D6 0D
+ 883  FDD0              ; SUB_0DEF:
+ 884  FDD0              ;         STY $F5                      ; $0DEF  84 F5
+ 885  FDD0              ;         PHA                          ; $0DF1  48
+ 886  FDD0              ;         JSR SUB_0E14                 ; $0DF2  20 14 0E
+ 887  FDD0              ;         PLA                          ; $0DF5  68
+ 888  FDD0              ;         LDY $F5                      ; $0DF6  A4 F5
+ 889  FDD0              ;         BCC SUB_0DEF                 ; $0DF8  90 F5
+ 890  FDD0              ;         RTS                          ; $0DFA  60
+ 891  FDD0              ;         .byte   $00, $00, $00, $00, $00, $4C, $E9, $BB, $4C, $04, $BE, $A9, $01, $20, $EF, $0D ; $0DFB
+ 892  FDD0              ;         .byte   $20, $1D, $0E, $48, $A0, $0E, $4C, $D6, $0D      ; $0E0B
+ 893  FDD0              ; SUB_0E14:
+ 894  FDD0              ;         PHA                          ; $0E14  48
+ 895  FDD0              ;         JSR SUB_0E1D                 ; $0E15  20 1D 0E
+ 896  FDD0              ;         LDY #$10                     ; $0E18  A0 10
+ 897  FDD0              ;         JMP L_0DD6                   ; $0E1A  4C D6 0D
+ 898  FDD0              ; SUB_0E1D:
+ 899  FDD0              ;         TYA                          ; $0E1D  98
+ 900  FDD0              ;         ORA #$C0                     ; $0E1E  09 C0
+ 901  FDD0              ;         TAX                          ; $0E20  AA
+ 902  FDD0              ;         TYA                          ; $0E21  98
+ 903  FDD0              ;         ASL                          ; $0E22  0A
+ 904  FDD0              ;         ASL                          ; $0E23  0A
+ 905  FDD0              ;         ASL                          ; $0E24  0A
+ 906  FDD0              ;         ASL                          ; $0E25  0A
+ 907  FDD0              ;         TAY                          ; $0E26  A8
+ 908  FDD0              ;         STY $06F8                    ; $0E27  8C F8 06
+ 909  FDD0              ;         LDA #$00                     ; $0E2A  A9 00
+ 910  FDD0              ;         STA $F6                      ; $0E2C  85 F6
+ 911  FDD0              ;         STX $F7                      ; $0E2E  86 F7
+ 912  FDD0              ;         LDA $CFFF                    ; $0E30  AD FF CF
+ 913  FDD0              ;         LDA ($F6),Y                  ; $0E33  B1 F6
+ 914  FDD0              ;         RTS                          ; $0E35  60
+ 915  FDD0              ; SUB_0E1D_1:
+ 916  FDD0              ;         LDA $48                      ; $0E36  A5 48
+ 917  FDD0              ;         PHA                          ; $0E38  48
+ 918  FDD0              ;         LDA $45                      ; $0E39  A5 45
+ 919  FDD0              ;         LDX $46                      ; $0E3B  A6 46
+ 920  FDD0              ;         LDY $47                      ; $0E3D  A4 47
+ 921  FDD0              ;         PLP                          ; $0E3F  28
+ 922  FDD0              ;         CLI                          ; $0E40  58
+ 923  FDD0              ;         RTS                          ; $0E41  60
+ 924  FDD0              ;   <<< end listing <<<
+ 925  FDD0                      INCBIN "CPM_RPC6502_223.bin"     ; 114 bytes of 6502 (runs on the 6502 via the RPC)
+ 926  FE42              ; DEV_READ_BIT -- device handler: poll a status bit until set, then read the data byte.
+ 927  FE42              DEV_READ_BIT:
+ 928  FE42 CD 81 FE             CALL SLOT_IO_ADDR
+ 929  FE45              DEV_READ_WAIT:
+ 930  FE45 7E                   LD A,(HL)
+ 931  FE46 1F                   RRA                              ; ready bit -> carry
+ 932  FE47 30 FC                JR NC,DEV_READ_WAIT
+ 933  FE49 2C                   INC L
+ 934  FE4A 7E                   LD A,(HL)                        ; read the data byte
+ 935  FE4B C9                   RET
+ 936  FE4C              DEV_OUT_1:                               ; default I/O vector handler (LIST stub)
+ 937  FE4C 11 01 00             LD DE,$0001
+ 938  FE4F              DEV_OUT_1_JP:
+ 939  FE4F C3 5F FE             JP DEV_RET                       ; target (DEV_OUT_1_JP+1) patched at boot
+ 940  FE52              ; DEV_WR_BIT -- device handler: wait for ready, then write C to the slot I/O port.
+ 941  FE52              DEV_WR_BIT:
+ 942  FE52 CD B1 FA             CALL DEVICE_IO_BASE
+ 943  FE55 2E C1                LD L,$C1
+ 944  FE57              DEV_WR_WAIT:
+ 945  FE57 7E                   LD A,(HL)
+ 946  FE58 17                   RLA                              ; ready bit -> carry
+ 947  FE59 38 FC                JR C,DEV_WR_WAIT
+ 948  FE5B CD 7C FE             CALL SLOT_IO_ADDR_W
+ 949  FE5E 71                   LD (HL),C
+ 950  FE5F              DEV_RET:
+ 951  FE5F C9                   RET                              ; shared return (DEV_OUT_1/_2 JP here)
+ 952  FE60              DEV_OUT_2:                               ; default I/O vector handler (PUNCH stub)
+ 953  FE60 11 02 00             LD DE,$0002
+ 954  FE63              DEV_OUT_2_JP:
+ 955  FE63 C3 5F FE             JP DEV_RET                       ; target (DEV_OUT_2_JP+1) patched at boot
+ 956  FE66              DEV_OUT_3:                               ; default I/O vector handler (READER stub)
+ 957  FE66 11 02 00             LD DE,$0002
+ 958  FE69              DEV_OUT_3_JP:
+ 959  FE69 C3 00 00             JP $0000                         ; whole instruction built at boot (DEV_OUT_3_JP+0/+1/+2)
+ 960  FE6C              ; ----------------------------------------------------------------------
+ 961  FE6C              ; HOME -- BIOS jump-vector entry 8 ($FA18): seek the selected drive to track 0. [RE]
+ 962  FE6C              ;   In:  none. Out: none. Clobbers: A,C.
+ 963  FE6C              ;   Algorithm: if the host buffer still holds a pending write (hstwrt nonzero) leave
+ 964  FE6C              ;     hstact set so the dirty buffer is not dropped; else clear hstact (host buffer
+ 965  FE6C              ;     inactive). Then fall through into SETTRK_STORE with track 0. Mirrors the 2.20
+ 966  FE6C              ;     twin HOME exactly; the actual head step happens later in the deblock path. [RE]
+ 967  FE6C              ; ----------------------------------------------------------------------
+ 968  FE6C              HOME:
+ 969  FE6C                      ; read hstwrt (host-write-pending flag; lives in the BOOT install-template cells)
+ 970  FE6C 3A D9 FE             LD A,(DISK_HSTWRT)
+ 971  FE6F B7                   OR A
+ 972  FE70                      ; pending write -> keep hstact set, skip the clear
+ 973  FE70 20 03                JR NZ,SETTRK_STORE
+ 974  FE72                      ; no pending write: clear hstact so the host buffer is reloaded on next access
+ 975  FE72 32 D8 FE             LD (DISK_HSTACT),A
  976  FE75              ; ----------------------------------------------------------------------
- 977  FE75              SETTRK_STORE:
- 978  FE75                      ; HOME enters here with track 0; SETTRK enters at the LD A,C below
- 979  FE75 0E 00                LD C,$00
- 980  FE77                      ; SETTRK (vector entry 10, JP $FE77): track number from BDOS in C
- 981  FE77 79                   LD A,C
- 982  FE78                      ; store sektrk into BOOT's LD SP operand byte (BOOT cell reused post-boot as sektrk)
- 983  FE78 32 D1 FE             LD (BOOT),A
- 984  FE7B C9                   RET
- 985  FE7C              ; ----------------------------------------------------------------------
- 986  FE7C              ; SLOT_IO_ADDR_W -- map a slot/drive index to an Apple write-side I/O soft-switch base.
- 987  FE7C              ;   In:  E = slot/drive index (0..15). Out: HL = $E080 + (E<<4). Clobbers: A,L.
- 988  FE7C              ;   Algorithm: load the $C08x write/control-bank base (z80 $E080 = Apple $C080), then
- 989  FE7C              ;     fall into the shared index scaler (SLOT_IO_SCALE, the ADD A,A x4 at $FE85).
- 990  FE7C              ;     Twin of 2.20 SLOT_IO_ADDR_W. [RE]
- 991  FE7C              ; ----------------------------------------------------------------------
- 992  FE7C              SLOT_IO_ADDR_W:
- 993  FE7C                      ; z80 $E080 = Apple $C080 slot-I/O base (write/control bank)
- 994  FE7C 21 80 E0             LD HL,$E080
- 995  FE7F 18 03                JR SLOT_IO_SCALE_E
- 996  FE81              ; ----------------------------------------------------------------------
- 997  FE81              ; SLOT_IO_ADDR -- map a slot/drive index to an Apple I/O soft-switch base ($C08E bank).
- 998  FE81              ;   In:  E = slot/drive index (0..15). Out: HL = $E08E + (E<<4). Clobbers: A,L.
- 999  FE81              ;   Algorithm: load the $C08E base, fall into SLOT_IO_SCALE_E. z80 $E08E = Apple $C08E.
-1000  FE81              ;     Twin of 2.20 SLOT_IO_ADDR. [RE]
+ 977  FE75              ; SETTRK_STORE -- HOME falls in here with track 0; common tail with SETTRK. [RE]
+ 978  FE75              ;   In:  (HOME path) forces C=0. Out: stores sektrk. Clobbers: A,C.
+ 979  FE75              ;   Algorithm: load C=0, then fall into SETTRK's store (the $FE77 vector body) which
+ 980  FE75              ;     writes the track into the BOOT 'LD SP' operand byte reused as sektrk. [RE]
+ 981  FE75              ; ----------------------------------------------------------------------
+ 982  FE75              SETTRK_STORE:
+ 983  FE75                      ; HOME enters here with track 0; SETTRK enters at the LD A,C below
+ 984  FE75 0E 00                LD C,$00
+ 985  FE77                      ; SETTRK (vector entry 10, JP $FE77): track number from BDOS in C
+ 986  FE77 79                   LD A,C
+ 987  FE78                      ; store sektrk into BOOT's LD SP operand byte (BOOT cell reused post-boot as sektrk)
+ 988  FE78 32 D1 FE             LD (BOOT),A
+ 989  FE7B C9                   RET
+ 990  FE7C              ; ----------------------------------------------------------------------
+ 991  FE7C              ; SLOT_IO_ADDR_W -- map a slot/drive index to an Apple write-side I/O soft-switch base.
+ 992  FE7C              ;   In:  E = slot/drive index (0..15). Out: HL = $E080 + (E<<4). Clobbers: A,L.
+ 993  FE7C              ;   Algorithm: load the $C08x write/control-bank base (z80 $E080 = Apple $C080), then
+ 994  FE7C              ;     fall into the shared index scaler (SLOT_IO_SCALE, the ADD A,A x4 at $FE85).
+ 995  FE7C              ;     Twin of 2.20 SLOT_IO_ADDR_W. [RE]
+ 996  FE7C              ; ----------------------------------------------------------------------
+ 997  FE7C              SLOT_IO_ADDR_W:
+ 998  FE7C                      ; z80 $E080 = Apple $C080 slot-I/O base (write/control bank)
+ 999  FE7C 21 80 E0             LD HL,$E080
+1000  FE7F 18 03                JR SLOT_IO_SCALE_E
 1001  FE81              ; ----------------------------------------------------------------------
-1002  FE81              SLOT_IO_ADDR:
-1003  FE81                      ; z80 $E08E = Apple $C08E slot-I/O base
-1004  FE81 21 8E E0             LD HL,$E08E
-1005  FE84              ; ----------------------------------------------------------------------
-1006  FE84              ; SLOT_IO_SCALE_E -- load the slot/drive index into A, then fall into SLOT_IO_SCALE.
-1007  FE84              ;   In:  E = index. Out: continues into the scaler. Twin of 2.20 SLOT_IO_SCALE_E. [RE]
-1008  FE84              ; ----------------------------------------------------------------------
-1009  FE84              SLOT_IO_SCALE_E:
-1010  FE84                      ; slot/drive index into A for the scaler
-1011  FE84 7B                   LD A,E
-1012  FE85              ; ----------------------------------------------------------------------
-1013  FE85              ; SLOT_IO_SCALE -- shift the index in A left by 4 and add it to L (index a $C0n0..$C0nF
-1014  FE85              ;     16-byte slot-I/O block, or a *16-stride table). [RE]
-1015  FE85              ;   In:  A = index, L = base low byte. Out: L += A*16; A preserved. Clobbers: A,L.
-1016  FE85              ;   Algorithm: ADD A,A four times (A*=16), PUSH AF, ADD A,L, LD L,A, POP AF, RET.
-1017  FE85              ;     Shared by SLOT_IO_ADDR/_W and by SELDSK (DPH-table index) and the device probe.
-1018  FE85              ;     Twin of 2.20 SLOT_IO_SCALE. [RE]
-1019  FE85              ; ----------------------------------------------------------------------
-1020  FE85              SLOT_IO_SCALE:
-1021  FE85                      ; A *= 16 over the four ADD A,A (slot block is 16 bytes; DPH stride is 16)
-1022  FE85 87                   ADD A,A
-1023  FE86 87                   ADD A,A
-1024  FE87 87                   ADD A,A
-1025  FE88 87                   ADD A,A
-1026  FE89 F5                   PUSH AF
-1027  FE8A                      ; L = base + index*16
-1028  FE8A 85                   ADD A,L
-1029  FE8B 6F                   LD L,A
-1030  FE8C F1                   POP AF
-1031  FE8D C9                   RET
-1032  FE8E              ; ----------------------------------------------------------------------
-1033  FE8E              ; SELDSK -- BIOS jump-vector entry 9 ($FA1B): select the disk drive for subsequent I/O.
-1034  FE8E              ;   In:  C = disk number (0-based). Out: HL = DPH address for drive C, or HL=0 if out
-1035  FE8E              ;     of range. Clobbers: A,DE,HL.
-1036  FE8E              ;   Algorithm: DE -> the sekdsk build site (DISK_SEKDSK, an install-template cell reused
-1037  FE8E              ;     as disk-state scratch). Read the configured drive count from the SoftCard config
-1038  FE8E              ;     block (z80 $F3B8 = Apple $03B8); if C >= count return HL=0. Else record the disk
-1039  FE8E              ;     number, index the DPH table at DPH_TABLE by C*16 (CALL SLOT_IO_SCALE), pull a per-drive
-1040  FE8E              ;     disk-parameter byte and self-modify the install template SECTOR_BLOCK_PATCH+1 with it.
-1041  FE8E              ;     Twin of 2.20 SELDSK. [RE]
-1042  FE8E              ; ----------------------------------------------------------------------
-1043  FE8E              SELDSK:
-1044  FE8E                      ; DE -> sekdsk build site (install-template cell reused as disk-select scratch)
-1045  FE8E 11 D5 FE             LD DE,DISK_SEKDSK
-1046  FE91 21 04 00             LD HL,$0004
-1047  FE94                      ; configured drive count from the SoftCard config block (Apple $03B8)
-1048  FE94 3A B8 F3             LD A,($F3B8)
-1049  FE97 3D                   DEC A
-1050  FE98                      ; requested drive vs (count-1); carry => out of range
-1051  FE98 B9                   CP C
-1052  FE99                      ; out of range -> SELDSK_BAD_DRIVE (returns HL=0)
-1053  FE99 38 1D                JR C,SELDSK_BAD_DRIVE
-1054  FE9B 7E                   LD A,(HL)
-1055  FE9C 12                   LD (DE),A
-1056  FE9D 13                   INC DE
-1057  FE9E 79                   LD A,C
-1058  FE9F 12                   LD (DE),A
-1059  FEA0                      ; HL = DPH table base ($FA33); CALL SLOT_IO_SCALE indexes it by C*16
-1060  FEA0 21 33 FA             LD HL,DPH_TABLE
-1061  FEA3 CD 85 FE             CALL SLOT_IO_SCALE
-1062  FEA6 E5                   PUSH HL
-1063  FEA7 11 0A 00             LD DE,$000A
-1064  FEAA 19                   ADD HL,DE
-1065  FEAB 5E                   LD E,(HL)
-1066  FEAC 23                   INC HL
-1067  FEAD 56                   LD D,(HL)
-1068  FEAE 21 05 00             LD HL,$0005
-1069  FEB1 19                   ADD HL,DE
-1070  FEB2 7E                   LD A,(HL)
-1071  FEB3                      ; self-modify: store the per-drive disk-parameter byte into the install template's LD
-1072  FEB3                      ; HL,(nn) operand [RE]
-1073  FEB3 32 E3 FE             LD (SECTOR_BLOCK_PATCH+1),A
-1074  FEB6 E1                   POP HL
-1075  FEB7 C9                   RET
-1076  FEB8              ; ----------------------------------------------------------------------
-1077  FEB8              ; SELDSK_BAD_DRIVE -- out-of-range drive: return HL=0 (no DPH). [RE]
-1078  FEB8              ;   In:  DE -> sekdsk build site. Out: HL=0. Clobbers: A,L.
-1079  FEB8              ;   Twin of 2.20 SELDSK_BAD_DRIVE. [RE]
-1080  FEB8              ; ----------------------------------------------------------------------
-1081  FEB8              SELDSK_BAD_DRIVE:
-1082  FEB8 1A                   LD A,(DE)
-1083  FEB9 77                   LD (HL),A
-1084  FEBA                      ; HL=0 signals an invalid drive to the BDOS
-1085  FEBA 2E 00                LD L,$00
-1086  FEBC C9                   RET
-1087  FEBD              ; ----------------------------------------------------------------------
-1088  FEBD              ; READ -- BIOS jump-vector entry 13 ($FA27): read one 128-byte CP/M record.
-1089  FEBD              ;   In:  sekdsk/sektrk/seksec/dmaadr previously set. Out: A=0 ok / 1 error.
-1090  FEBD              ;   Algorithm: OFF-IMAGE tail-jump to the deblock/RWTS read core at $AC39, which sits
-1091  FEBD              ;     in the system-image region BELOW the BIOS (not inside $FA00-$FFFF). FLAG: unlike
-1092  FEBD              ;     the 2.20 twin, the 2.23 BIOS does NOT carry the deblock or the $03E0-IOB RWTS RPC
-1093  FEBD              ;     in-image; READ/WRITE delegate to the $ACxx host-sector routines. [RE] -- see flags.
-1094  FEBD              ; ----------------------------------------------------------------------
-1095  FEBD              READ:
-1096  FEBD                      ; off-image jump to the deblock/RWTS read core at $AC39 (system-image region, not BIOS) [RE]
-1097  FEBD C3 39 AC             JP $AC39
-1098  FEC0              ; ----------------------------------------------------------------------
-1099  FEC0              ; WRITE -- BIOS jump-vector entry 14 ($FA2A): write one 128-byte CP/M record.
-1100  FEC0              ;   In:  C = write type; sekdsk/sektrk/seksec/dmaadr previously set. Out: A=0 ok / 1 error.
-1101  FEC0              ;   Algorithm: OFF-IMAGE tail-jump to the deblock/RWTS write core at $AC49 (system-image
-1102  FEC0              ;     region below the BIOS). Same off-image RWTS delegation as READ_RECORD. [RE]
-1103  FEC0              ;   NOTE: the bytes at $FEC3-$FECA ($C3 $45 $FB $2A $0D $9C $E9 $C9) immediately after
-1104  FEC0              ;     this JP are NOT executed on the WRITE path; they are install/handler scratch -- see flags.
-1105  FEC0              ; ----------------------------------------------------------------------
-1106  FEC0              WRITE:
-1107  FEC0                      ; off-image jump to the deblock/RWTS write core at $AC49 (system-image region, not BIOS)
-1108  FEC0                      ; [RE]
-1109  FEC0 C3 49 AC             JP $AC49
-1110  FEC3 C3 45 FB 2A          DEFB    $C3,$45,$FB,$2A,$0D      ; "CE{*"
-1110  FEC7 0D
-1111  FEC8 9C E9 C9             DEFB    $9C,$E9,$C9
-1112  FECB              COL_FLAG:
-1113  FECB 00                   DEFB    "\0"
-1114  FECC              COL_PENDING:
-1115  FECC 00                   DEFB    "\0"
-1116  FECD              COL_STATE:
-1117  FECD 00                   DEFB    "\0"
-1118  FECE              SCREEN_CURSOR_PTR:
-1119  FECE D0 FE                DEFB    $D0,$FE
-1120  FED0              SCREEN_CHAR:
-1121  FED0 00                   DEFB    "\0"
-1122  FED1              ; ----------------------------------------------------------------------
-1123  FED1              ; BOOT -- CP/M cold-boot BIOS entry (jump-vector entry 0; $FA00 -> here at $FED1).
-1124  FED1              ;   In:  none. Out: does not return through here (falls into the install engine).
-1125  FED1              ;   Clobbers: all.
-1126  FED1              ;   DUAL USE of the operand bytes: this 'LD SP,$0100' executes ONCE at cold boot to set
-1127  FED1              ;     the Z-80 stack; afterwards BOOT (the $00 operand byte) is reused as sektrk and
-1128  FED1              ;     BOOT+1 as seksec (SETTRK stores BOOT at $FE78, SETSEC stores
-1129  FED1              ;     BOOT+1 at $FBF5), and BOOT+2 ($FED3) is read as a console cursor word
-1130  FED1              ;     ($FBD3 LD HL,(BOOT+2)). Valid SP-init bytes only during the single cold-boot
-1131  FED1              ;     pass; thereafter disk/console scratch, never re-executed. Twin of 2.20 BOOT. [RE]
-1132  FED1              ;   Algorithm: set SP, then fall through into the self-modifying install engine
-1133  FED1              ;     (BOOT_TMPL_XORA..SECTOR_BLOCK_PATCH are template-instruction cells whose operands double as
-1134  FED1              ;     disk-deblock state).
-1135  FED1              ; ----------------------------------------------------------------------
-1136  FED1              BOOT:
-1137  FED1                      ; init Z-80 stack; BOOT/+1/+2 reused post-boot as sektrk/seksec and a console cursor word
-1138  FED1 31 00 01             LD SP,$0100
-1139  FED4              ; ----------------------------------------------------------------------
-1140  FED4              ; BOOT_TMPL_XORA -- cold-boot install template 'XOR A'; operationally a disk-state cell.
-1141  FED4              ;   Boot tenant: 'XOR A' clears A as the install engine starts the page-clear. Operational
-1142  FED4              ;   tenant: this cell is referenced as a console/disk scratch base (LD HL,BOOT_TMPL_XORA at
-1143  FED4              ;   $FBBA in the console path). Twin region of 2.20 DISK_SELDSK_SAVE. [RE]
+1002  FE81              ; SLOT_IO_ADDR -- map a slot/drive index to an Apple I/O soft-switch base ($C08E bank).
+1003  FE81              ;   In:  E = slot/drive index (0..15). Out: HL = $E08E + (E<<4). Clobbers: A,L.
+1004  FE81              ;   Algorithm: load the $C08E base, fall into SLOT_IO_SCALE_E. z80 $E08E = Apple $C08E.
+1005  FE81              ;     Twin of 2.20 SLOT_IO_ADDR. [RE]
+1006  FE81              ; ----------------------------------------------------------------------
+1007  FE81              SLOT_IO_ADDR:
+1008  FE81                      ; z80 $E08E = Apple $C08E slot-I/O base
+1009  FE81 21 8E E0             LD HL,$E08E
+1010  FE84              ; ----------------------------------------------------------------------
+1011  FE84              ; SLOT_IO_SCALE_E -- load the slot/drive index into A, then fall into SLOT_IO_SCALE.
+1012  FE84              ;   In:  E = index. Out: continues into the scaler. Twin of 2.20 SLOT_IO_SCALE_E. [RE]
+1013  FE84              ; ----------------------------------------------------------------------
+1014  FE84              SLOT_IO_SCALE_E:
+1015  FE84                      ; slot/drive index into A for the scaler
+1016  FE84 7B                   LD A,E
+1017  FE85              ; ----------------------------------------------------------------------
+1018  FE85              ; SLOT_IO_SCALE -- shift the index in A left by 4 and add it to L (index a $C0n0..$C0nF
+1019  FE85              ;     16-byte slot-I/O block, or a *16-stride table). [RE]
+1020  FE85              ;   In:  A = index, L = base low byte. Out: L += A*16; A preserved. Clobbers: A,L.
+1021  FE85              ;   Algorithm: ADD A,A four times (A*=16), PUSH AF, ADD A,L, LD L,A, POP AF, RET.
+1022  FE85              ;     Shared by SLOT_IO_ADDR/_W and by SELDSK (DPH-table index) and the device probe.
+1023  FE85              ;     Twin of 2.20 SLOT_IO_SCALE. [RE]
+1024  FE85              ; ----------------------------------------------------------------------
+1025  FE85              SLOT_IO_SCALE:
+1026  FE85                      ; A *= 16 over the four ADD A,A (slot block is 16 bytes; DPH stride is 16)
+1027  FE85 87                   ADD A,A
+1028  FE86 87                   ADD A,A
+1029  FE87 87                   ADD A,A
+1030  FE88 87                   ADD A,A
+1031  FE89 F5                   PUSH AF
+1032  FE8A                      ; L = base + index*16
+1033  FE8A 85                   ADD A,L
+1034  FE8B 6F                   LD L,A
+1035  FE8C F1                   POP AF
+1036  FE8D C9                   RET
+1037  FE8E              ; ----------------------------------------------------------------------
+1038  FE8E              ; SELDSK -- BIOS jump-vector entry 9 ($FA1B): select the disk drive for subsequent I/O.
+1039  FE8E              ;   In:  C = disk number (0-based). Out: HL = DPH address for drive C, or HL=0 if out
+1040  FE8E              ;     of range. Clobbers: A,DE,HL.
+1041  FE8E              ;   Algorithm: DE -> the sekdsk build site (DISK_SEKDSK, an install-template cell reused
+1042  FE8E              ;     as disk-state scratch). Read the configured drive count from the SoftCard config
+1043  FE8E              ;     block (z80 $F3B8 = Apple $03B8); if C >= count return HL=0. Else record the disk
+1044  FE8E              ;     number, index the DPH table at DPH_TABLE by C*16 (CALL SLOT_IO_SCALE), pull a per-drive
+1045  FE8E              ;     disk-parameter byte and self-modify the install template SECTOR_BLOCK_PATCH+1 with it.
+1046  FE8E              ;     Twin of 2.20 SELDSK. [RE]
+1047  FE8E              ; ----------------------------------------------------------------------
+1048  FE8E              SELDSK:
+1049  FE8E                      ; DE -> sekdsk build site (install-template cell reused as disk-select scratch)
+1050  FE8E 11 D5 FE             LD DE,DISK_SEKDSK
+1051  FE91 21 04 00             LD HL,$0004
+1052  FE94                      ; configured drive count from the SoftCard config block (Apple $03B8)
+1053  FE94 3A B8 F3             LD A,($F3B8)
+1054  FE97 3D                   DEC A
+1055  FE98                      ; requested drive vs (count-1); carry => out of range
+1056  FE98 B9                   CP C
+1057  FE99                      ; out of range -> SELDSK_BAD_DRIVE (returns HL=0)
+1058  FE99 38 1D                JR C,SELDSK_BAD_DRIVE
+1059  FE9B 7E                   LD A,(HL)
+1060  FE9C 12                   LD (DE),A
+1061  FE9D 13                   INC DE
+1062  FE9E 79                   LD A,C
+1063  FE9F 12                   LD (DE),A
+1064  FEA0                      ; HL = DPH table base ($FA33); CALL SLOT_IO_SCALE indexes it by C*16
+1065  FEA0 21 33 FA             LD HL,DPH_TABLE
+1066  FEA3 CD 85 FE             CALL SLOT_IO_SCALE
+1067  FEA6 E5                   PUSH HL
+1068  FEA7 11 0A 00             LD DE,$000A
+1069  FEAA 19                   ADD HL,DE
+1070  FEAB 5E                   LD E,(HL)
+1071  FEAC 23                   INC HL
+1072  FEAD 56                   LD D,(HL)
+1073  FEAE 21 05 00             LD HL,$0005
+1074  FEB1 19                   ADD HL,DE
+1075  FEB2 7E                   LD A,(HL)
+1076  FEB3                      ; self-modify: store the per-drive disk-parameter byte into the install template's LD
+1077  FEB3                      ; HL,(nn) operand [RE]
+1078  FEB3 32 E3 FE             LD (SECTOR_BLOCK_PATCH+1),A
+1079  FEB6 E1                   POP HL
+1080  FEB7 C9                   RET
+1081  FEB8              ; ----------------------------------------------------------------------
+1082  FEB8              ; SELDSK_BAD_DRIVE -- out-of-range drive: return HL=0 (no DPH). [RE]
+1083  FEB8              ;   In:  DE -> sekdsk build site. Out: HL=0. Clobbers: A,L.
+1084  FEB8              ;   Twin of 2.20 SELDSK_BAD_DRIVE. [RE]
+1085  FEB8              ; ----------------------------------------------------------------------
+1086  FEB8              SELDSK_BAD_DRIVE:
+1087  FEB8 1A                   LD A,(DE)
+1088  FEB9 77                   LD (HL),A
+1089  FEBA                      ; HL=0 signals an invalid drive to the BDOS
+1090  FEBA 2E 00                LD L,$00
+1091  FEBC C9                   RET
+1092  FEBD              ; ----------------------------------------------------------------------
+1093  FEBD              ; READ -- BIOS jump-vector entry 13 ($FA27): read one 128-byte CP/M record.
+1094  FEBD              ;   In:  sekdsk/sektrk/seksec/dmaadr previously set. Out: A=0 ok / 1 error.
+1095  FEBD              ;   Algorithm: OFF-IMAGE tail-jump to the deblock/RWTS read core at $AC39, which sits
+1096  FEBD              ;     in the system-image region BELOW the BIOS (not inside $FA00-$FFFF). FLAG: unlike
+1097  FEBD              ;     the 2.20 twin, the 2.23 BIOS does NOT carry the deblock or the $03E0-IOB RWTS RPC
+1098  FEBD              ;     in-image; READ/WRITE delegate to the $ACxx host-sector routines. [RE] -- see flags.
+1099  FEBD              ; ----------------------------------------------------------------------
+1100  FEBD              READ:
+1101  FEBD                      ; off-image jump to the deblock/RWTS read core at $AC39 (system-image region, not BIOS) [RE]
+1102  FEBD C3 39 AC             JP $AC39
+1103  FEC0              ; ----------------------------------------------------------------------
+1104  FEC0              ; WRITE -- BIOS jump-vector entry 14 ($FA2A): write one 128-byte CP/M record.
+1105  FEC0              ;   In:  C = write type; sekdsk/sektrk/seksec/dmaadr previously set. Out: A=0 ok / 1 error.
+1106  FEC0              ;   Algorithm: OFF-IMAGE tail-jump to the deblock/RWTS write core at $AC49 (system-image
+1107  FEC0              ;     region below the BIOS). Same off-image RWTS delegation as READ_RECORD. [RE]
+1108  FEC0              ;   NOTE: the bytes at $FEC3-$FECA ($C3 $45 $FB $2A $0D $9C $E9 $C9) immediately after
+1109  FEC0              ;     this JP are NOT executed on the WRITE path; they are install/handler scratch -- see flags.
+1110  FEC0              ; ----------------------------------------------------------------------
+1111  FEC0              WRITE:
+1112  FEC0                      ; off-image jump to the deblock/RWTS write core at $AC49 (system-image region, not BIOS)
+1113  FEC0                      ; [RE]
+1114  FEC0 C3 49 AC             JP $AC49
+1115  FEC3 C3 45 FB 2A          DEFB    $C3,$45,$FB,$2A,$0D      ; "CE{*"
+1115  FEC7 0D
+1116  FEC8 9C E9 C9             DEFB    $9C,$E9,$C9
+1117  FECB              COL_FLAG:
+1118  FECB 00                   DEFB    "\0"
+1119  FECC              COL_PENDING:
+1120  FECC 00                   DEFB    "\0"
+1121  FECD              COL_STATE:
+1122  FECD 00                   DEFB    "\0"
+1123  FECE              SCREEN_CURSOR_PTR:
+1124  FECE D0 FE                DEFB    $D0,$FE
+1125  FED0              SCREEN_CHAR:
+1126  FED0 00                   DEFB    "\0"
+1127  FED1              ; ----------------------------------------------------------------------
+1128  FED1              ; BOOT -- CP/M cold-boot BIOS entry (jump-vector entry 0; $FA00 -> here at $FED1).
+1129  FED1              ;   In:  none. Out: does not return through here (falls into the install engine).
+1130  FED1              ;   Clobbers: all.
+1131  FED1              ;   DUAL USE of the operand bytes: this 'LD SP,$0100' executes ONCE at cold boot to set
+1132  FED1              ;     the Z-80 stack; afterwards BOOT (the $00 operand byte) is reused as sektrk and
+1133  FED1              ;     BOOT+1 as seksec (SETTRK stores BOOT at $FE78, SETSEC stores
+1134  FED1              ;     BOOT+1 at $FBF5), and BOOT+2 ($FED3) is read as a console cursor word
+1135  FED1              ;     ($FBD3 LD HL,(BOOT+2)). Valid SP-init bytes only during the single cold-boot
+1136  FED1              ;     pass; thereafter disk/console scratch, never re-executed. Twin of 2.20 BOOT. [RE]
+1137  FED1              ;   Algorithm: set SP, then fall through into the self-modifying install engine
+1138  FED1              ;     (BOOT_TMPL_XORA..SECTOR_BLOCK_PATCH are template-instruction cells whose operands double as
+1139  FED1              ;     disk-deblock state).
+1140  FED1              ; ----------------------------------------------------------------------
+1141  FED1              BOOT:
+1142  FED1                      ; init Z-80 stack; BOOT/+1/+2 reused post-boot as sektrk/seksec and a console cursor word
+1143  FED1 31 00 01             LD SP,$0100
 1144  FED4              ; ----------------------------------------------------------------------
-1145  FED4              BOOT_TMPL_XORA:
-1146  FED4 AF                   XOR A
-1147  FED5              ; ----------------------------------------------------------------------
-1148  FED5              ; DISK_SEKDSK -- cold-boot install template 'LD HL,BIOS_VECTOR'; operationally the sekdsk cell.
-1149  FED5              ;   Boot tenant: 'LD HL,nn' template the install engine steps over. Operational tenant:
-1150  FED5              ;   SELDSK uses DE=DISK_SEKDSK as the sekdsk build site (selected disk number). Twin of
-1151  FED5              ;   2.20 DISK_SEKDSK. [RE]
+1145  FED4              ; BOOT_TMPL_XORA -- cold-boot install template 'XOR A'; operationally a disk-state cell.
+1146  FED4              ;   Boot tenant: 'XOR A' clears A as the install engine starts the page-clear. Operational
+1147  FED4              ;   tenant: this cell is referenced as a console/disk scratch base (LD HL,BOOT_TMPL_XORA at
+1148  FED4              ;   $FBBA in the console path). Twin region of 2.20 DISK_SELDSK_SAVE. [RE]
+1149  FED4              ; ----------------------------------------------------------------------
+1150  FED4              BOOT_TMPL_XORA:
+1151  FED4 AF                   XOR A
 1152  FED5              ; ----------------------------------------------------------------------
-1153  FED5              DISK_SEKDSK:
-1154  FED5 21 00 FA             LD HL,BIOS_VECTOR
-1155  FED8              ; ----------------------------------------------------------------------
-1156  FED8              ; DISK_HSTACT -- cold-boot install template 'LD (HL),A'; operationally the hstact flag.
-1157  FED8              ;   Boot tenant: part of the page-zero/template clear. Operational tenant: host-buffer-
-1158  FED8              ;   active flag, cleared by HOME ($FE72) and by PAGEZERO_REBUILD ($FAE7), set when a host
-1159  FED8              ;   sector is staged. Twin of 2.20 DISK_HSTWRT-area hstact. [RE]
+1153  FED5              ; DISK_SEKDSK -- cold-boot install template 'LD HL,BIOS_VECTOR'; operationally the sekdsk cell.
+1154  FED5              ;   Boot tenant: 'LD HL,nn' template the install engine steps over. Operational tenant:
+1155  FED5              ;   SELDSK uses DE=DISK_SEKDSK as the sekdsk build site (selected disk number). Twin of
+1156  FED5              ;   2.20 DISK_SEKDSK. [RE]
+1157  FED5              ; ----------------------------------------------------------------------
+1158  FED5              DISK_SEKDSK:
+1159  FED5 21 00 FA             LD HL,BIOS_VECTOR
 1160  FED8              ; ----------------------------------------------------------------------
-1161  FED8              DISK_HSTACT:
-1162  FED8 77                   LD (HL),A
-1163  FED9              ; ----------------------------------------------------------------------
-1164  FED9              ; DISK_HSTWRT -- cold-boot install template 'INC HL'; operationally the hstwrt flag.
-1165  FED9              ;   Boot tenant: 'INC HL' advances the install-clear pointer. Operational tenant: host-
-1166  FED9              ;   buffer-dirty flag, read by HOME ($FE6C). Twin of 2.20 DISK_HSTWRT. [RE]
-1167  FED9              ; ----------------------------------------------------------------------
-1168  FED9              DISK_HSTWRT:
-1169  FED9 23                   INC HL
-1170  FEDA 77                   LD (HL),A
-1171  FEDB 23                   INC HL
-1172  FEDC 77                   LD (HL),A
-1173  FEDD              ; ----------------------------------------------------------------------
-1174  FEDD              ; BOOT_TMPL_IOBYTE -- cold-boot install template 'LD A,$95' (default IOBYTE immediate).
-1175  FEDD              ;   Boot tenant: loads the default IOBYTE value $95 into A. Operational tenant: this cell
-1176  FEDD              ;   is cleared by PAGEZERO_REBUILD ($FAE4) and used as a console-state byte. Twin of the
-1177  FEDD              ;   2.20 DISK_HSTWRT 'LD A,$95' default-IOBYTE template. [RE]
+1161  FED8              ; DISK_HSTACT -- cold-boot install template 'LD (HL),A'; operationally the hstact flag.
+1162  FED8              ;   Boot tenant: part of the page-zero/template clear. Operational tenant: host-buffer-
+1163  FED8              ;   active flag, cleared by HOME ($FE72) and by PAGEZERO_REBUILD ($FAE7), set when a host
+1164  FED8              ;   sector is staged. Twin of 2.20 DISK_HSTWRT-area hstact. [RE]
+1165  FED8              ; ----------------------------------------------------------------------
+1166  FED8              DISK_HSTACT:
+1167  FED8 77                   LD (HL),A
+1168  FED9              ; ----------------------------------------------------------------------
+1169  FED9              ; DISK_HSTWRT -- cold-boot install template 'INC HL'; operationally the hstwrt flag.
+1170  FED9              ;   Boot tenant: 'INC HL' advances the install-clear pointer. Operational tenant: host-
+1171  FED9              ;   buffer-dirty flag, read by HOME ($FE6C). Twin of 2.20 DISK_HSTWRT. [RE]
+1172  FED9              ; ----------------------------------------------------------------------
+1173  FED9              DISK_HSTWRT:
+1174  FED9 23                   INC HL
+1175  FEDA 77                   LD (HL),A
+1176  FEDB 23                   INC HL
+1177  FEDC 77                   LD (HL),A
 1178  FEDD              ; ----------------------------------------------------------------------
-1179  FEDD              BOOT_TMPL_IOBYTE:
-1180  FEDD                      ; default CP/M IOBYTE immediate ($95) loaded at cold boot
-1181  FEDD 3E 95                LD A,$95
-1182  FEDF              ; ----------------------------------------------------------------------
-1183  FEDF              ; DISK_DMAADR -- cold-boot install template 'LD ($0003),A' (store default IOBYTE);
-1184  FEDF              ;     +2 operand reused as dmaadr.
-1185  FEDF              ;   Boot tenant: stores the default IOBYTE into page-zero $0003 at cold boot. Operational
-1186  FEDF              ;   tenant: SETDMA writes BC into DISK_DMAADR+2 ($FEE1) as the current DMA buffer address
-1187  FEDF              ;   (SETDMA 'LD (DISK_DMAADR+2),BC'); the deblock record copy uses it. Twin of the 2.20
-1188  FEDF              ;   DISK_WRTYPE/DISK_DMAADR overlay. [RE]
-1189  FEDF              ; ----------------------------------------------------------------------
-1190  FEDF              DISK_DMAADR:
-1191  FEDF                      ; store the default IOBYTE into page-zero $0003; the operand cell (+2) doubles as dmaadr
-1192  FEDF 32 03 00             LD ($0003),A
-1193  FEE2              ; ----------------------------------------------------------------------
-1194  FEE2              ; DISK_PARAM_TMPL -- cold-boot install template 'LD HL,($F3DE)'; SELDSK self-modifies +1.
-1195  FEE2              ;   Boot tenant: 'LD HL,(nn)' loads a config word; the install engine continues at $FEE5.
-1196  FEE2              ;   Operational tenant: SELDSK patches DISK_PARAM_TMPL+1 ($FEE3) with a per-drive disk-
-1197  FEE2              ;   parameter byte. From $FEE5 the cold-boot INSTALL ENGINE proper runs (see body). Twin
-1198  FEE2              ;   of 2.20 DISK_UNADSK template + the DEV_INSTALL flow. [RE]
-1199  FEE2              ;   Algorithm (install engine from $FEE5): copy the RPC-trigger store address into
-1200  FEE2              ;     RPC_TRIGGER_STORE+1; clear page-zero $0004; read the console card class from config
-1201  FEE2              ;     $F3BB; for the device-6/Pascal-class console install the $FD99 status handler into
-1202  FEE2              ;     the $F380 vector, else for the Videx/40-col classes self-modify the CONST handler
-1203  FEE2              ;     (KBD_STATUS_40COL+1) so status reads come from the card; then install CONOUT/CONIN handler
-1204  FEE2              ;     vectors via the handler lookups, print the sign-on banner, and enter the CCP.
-1205  FEE2              ; ----------------------------------------------------------------------
-1206  FEE2              SECTOR_BLOCK_PATCH:
-1207  FEE2                      ; install template: load a config word (operand at +1 is self-modified by SELDSK with the
-1208  FEE2                      ; disk param)
-1209  FEE2 2A DE F3             LD HL,($F3DE)
-1210  FEE5                      ; self-modify: write the SoftCard RPC-trigger store address into RPC_TRIGGER_STORE's LD
-1211  FEE5                      ; (nn),A operand [RE]
-1212  FEE5 22 49 FB             LD (RPC_TRIGGER_STORE+1),HL
-1213  FEE8 AF                   XOR A
-1214  FEE9                      ; clear page-zero $0004 (current default drive)
-1215  FEE9 32 04 00             LD ($0004),A
-1216  FEEC                      ; read the configured console card class from the config block (Apple $03BB)
-1217  FEEC 3A BB F3             LD A,($F3BB)
-1218  FEEF                      ; card class 6 = device-6 / Pascal-firmware console (post-1980 path; absent in the 1980
-1219  FEEF                      ; manual) [RE]
-1220  FEEF FE 06                CP $06
-1221  FEF1 20 0A                JR NZ,DEV_INSTALL_LIST
-1222  FEF3                      ; device-6 console: install the $FD99 status handler
-1223  FEF3 21 99 FD             LD HL,SET_SCREEN_BASE_1
-1224  FEF6                      ; store it into the SoftCard console-status I/O vector cell (Apple $0380)
-1225  FEF6 22 80 F3             LD ($F380),HL
-1226  FEF9 D6 03                SUB $03
-1227  FEFB 18 13                JR DEV_INSTALL_PUNCH
-1228  FEFD              ; ----------------------------------------------------------------------
-1229  FEFD              ; DEV_INSTALL_LIST -- install the LIST device-output handler from the config class. [RE]
-1230  FEFD              ;   In:  install engine running. Out: patches the LIST output stub vector. Clobbers: A,HL.
-1231  FEFD              ;   Algorithm: read the LIST card class (config $F3B9 = Apple $03B9), bias by 3; if a
-1232  FEFD              ;     real device is configured, look up its handler (CALL HANDLER_LOOKUP) and store it
-1233  FEFD              ;     into the LIST stub vector (DEV_OUT_1_JP+1). Twin of 2.20 DEV_INSTALL flow. [RE]
-1234  FEFD              ; ----------------------------------------------------------------------
-1235  FEFD              DEV_INSTALL_LIST:
-1236  FEFD FE 05                CP $05
-1237  FEFF 28 22                JR Z,DEV_INSTALL_READER
-1238  FF01 D6 03                SUB $03
-1239  FF03 38 1E                JR C,DEV_INSTALL_READER
-1240  FF05 20 09                JR NZ,DEV_INSTALL_PUNCH
-1241  FF07 21 15 FB             LD HL,KBD_STATUS_40COL+1
-1242  FF0A 36 BE                LD (HL),$BE
-1243  FF0C 23                   INC HL
-1244  FF0D 23                   INC HL
-1245  FF0E 36 1F                LD (HL),$1F
-1246  FF10              ; ----------------------------------------------------------------------
-1247  FF10              ; DEV_INSTALL_PUNCH -- install the PUNCH device-output handler from the config class. [RE]
-1248  FF10              ;   Algorithm: read the PUNCH card class (config $F3BA = Apple $03BA), bias by 3; if
-1249  FF10              ;     configured, look up the handler and store it into the PUNCH stub vector (DEV_OUT_2_JP+1); for
-1250  FF10              ;     the higher class value also install a secondary handler into DEV_OUT_3_JP+1. Twin of 2.20
-1251  FF10              ;     DEV_INSTALL flow. [RE]
-1252  FF10              ; ----------------------------------------------------------------------
-1253  FF10              DEV_INSTALL_PUNCH:
-1254  FF10 F5                   PUSH AF
-1255  FF11 CD 84 FF             CALL DEV_HANDLER_LOOKUP
-1256  FF14 F1                   POP AF
-1257  FF15 22 B9 FC             LD (SCREEN_EMIT_3+1),HL
-1258  FF18                      ; secondary handler lookup via the skip-idiom entry (HANDLER_LOOKUP_B); the FD cover byte at
-1259  FF18                      ; DEV_HANDLER_LOOKUP_B is skipped [RE]
-1260  FF18 CD 7F FF             CALL DEV_HANDLER_LOOKUP_B+1
-1261  FF1B 22 37 FB             LD (CONIN_DISPATCH+1),HL
-1262  FF1E 3E 03                LD A,$03
-1263  FF20 32 05 FB             LD (CCP_LAUNCH+1),A
-1264  FF23              ; ----------------------------------------------------------------------
-1265  FF23              ; DEV_INSTALL_READER -- build the default READER/list-output stub when none is configured.
-1266  FF23              ;   Algorithm: when no real device class is configured, build the no-op stub at DEV_OUT_3_JP:
-1267  FF23              ;     store $1A3E ('LD A,$1A' opcode+immediate) then $C9 ('RET') so the device returns a
-1268  FF23              ;     constant. Twin of 2.20 DEV_INSTALL_4's DEV_OUT_3 build. [RE]
+1179  FEDD              ; BOOT_TMPL_IOBYTE -- cold-boot install template 'LD A,$95' (default IOBYTE immediate).
+1180  FEDD              ;   Boot tenant: loads the default IOBYTE value $95 into A. Operational tenant: this cell
+1181  FEDD              ;   is cleared by PAGEZERO_REBUILD ($FAE4) and used as a console-state byte. Twin of the
+1182  FEDD              ;   2.20 DISK_HSTWRT 'LD A,$95' default-IOBYTE template. [RE]
+1183  FEDD              ; ----------------------------------------------------------------------
+1184  FEDD              BOOT_TMPL_IOBYTE:
+1185  FEDD                      ; default CP/M IOBYTE immediate ($95) loaded at cold boot
+1186  FEDD 3E 95                LD A,$95
+1187  FEDF              ; ----------------------------------------------------------------------
+1188  FEDF              ; DISK_DMAADR -- cold-boot install template 'LD ($0003),A' (store default IOBYTE);
+1189  FEDF              ;     +2 operand reused as dmaadr.
+1190  FEDF              ;   Boot tenant: stores the default IOBYTE into page-zero $0003 at cold boot. Operational
+1191  FEDF              ;   tenant: SETDMA writes BC into DISK_DMAADR+2 ($FEE1) as the current DMA buffer address
+1192  FEDF              ;   (SETDMA 'LD (DISK_DMAADR+2),BC'); the deblock record copy uses it. Twin of the 2.20
+1193  FEDF              ;   DISK_WRTYPE/DISK_DMAADR overlay. [RE]
+1194  FEDF              ; ----------------------------------------------------------------------
+1195  FEDF              DISK_DMAADR:
+1196  FEDF                      ; store the default IOBYTE into page-zero $0003; the operand cell (+2) doubles as dmaadr
+1197  FEDF 32 03 00             LD ($0003),A
+1198  FEE2              ; ----------------------------------------------------------------------
+1199  FEE2              ; DISK_PARAM_TMPL -- cold-boot install template 'LD HL,($F3DE)'; SELDSK self-modifies +1.
+1200  FEE2              ;   Boot tenant: 'LD HL,(nn)' loads a config word; the install engine continues at $FEE5.
+1201  FEE2              ;   Operational tenant: SELDSK patches DISK_PARAM_TMPL+1 ($FEE3) with a per-drive disk-
+1202  FEE2              ;   parameter byte. From $FEE5 the cold-boot INSTALL ENGINE proper runs (see body). Twin
+1203  FEE2              ;   of 2.20 DISK_UNADSK template + the DEV_INSTALL flow. [RE]
+1204  FEE2              ;   Algorithm (install engine from $FEE5): copy the RPC-trigger store address into
+1205  FEE2              ;     RPC_TRIGGER_STORE+1; clear page-zero $0004; read the console card class from config
+1206  FEE2              ;     $F3BB; for the device-6/Pascal-class console install the $FD99 status handler into
+1207  FEE2              ;     the $F380 vector, else for the Videx/40-col classes self-modify the CONST handler
+1208  FEE2              ;     (KBD_STATUS_40COL+1) so status reads come from the card; then install CONOUT/CONIN handler
+1209  FEE2              ;     vectors via the handler lookups, print the sign-on banner, and enter the CCP.
+1210  FEE2              ; ----------------------------------------------------------------------
+1211  FEE2              SECTOR_BLOCK_PATCH:
+1212  FEE2                      ; install template: load a config word (operand at +1 is self-modified by SELDSK with the
+1213  FEE2                      ; disk param)
+1214  FEE2 2A DE F3             LD HL,($F3DE)
+1215  FEE5                      ; self-modify: write the SoftCard RPC-trigger store address into RPC_TRIGGER_STORE's LD
+1216  FEE5                      ; (nn),A operand [RE]
+1217  FEE5 22 49 FB             LD (RPC_TRIGGER_STORE+1),HL
+1218  FEE8 AF                   XOR A
+1219  FEE9                      ; clear page-zero $0004 (current default drive)
+1220  FEE9 32 04 00             LD ($0004),A
+1221  FEEC                      ; read the configured console card class from the config block (Apple $03BB)
+1222  FEEC 3A BB F3             LD A,($F3BB)
+1223  FEEF                      ; card class 6 = device-6 / Pascal-firmware console (post-1980 path; absent in the 1980
+1224  FEEF                      ; manual) [RE]
+1225  FEEF FE 06                CP $06
+1226  FEF1 20 0A                JR NZ,DEV_INSTALL_LIST
+1227  FEF3                      ; device-6 console: install the $FD99 status handler
+1228  FEF3 21 99 FD             LD HL,SET_SCREEN_BASE_1
+1229  FEF6                      ; store it into the SoftCard console-status I/O vector cell (Apple $0380)
+1230  FEF6 22 80 F3             LD ($F380),HL
+1231  FEF9 D6 03                SUB $03
+1232  FEFB 18 13                JR DEV_INSTALL_PUNCH
+1233  FEFD              ; ----------------------------------------------------------------------
+1234  FEFD              ; DEV_INSTALL_LIST -- install the LIST device-output handler from the config class. [RE]
+1235  FEFD              ;   In:  install engine running. Out: patches the LIST output stub vector. Clobbers: A,HL.
+1236  FEFD              ;   Algorithm: read the LIST card class (config $F3B9 = Apple $03B9), bias by 3; if a
+1237  FEFD              ;     real device is configured, look up its handler (CALL HANDLER_LOOKUP) and store it
+1238  FEFD              ;     into the LIST stub vector (DEV_OUT_1_JP+1). Twin of 2.20 DEV_INSTALL flow. [RE]
+1239  FEFD              ; ----------------------------------------------------------------------
+1240  FEFD              DEV_INSTALL_LIST:
+1241  FEFD FE 05                CP $05
+1242  FEFF 28 22                JR Z,DEV_INSTALL_READER
+1243  FF01 D6 03                SUB $03
+1244  FF03 38 1E                JR C,DEV_INSTALL_READER
+1245  FF05 20 09                JR NZ,DEV_INSTALL_PUNCH
+1246  FF07 21 15 FB             LD HL,KBD_STATUS_40COL+1
+1247  FF0A 36 BE                LD (HL),$BE
+1248  FF0C 23                   INC HL
+1249  FF0D 23                   INC HL
+1250  FF0E 36 1F                LD (HL),$1F
+1251  FF10              ; ----------------------------------------------------------------------
+1252  FF10              ; DEV_INSTALL_PUNCH -- install the PUNCH device-output handler from the config class. [RE]
+1253  FF10              ;   Algorithm: read the PUNCH card class (config $F3BA = Apple $03BA), bias by 3; if
+1254  FF10              ;     configured, look up the handler and store it into the PUNCH stub vector (DEV_OUT_2_JP+1); for
+1255  FF10              ;     the higher class value also install a secondary handler into DEV_OUT_3_JP+1. Twin of 2.20
+1256  FF10              ;     DEV_INSTALL flow. [RE]
+1257  FF10              ; ----------------------------------------------------------------------
+1258  FF10              DEV_INSTALL_PUNCH:
+1259  FF10 F5                   PUSH AF
+1260  FF11 CD 84 FF             CALL DEV_HANDLER_LOOKUP
+1261  FF14 F1                   POP AF
+1262  FF15 22 B9 FC             LD (SCREEN_EMIT_3+1),HL
+1263  FF18                      ; secondary handler lookup via the skip-idiom entry (HANDLER_LOOKUP_B); the FD cover byte at
+1264  FF18                      ; DEV_HANDLER_LOOKUP_B is skipped [RE]
+1265  FF18 CD 7F FF             CALL DEV_HANDLER_LOOKUP_B+1
+1266  FF1B 22 37 FB             LD (CONIN_DISPATCH+1),HL
+1267  FF1E 3E 03                LD A,$03
+1268  FF20 32 05 FB             LD (CCP_LAUNCH+1),A
 1269  FF23              ; ----------------------------------------------------------------------
-1270  FF23              DEV_INSTALL_READER:
-1271  FF23 3A B9 F3             LD A,($F3B9)
-1272  FF26 D6 03                SUB $03
-1273  FF28 38 06                JR C,INSTALL_DONE_DEVICES
-1274  FF2A CD 84 FF             CALL DEV_HANDLER_LOOKUP
-1275  FF2D 22 50 FE             LD (DEV_OUT_1_JP+1),HL
-1276  FF30              ; ----------------------------------------------------------------------
-1277  FF30              ; INSTALL_DONE_DEVICES -- run the device probe after the per-device installs. [RE]
-1278  FF30              ;   Algorithm: CALL PROBE_DEVICES (PROBE_DEVICES) to scan the 7 SoftCard config slots and
-1279  FF30              ;     mark/init each present card before the banner is printed. Twin of 2.20 DEV_INSTALL_6
-1280  FF30              ;     PROBE_DEVICES call. [RE]
+1270  FF23              ; DEV_INSTALL_READER -- build the default READER/list-output stub when none is configured.
+1271  FF23              ;   Algorithm: when no real device class is configured, build the no-op stub at DEV_OUT_3_JP:
+1272  FF23              ;     store $1A3E ('LD A,$1A' opcode+immediate) then $C9 ('RET') so the device returns a
+1273  FF23              ;     constant. Twin of 2.20 DEV_INSTALL_4's DEV_OUT_3 build. [RE]
+1274  FF23              ; ----------------------------------------------------------------------
+1275  FF23              DEV_INSTALL_READER:
+1276  FF23 3A B9 F3             LD A,($F3B9)
+1277  FF26 D6 03                SUB $03
+1278  FF28 38 06                JR C,INSTALL_DONE_DEVICES
+1279  FF2A CD 84 FF             CALL DEV_HANDLER_LOOKUP
+1280  FF2D 22 50 FE             LD (DEV_OUT_1_JP+1),HL
 1281  FF30              ; ----------------------------------------------------------------------
-1282  FF30              INSTALL_DONE_DEVICES:
-1283  FF30 3A BA F3             LD A,($F3BA)
-1284  FF33 D6 03                SUB $03
-1285  FF35 38 14                JR C,SLOT_IO_SCALE_17
-1286  FF37 F5                   PUSH AF
-1287  FF38 CD 84 FF             CALL DEV_HANDLER_LOOKUP
-1288  FF3B 22 64 FE             LD (DEV_OUT_2_JP+1),HL
-1289  FF3E F1                   POP AF
-1290  FF3F FE 02                CP $02
-1291  FF41 28 08                JR Z,SLOT_IO_SCALE_17
-1292  FF43 CD 7F FF             CALL DEV_HANDLER_LOOKUP_B+1
-1293  FF46 22 6A FE             LD (DEV_OUT_3_JP+1),HL
-1294  FF49 18 0B                JR SLOT_IO_SCALE_18
-1295  FF4B              SLOT_IO_SCALE_17:
-1296  FF4B 21 3E 1A             LD HL,$1A3E
-1297  FF4E 22 69 FE             LD (DEV_OUT_3_JP),HL
-1298  FF51 3E C9                LD A,$C9
-1299  FF53 32 6B FE             LD (DEV_OUT_3_JP+2),A
-1300  FF56              SLOT_IO_SCALE_18:
-1301  FF56                      ; scan + init the 7 SoftCard config slots (device probe) before the sign-on
-1302  FF56 CD 82 FA             CALL PROBE_DEVICES
-1303  FF59              ; ----------------------------------------------------------------------
-1304  FF59              ; SIGNON_PRINT -- emit the two config-derived sign-on prefix chars, then the banner. [RE]
-1305  FF59              ;   In:  none. Out: prints the sign-on. Clobbers: A,HL.
-1306  FF59              ;   Algorithm: read config $F398 (Apple $0398), pass it to the CONOUT writer (CONOUT_DISPATCH),
-1307  FF59              ;     then walk SIGNON_BANNER (SIGNON_BANNER) char-by-char through CONOUT until the $00
-1308  FF59              ;     terminator, then enter PAGEZERO_REBUILD (PAGEZERO_REBUILD_HOOKS). Twin of the 2.20
-1309  FF59              ;     DEV_INSTALL_6/
-1310  FF59              ;     DEV_INSTALL_7 banner loop (here it routes through CONOUT directly, not SIGNON_EMIT).
-1311  FF59              ;     NOTE: WBOOT (WBOOT) also stashes SIGNON_PRINT into the $F3D0 RPC mailbox at
-1312  FF59              ;     $FACE for a re-init path. [RE]
-1313  FF59              ; ----------------------------------------------------------------------
-1314  FF59              SIGNON_PRINT:
-1315  FF59                      ; first config-derived sign-on char (Apple $0398)
-1316  FF59 3A 98 F3             LD A,($F398)
-1317  FF5C                      ; emit it via SIGNON_EMIT (prefixes a config char if bit7 set), routed through CONOUT
-1318  FF5C CD 8F FF             CALL SIGNON_EMIT
-1319  FF5F                      ; HL -> the cold-boot sign-on banner string
-1320  FF5F 21 9E FF             LD HL,SIGNON_BANNER
-1321  FF62              ; ----------------------------------------------------------------------
-1322  FF62              ; SIGNON_BANNER_LOOP -- print SIGNON_BANNER char-by-char until the $00 terminator. [RE]
-1323  FF62              ;   In:  HL -> banner. Out: jumps to PAGEZERO_REBUILD at the terminator. Clobbers: A,HL.
-1324  FF62              ;   Algorithm: load (HL); if $00 jump to PAGEZERO_REBUILD (PAGEZERO_REBUILD_HOOKS) to finish cold
-1325  FF62              ;     boot; else push HL, CALL CONOUT (CONOUT_DISPATCH), pop, INC HL, repeat. Twin of 2.20
-1326  FF62              ;     DEV_INSTALL_7. [RE]
-1327  FF62              ; ----------------------------------------------------------------------
-1328  FF62              SIGNON_BANNER_LOOP:
-1329  FF62 7E                   LD A,(HL)
-1330  FF63 B7                   OR A
-1331  FF64                      ; banner terminator -> PAGEZERO_REBUILD (write page-zero hooks, enter the CCP)
-1332  FF64 CA E3 FA             JP Z,PAGEZERO_REBUILD_HOOKS
-1333  FF67 E5                   PUSH HL
-1334  FF68                      ; emit one banner char via CONOUT
-1335  FF68 CD 4C FB             CALL CONOUT_DISPATCH
-1336  FF6B E1                   POP HL
-1337  FF6C 23                   INC HL
-1338  FF6D 18 F3                JR SIGNON_BANNER_LOOP
-1339  FF6F              SLOT_IO_SCALE_21:
-1340  FF6F 0E FD                LD C,$FD
-1341  FF71 71                   LD (HL),C
-1342  FF72 FD                   DEFB $FD  ; ignored IY prefix; inner: LD D,D
-1343  FF73 52                   LD D,D
-1344  FF74 FE A9                CP $A9
-1345  FF76 FD                   DEFB $FD  ; ignored IY prefix; inner: LD B,D
-1346  FF77              SLOT_IO_SCALE_22:
-1347  FF77 42                   LD B,D
-1348  FF78 FE C1                CP $C1
-1349  FF7A FD                   DEFB $FD  ; ignored IY prefix; inner: OR A
-1350  FF7B B7                   OR A
-1351  FF7C FD                   DEFB $FD  ; ignored IY prefix; inner: OR A
-1352  FF7D B7                   OR A
-1353  FF7E              ; ----------------------------------------------------------------------
-1354  FF7E              ; DEV_HANDLER_LOOKUP_B -- secondary-table handler lookup, entered at +1 via a skip idiom.
-1355  FF7E              ;   In:  A = entry index. Out: HL = handler address from the secondary table. Clobbers: A,HL.
-1356  FF7E              ;   SKIP IDIOM: the byte at DEV_HANDLER_LOOKUP_B ($FF7E) is an $FD cover (reads as 'LD IY,$FF77'
-1357  FF7E              ;     when fallen into); every CALLER targets DEV_HANDLER_LOOKUP_B+1 ($FF7F) which executes
-1358  FF7E              ;     'LD HL,SLOT_IO_SCALE_22' (the secondary DEV_HANDLER_PTRS_B base) then 'JR DEV_HANDLER_
-1359  FF7E              ;     LOOKUP_IDX'. Twin of 2.20 DEV_HANDLER_LOOKUP_B (there a clean 'LD HL,..; JR'). [RE]
-1360  FF7E              ;   -- see flags for the cover byte and the surrounding DEFB-as-code handler table.
-1361  FF7E              ; ----------------------------------------------------------------------
-1362  FF7E              DEV_HANDLER_LOOKUP_B:
-1363  FF7E                      ; COVER: the FD prefix makes this 'LD IY,$FF77' on fall-in; callers enter at +1 => 'LD
-1364  FF7E                      ;        HL,SLOT_IO_SCALE_22' (secondary table base) [RE]
-1365  FF7E FD 21 77 FF          LD IY,SLOT_IO_SCALE_22
-1366  FF82                      ; join the shared index tail (HL += A*2; load the word)
-1367  FF82 18 03                JR DEV_HANDLER_LOOKUP_IDX
-1368  FF84              ; ----------------------------------------------------------------------
-1369  FF84              ; DEV_HANDLER_LOOKUP -- fetch a device-handler address from the primary pointer table.
-1370  FF84              ;   In:  A = entry index (0-based). Out: HL = handler address. Clobbers: A,HL.
-1371  FF84              ;   Algorithm: HL = DEV_HANDLER_PTRS base (SLOT_IO_SCALE_21); fall into the shared scaler
-1372  FF84              ;     (ADD A,A; ADD A,L; LD L,A) then load the 16-bit word at that slot (low then high).
-1373  FF84              ;     The secondary-table entry is HANDLER_LOOKUP_B at DEV_HANDLER_LOOKUP_B+1 (skip idiom). Twin
-1374  FF84              ;     of 2.20 DEV_HANDLER_LOOKUP. [RE]
-1375  FF84              ; ----------------------------------------------------------------------
-1376  FF84              DEV_HANDLER_LOOKUP:
-1377  FF84                      ; select the primary device-handler pointer table
-1378  FF84 21 6F FF             LD HL,SLOT_IO_SCALE_21
-1379  FF87              ; ----------------------------------------------------------------------
-1380  FF87              ; DEV_HANDLER_LOOKUP_IDX -- shared table-index tail: HL += A*2; HL = word at that slot.
-1381  FF87              ;   In:  A = index, HL = table base. Out: HL = the 16-bit handler address. Clobbers: A,HL.
-1382  FF87              ;   Twin of 2.20 DISK_RTN_LOOKUP_IDX. [RE]
-1383  FF87              ; ----------------------------------------------------------------------
-1384  FF87              DEV_HANDLER_LOOKUP_IDX:
-1385  FF87                      ; index*2 for 16-bit (word) table entries
-1386  FF87 87                   ADD A,A
-1387  FF88 85                   ADD A,L
-1388  FF89 6F                   LD L,A
-1389  FF8A                      ; load handler address low byte
-1390  FF8A 7E                   LD A,(HL)
-1391  FF8B 2C                   INC L
-1392  FF8C                      ; load handler address high byte -> HL = handler entry
-1393  FF8C 66                   LD H,(HL)
-1394  FF8D 6F                   LD L,A
-1395  FF8E C9                   RET
-1396  FF8F              ; ----------------------------------------------------------------------
-1397  FF8F              ; SIGNON_EMIT -- emit one sign-on byte, optionally preceded by a fixed prefix char.
-1398  FF8F              ;   In:  A = byte/flag. Out: prints via CONOUT (CONOUT_DISPATCH). Clobbers: A,HL.
-1399  FF8F              ;   Algorithm: if A is positive (bit7 clear) emit it directly via CONOUT; if negative,
-1400  FF8F              ;     first emit the prefix char from config $F397 (Apple $0397), then tail-jump to
-1401  FF8F              ;     CONOUT to emit A. Twin of 2.20 SIGNON_EMIT. [RE]
-1402  FF8F              ; ----------------------------------------------------------------------
-1403  FF8F              SIGNON_EMIT:
-1404  FF8F B7                   OR A
-1405  FF90                      ; bit7 clear -> emit the char directly via CONOUT
-1406  FF90 F2 9B FF             JP P,SIGNON_EMIT_CHAR
-1407  FF93 F5                   PUSH AF
-1408  FF94                      ; negative flag: fetch the prefix char from the config block (Apple $0397)
-1409  FF94 3A 97 F3             LD A,($F397)
-1410  FF97                      ; emit the prefix char via CONOUT
-1411  FF97 CD 4C FB             CALL CONOUT_DISPATCH
-1412  FF9A F1                   POP AF
-1413  FF9B              ; ----------------------------------------------------------------------
-1414  FF9B              ; SIGNON_EMIT_CHAR -- tail of SIGNON_EMIT: emit the original char via CONOUT. [RE]
-1415  FF9B              ; ----------------------------------------------------------------------
-1416  FF9B              SIGNON_EMIT_CHAR:
-1417  FF9B                      ; tail-call CONOUT to emit the char
-1418  FF9B C3 4C FB             JP CONOUT_DISPATCH
-1419  FF9E              ; ----------------------------------------------------------------------
-1420  FF9E              ; SIGNON_BANNER -- the cold-boot sign-on string, printed by SIGNON_BANNER_LOOP until $00.
-1421  FF9E              ;   Reads (40-col uppercase / Videx mixed-case): CR/LF/LF/LF, '     Softcard CP/M', CR/LF,
-1422  FF9E              ;   '     44K Ver. 2.23', CR/LF, '(c) 1980,1982 Microsoft', CR, LF/CR/LF, $00. DATA.
-1423  FF9E              ;   NOTE: the 40-col Apple screen is uppercase-only so it renders 'SOFTCARD'; the Videx
-1424  FF9E              ;   80-col card renders the mixed-case 'Softcard'. The trailing bytes from $FFE6 ($FA $E5
-1425  FF9E              ;   ...) are NOT banner text -- they are an in-image copy of handler/lookup code; see flags.
-1426  FF9E              ;   Twin of 2.20 SIGNON_BANNER (which reads 'Apple ][ CP/M' / '44K Ver. 2.20' /
-1427  FF9E              ;   '(C) 1980 Microsoft'). [RE]
-1428  FF9E              ; ----------------------------------------------------------------------
-1429  FF9E              SIGNON_BANNER:
-1430  FF9E 0D 0A 0A 0A          DEFB    "\r\n\n\n"
-1431  FFA2 20 20 20 20          DEFB    "     Softcard CP/M"     ; string
-1431  FFA6 20 53 6F 66
-1431  FFAA 74 63 61 72
-1431  FFAE 64 20 43 50
-1431  FFB2 2F 4D
-1432  FFB4 0D                   DEFB    $0D                      ; terminator
-1433  FFB5 0A                   DEFB    "\n"
-1434  FFB6 20 20 20 20          DEFB    "     44K Ver. 2.23"     ; string
-1434  FFBA 20 34 34 4B
-1434  FFBE 20 56 65 72
-1434  FFC2 2E 20 32 2E
-1434  FFC6 32 33
-1435  FFC8 0D                   DEFB    $0D                      ; terminator
-1436  FFC9 0A                   DEFB    "\n"
-1437  FFCA 28 63 29 20          DEFB    "(c) 1980,1982 Microsoft" ; string
-1437  FFCE 31 39 38 30
-1437  FFD2 2C 31 39 38
-1437  FFD6 32 20 4D 69
-1437  FFDA 63 72 6F 73
-1437  FFDE 6F 66 74
-1438  FFE1 0D                   DEFB    $0D                      ; terminator
-1439  FFE2 0A 0D 0A 00          DEFB    $0A,$0D,$0A,$00,$FA,$E5,$CD,$4C,$FB,$E1,$23,$18,$F3,$0E,$FD,$71
-1439  FFE6 FA E5 CD 4C
-1439  FFEA FB E1 23 18
-1439  FFEE F3 0E FD 71
-1440  FFF2 FD 52 FE A9          DEFB    $FD,$52,$FE,$A9,$FD,$42,$FE,$C1,$FD,$B7,$FD,$B7,$FD,$21
-1440  FFF6 FD 42 FE C1
-1440  FFFA FD B7 FD B7
-1440  FFFE FD 21
-1441  0000              BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
-1442  0000
-1443  0000                  SAVEBIN "{out_bin}", $FA00, $0600
-1444  0000                  IFNDEF CPM_LINK
-1445  0000                  ; image size from bracketing labels; $FA00 = the ORG base (image wraps to $0000)
-1446  0000                  SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
-1447  0000                  ENDIF
-1448  0000
-1449  0000              ; ----------------------------------------------------------------------
-1450  0000              ; BDOS scratch overlay -- the SECOND tenant of $FEE4-$FFDB.
-1451  0000              ;   Those bytes are the one-shot cold-boot / sign-on code above. It runs once at cold
-1452  0000              ;   start; only afterwards does the disk system reuse them as the buffers DPH_TABLE
-1453  0000              ;   hands out. The two tenants are never live at the same time.
-1454  0000              ;
-1455  0000              ;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
-1456  0000              ;   at the overlay base, then one label per field with its extent carried in the
-1457  0000              ;   arithmetic that advances to the next. Labels emit no bytes, so this names the
-1458  0000              ;   region without writing to it -- the cold-boot code above still owns every byte of
-1459  0000              ;   the image, and the ORG leaves the emitted output untouched.
-1460  0000              ;
-1461  0000              ;   Reference whichever tenant is live at the point of use: the cold-boot routines by
-1462  0000              ;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
-1463  0000              ;   cold boot has finished. The sizes are the DPB's own values, so they cannot drift
-1464  0000              ;   from the DPB this BIOS publishes. Same shape and names as the 2.20-44K and
-1465  0000              ;   2.23-60K twins; only the addresses and the drive count differ. [RE]
-1466  0000              ; ----------------------------------------------------------------------
-1467  0000              DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
-1468  0000              DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
-1469  0000              ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
-1470  0000              CSV_SIZE     EQU 12                   ; = CKS
-1471  0000
-1472  0000                      ORG $FEE4                     ; the one given: where the author placed the overlay
-1473  FEE4              DIRBUF:                               ; shared directory buffer, one per system
-1474  FEE4                      ORG DIRBUF + DIRBUF_SIZE
-1475  FF64              ALV_VECTORS:                          ; per-drive allocation vectors ($FF64..)
-1476  FF64                      ORG ALV_VECTORS + DRIVES * ALV_SIZE
-1477  FFAC              CSV_VECTORS:                          ; per-drive checksum vectors ($FFAC..)
-1478  FFAC                      ORG CSV_VECTORS + DRIVES * CSV_SIZE
-1479  FFDC              BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFDC)
-1480  FFDC
-1481  FFDC                  ; Pin the derived layout to the addresses the shipped image actually uses: change
-1482  FFDC                  ; DRIVES or a size and the build fails here rather than silently moving a buffer.
-1483  FFDC                  ASSERT ALV_VECTORS == $FF64
-1484  FFDC                  ASSERT CSV_VECTORS == $FFAC
-1485  FFDC                  ASSERT BIOS_SCRATCH_END == $FFDC
-1486  FFDC
+1282  FF30              ; INSTALL_DONE_DEVICES -- run the device probe after the per-device installs. [RE]
+1283  FF30              ;   Algorithm: CALL PROBE_DEVICES (PROBE_DEVICES) to scan the 7 SoftCard config slots and
+1284  FF30              ;     mark/init each present card before the banner is printed. Twin of 2.20 DEV_INSTALL_6
+1285  FF30              ;     PROBE_DEVICES call. [RE]
+1286  FF30              ; ----------------------------------------------------------------------
+1287  FF30              INSTALL_DONE_DEVICES:
+1288  FF30 3A BA F3             LD A,($F3BA)
+1289  FF33 D6 03                SUB $03
+1290  FF35 38 14                JR C,SLOT_IO_SCALE_17
+1291  FF37 F5                   PUSH AF
+1292  FF38 CD 84 FF             CALL DEV_HANDLER_LOOKUP
+1293  FF3B 22 64 FE             LD (DEV_OUT_2_JP+1),HL
+1294  FF3E F1                   POP AF
+1295  FF3F FE 02                CP $02
+1296  FF41 28 08                JR Z,SLOT_IO_SCALE_17
+1297  FF43 CD 7F FF             CALL DEV_HANDLER_LOOKUP_B+1
+1298  FF46 22 6A FE             LD (DEV_OUT_3_JP+1),HL
+1299  FF49 18 0B                JR SLOT_IO_SCALE_18
+1300  FF4B              SLOT_IO_SCALE_17:
+1301  FF4B 21 3E 1A             LD HL,$1A3E
+1302  FF4E 22 69 FE             LD (DEV_OUT_3_JP),HL
+1303  FF51 3E C9                LD A,$C9
+1304  FF53 32 6B FE             LD (DEV_OUT_3_JP+2),A
+1305  FF56              SLOT_IO_SCALE_18:
+1306  FF56                      ; scan + init the 7 SoftCard config slots (device probe) before the sign-on
+1307  FF56 CD 82 FA             CALL PROBE_DEVICES
+1308  FF59              ; ----------------------------------------------------------------------
+1309  FF59              ; SIGNON_PRINT -- emit the two config-derived sign-on prefix chars, then the banner. [RE]
+1310  FF59              ;   In:  none. Out: prints the sign-on. Clobbers: A,HL.
+1311  FF59              ;   Algorithm: read config $F398 (Apple $0398), pass it to the CONOUT writer (CONOUT_DISPATCH),
+1312  FF59              ;     then walk SIGNON_BANNER (SIGNON_BANNER) char-by-char through CONOUT until the $00
+1313  FF59              ;     terminator, then enter PAGEZERO_REBUILD (PAGEZERO_REBUILD_HOOKS). Twin of the 2.20
+1314  FF59              ;     DEV_INSTALL_6/
+1315  FF59              ;     DEV_INSTALL_7 banner loop (here it routes through CONOUT directly, not SIGNON_EMIT).
+1316  FF59              ;     NOTE: WBOOT (WBOOT) also stashes SIGNON_PRINT into the $F3D0 RPC mailbox at
+1317  FF59              ;     $FACE for a re-init path. [RE]
+1318  FF59              ; ----------------------------------------------------------------------
+1319  FF59              SIGNON_PRINT:
+1320  FF59                      ; first config-derived sign-on char (Apple $0398)
+1321  FF59 3A 98 F3             LD A,($F398)
+1322  FF5C                      ; emit it via SIGNON_EMIT (prefixes a config char if bit7 set), routed through CONOUT
+1323  FF5C CD 8F FF             CALL SIGNON_EMIT
+1324  FF5F                      ; HL -> the cold-boot sign-on banner string
+1325  FF5F 21 9E FF             LD HL,SIGNON_BANNER
+1326  FF62              ; ----------------------------------------------------------------------
+1327  FF62              ; SIGNON_BANNER_LOOP -- print SIGNON_BANNER char-by-char until the $00 terminator. [RE]
+1328  FF62              ;   In:  HL -> banner. Out: jumps to PAGEZERO_REBUILD at the terminator. Clobbers: A,HL.
+1329  FF62              ;   Algorithm: load (HL); if $00 jump to PAGEZERO_REBUILD (PAGEZERO_REBUILD_HOOKS) to finish cold
+1330  FF62              ;     boot; else push HL, CALL CONOUT (CONOUT_DISPATCH), pop, INC HL, repeat. Twin of 2.20
+1331  FF62              ;     DEV_INSTALL_7. [RE]
+1332  FF62              ; ----------------------------------------------------------------------
+1333  FF62              SIGNON_BANNER_LOOP:
+1334  FF62 7E                   LD A,(HL)
+1335  FF63 B7                   OR A
+1336  FF64                      ; banner terminator -> PAGEZERO_REBUILD (write page-zero hooks, enter the CCP)
+1337  FF64 CA E3 FA             JP Z,PAGEZERO_REBUILD_HOOKS
+1338  FF67 E5                   PUSH HL
+1339  FF68                      ; emit one banner char via CONOUT
+1340  FF68 CD 4C FB             CALL CONOUT_DISPATCH
+1341  FF6B E1                   POP HL
+1342  FF6C 23                   INC HL
+1343  FF6D 18 F3                JR SIGNON_BANNER_LOOP
+1344  FF6F              SLOT_IO_SCALE_21:
+1345  FF6F 0E FD                LD C,$FD
+1346  FF71 71                   LD (HL),C
+1347  FF72 FD                   DEFB $FD  ; ignored IY prefix; inner: LD D,D
+1348  FF73 52                   LD D,D
+1349  FF74 FE A9                CP $A9
+1350  FF76 FD                   DEFB $FD  ; ignored IY prefix; inner: LD B,D
+1351  FF77              SLOT_IO_SCALE_22:
+1352  FF77 42                   LD B,D
+1353  FF78 FE C1                CP $C1
+1354  FF7A FD                   DEFB $FD  ; ignored IY prefix; inner: OR A
+1355  FF7B B7                   OR A
+1356  FF7C FD                   DEFB $FD  ; ignored IY prefix; inner: OR A
+1357  FF7D B7                   OR A
+1358  FF7E              ; ----------------------------------------------------------------------
+1359  FF7E              ; DEV_HANDLER_LOOKUP_B -- secondary-table handler lookup, entered at +1 via a skip idiom.
+1360  FF7E              ;   In:  A = entry index. Out: HL = handler address from the secondary table. Clobbers: A,HL.
+1361  FF7E              ;   SKIP IDIOM: the byte at DEV_HANDLER_LOOKUP_B ($FF7E) is an $FD cover (reads as 'LD IY,$FF77'
+1362  FF7E              ;     when fallen into); every CALLER targets DEV_HANDLER_LOOKUP_B+1 ($FF7F) which executes
+1363  FF7E              ;     'LD HL,SLOT_IO_SCALE_22' (the secondary DEV_HANDLER_PTRS_B base) then 'JR DEV_HANDLER_
+1364  FF7E              ;     LOOKUP_IDX'. Twin of 2.20 DEV_HANDLER_LOOKUP_B (there a clean 'LD HL,..; JR'). [RE]
+1365  FF7E              ;   -- see flags for the cover byte and the surrounding DEFB-as-code handler table.
+1366  FF7E              ; ----------------------------------------------------------------------
+1367  FF7E              DEV_HANDLER_LOOKUP_B:
+1368  FF7E                      ; COVER: the FD prefix makes this 'LD IY,$FF77' on fall-in; callers enter at +1 => 'LD
+1369  FF7E                      ;        HL,SLOT_IO_SCALE_22' (secondary table base) [RE]
+1370  FF7E FD 21 77 FF          LD IY,SLOT_IO_SCALE_22
+1371  FF82                      ; join the shared index tail (HL += A*2; load the word)
+1372  FF82 18 03                JR DEV_HANDLER_LOOKUP_IDX
+1373  FF84              ; ----------------------------------------------------------------------
+1374  FF84              ; DEV_HANDLER_LOOKUP -- fetch a device-handler address from the primary pointer table.
+1375  FF84              ;   In:  A = entry index (0-based). Out: HL = handler address. Clobbers: A,HL.
+1376  FF84              ;   Algorithm: HL = DEV_HANDLER_PTRS base (SLOT_IO_SCALE_21); fall into the shared scaler
+1377  FF84              ;     (ADD A,A; ADD A,L; LD L,A) then load the 16-bit word at that slot (low then high).
+1378  FF84              ;     The secondary-table entry is HANDLER_LOOKUP_B at DEV_HANDLER_LOOKUP_B+1 (skip idiom). Twin
+1379  FF84              ;     of 2.20 DEV_HANDLER_LOOKUP. [RE]
+1380  FF84              ; ----------------------------------------------------------------------
+1381  FF84              DEV_HANDLER_LOOKUP:
+1382  FF84                      ; select the primary device-handler pointer table
+1383  FF84 21 6F FF             LD HL,SLOT_IO_SCALE_21
+1384  FF87              ; ----------------------------------------------------------------------
+1385  FF87              ; DEV_HANDLER_LOOKUP_IDX -- shared table-index tail: HL += A*2; HL = word at that slot.
+1386  FF87              ;   In:  A = index, HL = table base. Out: HL = the 16-bit handler address. Clobbers: A,HL.
+1387  FF87              ;   Twin of 2.20 DISK_RTN_LOOKUP_IDX. [RE]
+1388  FF87              ; ----------------------------------------------------------------------
+1389  FF87              DEV_HANDLER_LOOKUP_IDX:
+1390  FF87                      ; index*2 for 16-bit (word) table entries
+1391  FF87 87                   ADD A,A
+1392  FF88 85                   ADD A,L
+1393  FF89 6F                   LD L,A
+1394  FF8A                      ; load handler address low byte
+1395  FF8A 7E                   LD A,(HL)
+1396  FF8B 2C                   INC L
+1397  FF8C                      ; load handler address high byte -> HL = handler entry
+1398  FF8C 66                   LD H,(HL)
+1399  FF8D 6F                   LD L,A
+1400  FF8E C9                   RET
+1401  FF8F              ; ----------------------------------------------------------------------
+1402  FF8F              ; SIGNON_EMIT -- emit one sign-on byte, optionally preceded by a fixed prefix char.
+1403  FF8F              ;   In:  A = byte/flag. Out: prints via CONOUT (CONOUT_DISPATCH). Clobbers: A,HL.
+1404  FF8F              ;   Algorithm: if A is positive (bit7 clear) emit it directly via CONOUT; if negative,
+1405  FF8F              ;     first emit the prefix char from config $F397 (Apple $0397), then tail-jump to
+1406  FF8F              ;     CONOUT to emit A. Twin of 2.20 SIGNON_EMIT. [RE]
+1407  FF8F              ; ----------------------------------------------------------------------
+1408  FF8F              SIGNON_EMIT:
+1409  FF8F B7                   OR A
+1410  FF90                      ; bit7 clear -> emit the char directly via CONOUT
+1411  FF90 F2 9B FF             JP P,SIGNON_EMIT_CHAR
+1412  FF93 F5                   PUSH AF
+1413  FF94                      ; negative flag: fetch the prefix char from the config block (Apple $0397)
+1414  FF94 3A 97 F3             LD A,($F397)
+1415  FF97                      ; emit the prefix char via CONOUT
+1416  FF97 CD 4C FB             CALL CONOUT_DISPATCH
+1417  FF9A F1                   POP AF
+1418  FF9B              ; ----------------------------------------------------------------------
+1419  FF9B              ; SIGNON_EMIT_CHAR -- tail of SIGNON_EMIT: emit the original char via CONOUT. [RE]
+1420  FF9B              ; ----------------------------------------------------------------------
+1421  FF9B              SIGNON_EMIT_CHAR:
+1422  FF9B                      ; tail-call CONOUT to emit the char
+1423  FF9B C3 4C FB             JP CONOUT_DISPATCH
+1424  FF9E              ; ----------------------------------------------------------------------
+1425  FF9E              ; SIGNON_BANNER -- the cold-boot sign-on string, printed by SIGNON_BANNER_LOOP until $00.
+1426  FF9E              ;   Reads (40-col uppercase / Videx mixed-case): CR/LF/LF/LF, '     Softcard CP/M', CR/LF,
+1427  FF9E              ;   '     44K Ver. 2.23', CR/LF, '(c) 1980,1982 Microsoft', CR, LF/CR/LF, $00. DATA.
+1428  FF9E              ;   NOTE: the 40-col Apple screen is uppercase-only so it renders 'SOFTCARD'; the Videx
+1429  FF9E              ;   80-col card renders the mixed-case 'Softcard'. The trailing bytes from $FFE6 ($FA $E5
+1430  FF9E              ;   ...) are NOT banner text -- they are an in-image copy of handler/lookup code; see flags.
+1431  FF9E              ;   Twin of 2.20 SIGNON_BANNER (which reads 'Apple ][ CP/M' / '44K Ver. 2.20' /
+1432  FF9E              ;   '(C) 1980 Microsoft'). [RE]
+1433  FF9E              ; ----------------------------------------------------------------------
+1434  FF9E              SIGNON_BANNER:
+1435  FF9E 0D 0A 0A 0A          DEFB    "\r\n\n\n"
+1436  FFA2 20 20 20 20          DEFB    "     Softcard CP/M"     ; string
+1436  FFA6 20 53 6F 66
+1436  FFAA 74 63 61 72
+1436  FFAE 64 20 43 50
+1436  FFB2 2F 4D
+1437  FFB4 0D                   DEFB    $0D                      ; terminator
+1438  FFB5 0A                   DEFB    "\n"
+1439  FFB6 20 20 20 20          DEFB    "     44K Ver. 2.23"     ; string
+1439  FFBA 20 34 34 4B
+1439  FFBE 20 56 65 72
+1439  FFC2 2E 20 32 2E
+1439  FFC6 32 33
+1440  FFC8 0D                   DEFB    $0D                      ; terminator
+1441  FFC9 0A                   DEFB    "\n"
+1442  FFCA 28 63 29 20          DEFB    "(c) 1980,1982 Microsoft" ; string
+1442  FFCE 31 39 38 30
+1442  FFD2 2C 31 39 38
+1442  FFD6 32 20 4D 69
+1442  FFDA 63 72 6F 73
+1442  FFDE 6F 66 74
+1443  FFE1 0D                   DEFB    $0D                      ; terminator
+1444  FFE2 0A 0D 0A 00          DEFB    $0A,$0D,$0A,$00,$FA,$E5,$CD,$4C,$FB,$E1,$23,$18,$F3,$0E,$FD,$71
+1444  FFE6 FA E5 CD 4C
+1444  FFEA FB E1 23 18
+1444  FFEE F3 0E FD 71
+1445  FFF2 FD 52 FE A9          DEFB    $FD,$52,$FE,$A9,$FD,$42,$FE,$C1,$FD,$B7,$FD,$B7,$FD,$21
+1445  FFF6 FD 42 FE C1
+1445  FFFA FD B7 FD B7
+1445  FFFE FD 21
+1446  0000              BIOS_IMAGE_END:                          ; first byte past the BIOS image (wraps $10000->$0000)
+1447  0000
+1448  0000                  SAVEBIN "{out_bin}", $FA00, $0600
+1449  0000                  IFNDEF CPM_LINK
+1450  0000                  ; image size from bracketing labels; $FA00 = the ORG base (image wraps to $0000)
+1451  0000                  SAVEBIN "{out_bin}", $FA00, BIOS_IMAGE_END - $FA00
+1452  0000                  ENDIF
+1453  0000
+1454  0000              ; ----------------------------------------------------------------------
+1455  0000              ; BDOS scratch overlay -- the SECOND tenant of $FEE4-$FFDB.
+1456  0000              ;   Those bytes are the one-shot cold-boot / sign-on code above. It runs once at cold
+1457  0000              ;   start; only afterwards does the disk system reuse them as the buffers DPH_TABLE
+1458  0000              ;   hands out. The two tenants are never live at the same time.
+1459  0000              ;
+1460  0000              ;   The region is declared here as a LAYOUT, not as a set of magic addresses: one ORG
+1461  0000              ;   at the overlay base, then one label per field with its extent carried in the
+1462  0000              ;   arithmetic that advances to the next. Labels emit no bytes, so this names the
+1463  0000              ;   region without writing to it -- the cold-boot code above still owns every byte of
+1464  0000              ;   the image, and the ORG leaves the emitted output untouched.
+1465  0000              ;
+1466  0000              ;   Reference whichever tenant is live at the point of use: the cold-boot routines by
+1467  0000              ;   their own labels, and these names from DPH_TABLE, which the BDOS reads long after
+1468  0000              ;   cold boot has finished. The sizes are the DPB's own values, so they cannot drift
+1469  0000              ;   from the DPB this BIOS publishes. Same shape and names as the 2.20-44K and
+1470  0000              ;   2.23-60K twins; only the addresses and the drive count differ. [RE]
+1471  0000              ; ----------------------------------------------------------------------
+1472  0000              DRIVES       EQU 4                    ; four DPH entries in DPH_TABLE
+1473  0000              DIRBUF_SIZE  EQU 128                  ; one 128-byte directory record
+1474  0000              ALV_SIZE     EQU 139 / 8 + 1          ; = 18; 139 is DSM, the highest allocation block number
+1475  0000              CSV_SIZE     EQU 12                   ; = CKS
+1476  0000
+1477  0000                      ORG $FEE4                     ; the one given: where the author placed the overlay
+1478  FEE4              DIRBUF:                               ; shared directory buffer, one per system
+1479  FEE4                      ORG DIRBUF + DIRBUF_SIZE
+1480  FF64              ALV_VECTORS:                          ; per-drive allocation vectors ($FF64..)
+1481  FF64                      ORG ALV_VECTORS + DRIVES * ALV_SIZE
+1482  FFAC              CSV_VECTORS:                          ; per-drive checksum vectors ($FFAC..)
+1483  FFAC                      ORG CSV_VECTORS + DRIVES * CSV_SIZE
+1484  FFDC              BIOS_SCRATCH_END:                     ; first byte past the overlay ($FFDC)
+1485  FFDC
+1486  FFDC                  ; Pin the derived layout to the addresses the shipped image actually uses: change
+1487  FFDC                  ; DRIVES or a size and the build fails here rather than silently moving a buffer.
+1488  FFDC                  ASSERT ALV_VECTORS == $FF64
+1489  FFDC                  ASSERT CSV_VECTORS == $FFAC
+1490  FFDC                  ASSERT BIOS_SCRATCH_END == $FFDC
+1491  FFDC
 # file closed: CPM_BIOS.asm

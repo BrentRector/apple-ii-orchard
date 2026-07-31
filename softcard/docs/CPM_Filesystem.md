@@ -45,7 +45,9 @@ Two hiding mechanisms are stacked on it: the **user number is 31**, outside the 
 
 **Two shipped Microsoft tools write it**, running the same sequence: `CPM60.COM` (`CPMV223-60K/CPM60_installer.asm`) and `COPY.COM` on its `/S` path (`CPMV223-44K/utilities/COPY.asm` `$037F`). Both set user 31, delete any stale entry, verify blocks 128-139 are free in the allocation bitmap, `F_MAKE`, hand-fill the block map with `$80..$8B`, set `RC`=`$60`/`EX`=`$00`, and `F_CLOSE`. It is a designed convention, not a mastering-time patch.
 
-**Consequently a disk with no such entry is dangerous on a 2.23 system.** That means every 2.20-lineage disk, and any disk formatted with `COPY /F` rather than `/S`. Once blocks 0-127 are full the allocator hands out 128-139, and writing there does not fail and does not reach a drive error: it silently overwrites tracks 0-2 and destroys the boot pipeline. Verified in the emulator, where a `SAVE` into block 128 reported success, committed its directory entry, and changed 689 bytes of track 0. Full trace in [`CPM_Disk_Creation.md`](CPM_Disk_Creation.md).
+On a **data** disk the aliasing is the point: it recovers the three reserved tracks as 12 KB of usable storage. The entry exists to protect a **boot** image. CiderPress2's CP/M format notes describe the same entry independently on Apple 5.25" CP/M disks, and attribute the technique to the Microsoft SoftCard, "used to allow extra storage on non-bootable disks".
+
+**The hazard is therefore specific: a disk that carries a boot image but not the protecting entry.** That is every 2.20-lineage system disk, which never needed one because its own `DSM` is `$7F`, read on a 2.23 system. Once blocks 0-127 are full the allocator hands out 128-139, and the write does not fail and does not reach a drive error: it silently overwrites tracks 0-2 and destroys the boot pipeline. Verified in the emulator, where a `SAVE` into block 128 reported success, committed its directory entry, and changed 689 bytes of track 0. A non-bootable data disk is not at risk. Full trace in [`CPM_Disk_Creation.md`](CPM_Disk_Creation.md).
 
 ## File inventory
 

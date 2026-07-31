@@ -69,12 +69,14 @@ Step by step:
 4. **Prompt the operator.** Build drive-letter glyphs (the `'Z'` at `$0284` is patched to the real drive letter), print the banner / `"Insert 16 sector disk into drive Z: Press RETURN to begin"`, and wait for a key via direct console I/O (fn `$06`, E=`$FF` polled).
 
 5. **Write the embedded system to the system tracks — NOT via BDOS file writes.** It pokes the 60K BIOS's own RWTS-bridge variables in high RAM:
-   - `$F3E0` = sector
-   - `$F3E9` = track (`$14`)
-   - `$F3EB` = sector count (2)
+   - `$F3E0`/`$F3E1` = IOB **track** / **sector**; a 16-bit store of `HL` sets both (L = track, H = sector)
+   - `$F3E9` = high byte of the IOB **buffer pointer** (`$14` → Apple `$1400`, the image start). NOT a track.
+   - `$F3EB` = IOB **command**; `2` = write (bit 0 set would be read). NOT a sector count.
    - status read back from `$F3EA`
 
-   and issues a 6502 "RPC": `SUB_01F9` stores the parameter word to `$F3D0`, then writes an opcode byte through the live trampoline pointer `($F3DE)` — `LD ($F3D0),HL ; LD HL,($F3DE) ; LD (HL),A` — which lands on a `$C700`/`$E700` slot access that runs the 6502 RWTS. The **write loop at `$0196`** runs `B=$30` (48) source pages starting at the `$0E00` payload page, opcode word `$0E03` (`$0E` page, fn `$03` = write). After each unit it reads `$F3EA`: status `$10` → `"Disk write protected"`; any other nonzero → `"Disk I/O error"`. The BIOS deblock applies the `(L*3)%16` sector skew when landing the logical records on physical system-track sectors; the installer feeds records in logical order.
+   These are the same page-3 IOB cells the deblock uses (`CPMV223-44K/os/CPM_BootLoader_DiskXlate.asm`). An earlier annotation here named all three wrongly, which made the loop look as though it started at track 20.
+
+   and issues a 6502 "RPC": `SUB_01F9` stores the parameter word to `$F3D0`, then writes an opcode byte through the live trampoline pointer `($F3DE)` — `LD ($F3D0),HL ; LD HL,($F3DE) ; LD (HL),A` — which lands on a `$C700`/`$E700` slot access that runs the 6502 RWTS. The **write loop at `$0196`** runs `B=$30` (48) units starting from `HL=$0000`, opcode word `$0E03` (`$0E` page, fn `$03` = write). Because L is the track and H the sector, and H wraps at 16, it walks sectors 0-15 of track 0, then track 1, then track 2: 48 × 256 = 12,288 bytes = **the three system tracks**. That is independent confirmation, from a different routine, that the region the `cp/m    sys` entry claims is the system area. After each unit it reads `$F3EA`: status `$10` → `"Disk write protected"`; any other nonzero → `"Disk I/O error"`. The BIOS deblock applies the `(L*3)%16` sector skew when landing the logical records on physical system-track sectors; the installer feeds records in logical order.
 
 6. **Hand off to the 6502 cold-boot relocator.** On success, print `"Disk has been updated to 60K"` and `"Press RETURN to re-boot system"`, then plant the `$C777` RPC vector at `$000B`, set `$F3D0=$C600` (slot-6 Disk II boot ROM entry), load `HL=($F3DE)`, and `JP $000B` — firing the 6502 cold-boot relocator to boot the freshly written 60K system.
 

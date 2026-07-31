@@ -610,7 +610,7 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         LD (SCR_DC),HL                   ; $BC8E  22 DC FE   seek needed
 000C39  1               ; ; -- main map: derive physical sector from the skew table, schedule the seek --
 000C39  1               ; SM_MAP:
-000C39  1               ;         LD A,(REQ_RECORD)                    ; $BC91  3A D2 FE   requested track
+000C39  1               ;         LD A,(REQ_RECORD)                    ; $BC91  3A D2 FE   requested record index
 000C39  1               ;         LD E,A                           ; $BC94  5F
 000C39  1               ;         OR A                             ; $BC95  B7
 000C39  1               ;         RRA                              ; $BC96  1F
@@ -671,15 +671,68 @@ Current file: CPM_BootLoader.s
 000C39  1               ; ;
 000C39  1               ; ; So the twelve blocks past the 2.20 twin's DSM=$7F are not phantom space. They
 000C39  1               ; ; are the three reserved system tracks, made addressable through the ordinary
-000C39  1               ; ; file system. That is what the 'cp/m    sys' directory entry (user $1F, block
-000C39  1               ; ; map exactly 128-139) names, and why it is called that. [RE]
+000C39  1               ; ; file system. On a DATA disk that is the point: it recovers the boot area as
+000C39  1               ; ; 12 KB of usable storage. On a BOOTABLE disk the 'cp/m    sys' directory entry
+000C39  1               ; ; (user $1F, block map exactly 128-139) claims them so no file can be allocated
+000C39  1               ; ; there, which is why the entry exists and why it is called that. [RE]
 000C39  1               ; ;
-000C39  1               ; ; CONSEQUENCE, and it is severe: on a disk with no such entry -- every 2.20-lineage
-000C39  1               ; ; disk, and any disk formatted with COPY /F rather than /S -- the allocator will
-000C39  1               ; ; hand out blocks 128-139 once 0-127 are full. Writing into them does NOT fail and
-000C39  1               ; ; does NOT hit a drive error. It silently overwrites tracks 0-2, destroying the
-000C39  1               ; ; boot pipeline. Verified in the emulator: SAVE into block 128 reported success,
-000C39  1               ; ; committed the directory entry, and changed 689 bytes of track 0.
+000C39  1               ; ; TWO INDEPENDENT SOURCES describe this as an intentional feature, and both match
+000C39  1               ; ; what the instructions say:
+000C39  1               ; ;   [?] Apple II SoftCard CP/M Reference (community, apple2.guidero.us):
+000C39  1               ; ;       "SoftCard CP/M ver 2.23 and higher uses a trick to allow the system tracks
+000C39  1               ; ;        for data storage: a file called cp/m.sys is created in user area 31 as a
+000C39  1               ; ;        dummy file allocated to the system tracks. It is inaccessible from the CCP
+000C39  1               ; ;        and unseen by the user." and "COPY.COM has an option to create a 'data
+000C39  1               ; ;        diskette' where cp/m.sys is absent, which creates 3 more tracks for data
+000C39  1               ; ;        storage."
+000C39  1               ; ;   [?] CiderPress2 CP/M format notes: same entry, blocks $80-$8B wrapping to the
+000C39  1               ; ;       start of the disk, "appears to have originated with the Microsoft SoftCard,
+000C39  1               ; ;       is used to allow extra storage on non-bootable disks".
+000C39  1               ; ; Both are secondary sources ([?] tier), but they agree with each other and with the
+000C39  1               ; ; code, and the first names COPY's data-diskette option specifically. So a data disk
+000C39  1               ; ; WITHOUT the entry is the DESIGNED use of this space, not a hazard.
+000C39  1               ; ;
+000C39  1               ; ; *** AND HERE IS THE HAZARD NEITHER SOURCE MENTIONS. ***
+000C39  1               ; ; The presence of the entry is the ONLY thing that distinguishes "this disk's boot
+000C39  1               ; ; tracks are in use" from "this disk's boot tracks are free storage". A 2.20-lineage
+000C39  1               ; ; disk has a BOOT IMAGE on tracks 0-2 and NO entry, because under DSM=$7F it never
+000C39  1               ; ; needed one -- those blocks were not expressible. Mounted on a 2.23 system it is
+000C39  1               ; ; therefore INDISTINGUISHABLE FROM A DATA DISKETTE, and 2.23 will allocate its boot
+000C39  1               ; ; tracks to the next file that needs the space. Every 2.20 disk in existence is in
+000C39  1               ; ; that state. Neither reference says so; both describe only the intended case.
+000C39  1               ; ; NOTE the same reference's DPB table prints DSM=127 for both versions, which the
+000C39  1               ; ; shipped BIOS bytes contradict ($7F on 2.20, $8B on 2.23, verified across 8 archived
+000C39  1               ; ; images). Our bytes win; the reference is internally inconsistent, since its own
+000C39  1               ; ; "allocated to the system tracks" claim needs DSM>127 to be expressible at all.
+000C39  1               ; ;
+000C39  1               ; ; RESERVATION, NOT CONDUIT -- and the fold is still not decoration:
+000C39  1               ; ;   * NO shipped tool moves data through these blocks. CPM60.COM's entire BDOS
+000C39  1               ; ;     set is {$06,$09,$0E,$10,$13,$16,$19,$1B,$20}: no read or write call at all.
+000C39  1               ; ;     COPY.COM touches the FCB only with DRV_SET / F_DELETE / F_MAKE / F_CLOSE.
+000C39  1               ; ;     Both write the system image by RAW RPC to the 6502 instead, and the 60K
+000C39  1               ; ;     installer's own loop starts at TRACK 0 SECTOR 0 and runs 48 units = tracks
+000C39  1               ; ;     0,1,2 (CPMV223-60K/CPM60_installer.asm), which independently confirms what
+000C39  1               ; ;     region the entry describes. So the entry ACCOUNTS FOR the system area; it
+000C39  1               ; ;     is not a data path either tool uses.
+000C39  1               ; ;   * But the fold is not needed to make the reservation coherent. ALLOC_FROM_FCB
+000C39  1               ; ;     range-checks a block number and sets a BITMAP bit; it never converts a block
+000C39  1               ; ;     to a track. The reservation would work with no fold at all. The fold is
+000C39  1               ; ;     reached ONLY from this deblock, on real record I/O.
+000C39  1               ; ;   * And that I/O works. Round-trip verified in the emulator: a known 256-byte
+000C39  1               ; ;     pattern placed in the TPA and written with SAVE into block 128 arrived
+000C39  1               ; ;     byte-for-byte at track 0 sector 0.
+000C39  1               ; ;   So the twelve blocks are genuine, working storage that no Microsoft tool uses.
+000C39  1               ; ;   The beneficiary is ordinary user files on a disk with no boot image to protect,
+000C39  1               ; ;   which is exactly the use CiderPress2 describes.
+000C39  1               ; ;
+000C39  1               ; ; CONSEQUENCE, and the hazard is SPECIFIC: a disk that carries a boot image but
+000C39  1               ; ; NOT the protecting entry. That is every 2.20-lineage system disk (DSM=$7F, so
+000C39  1               ; ; it never needed one) read on a 2.23 system. Once blocks 0-127 are full the
+000C39  1               ; ; allocator hands out 128-139, and the write does NOT fail and does NOT reach a
+000C39  1               ; ; drive error -- it silently overwrites tracks 0-2 and destroys the boot pipeline.
+000C39  1               ; ; Verified in the emulator: SAVE into block 128 reported success, committed the
+000C39  1               ; ; directory entry, and changed 689 bytes of track 0. A non-bootable data disk is
+000C39  1               ; ; NOT at risk; there the same writes are the intended use of the space.
 000C39  1               ; ; See docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Part 5.
 000C39  1               ; ; ----------------------------------------------------------------------------
 000C39  1               ;         LD A,(REQ_TRACK)                 ; $BCDA  3A D1 FE   requested track

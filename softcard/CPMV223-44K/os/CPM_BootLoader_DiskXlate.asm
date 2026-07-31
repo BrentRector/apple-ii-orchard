@@ -124,7 +124,7 @@ SM_NEEDSEEK:
         LD (SCR_DC),HL                   ; $BC8E  22 DC FE   seek needed
 ; -- main map: derive physical sector from the skew table, schedule the seek --
 SM_MAP:
-        LD A,(REQ_RECORD)                    ; $BC91  3A D2 FE   requested track
+        LD A,(REQ_RECORD)                    ; $BC91  3A D2 FE   requested record index
         LD E,A                           ; $BC94  5F
         OR A                             ; $BC95  B7
         RRA                              ; $BC96  1F
@@ -185,15 +185,68 @@ SM_NOFLUSH:
 ;
 ; So the twelve blocks past the 2.20 twin's DSM=$7F are not phantom space. They
 ; are the three reserved system tracks, made addressable through the ordinary
-; file system. That is what the 'cp/m    sys' directory entry (user $1F, block
-; map exactly 128-139) names, and why it is called that. [RE]
+; file system. On a DATA disk that is the point: it recovers the boot area as
+; 12 KB of usable storage. On a BOOTABLE disk the 'cp/m    sys' directory entry
+; (user $1F, block map exactly 128-139) claims them so no file can be allocated
+; there, which is why the entry exists and why it is called that. [RE]
 ;
-; CONSEQUENCE, and it is severe: on a disk with no such entry -- every 2.20-lineage
-; disk, and any disk formatted with COPY /F rather than /S -- the allocator will
-; hand out blocks 128-139 once 0-127 are full. Writing into them does NOT fail and
-; does NOT hit a drive error. It silently overwrites tracks 0-2, destroying the
-; boot pipeline. Verified in the emulator: SAVE into block 128 reported success,
-; committed the directory entry, and changed 689 bytes of track 0.
+; TWO INDEPENDENT SOURCES describe this as an intentional feature, and both match
+; what the instructions say:
+;   [?] Apple II SoftCard CP/M Reference (community, apple2.guidero.us):
+;       "SoftCard CP/M ver 2.23 and higher uses a trick to allow the system tracks
+;        for data storage: a file called cp/m.sys is created in user area 31 as a
+;        dummy file allocated to the system tracks. It is inaccessible from the CCP
+;        and unseen by the user." and "COPY.COM has an option to create a 'data
+;        diskette' where cp/m.sys is absent, which creates 3 more tracks for data
+;        storage."
+;   [?] CiderPress2 CP/M format notes: same entry, blocks $80-$8B wrapping to the
+;       start of the disk, "appears to have originated with the Microsoft SoftCard,
+;       is used to allow extra storage on non-bootable disks".
+; Both are secondary sources ([?] tier), but they agree with each other and with the
+; code, and the first names COPY's data-diskette option specifically. So a data disk
+; WITHOUT the entry is the DESIGNED use of this space, not a hazard.
+;
+; *** AND HERE IS THE HAZARD NEITHER SOURCE MENTIONS. ***
+; The presence of the entry is the ONLY thing that distinguishes "this disk's boot
+; tracks are in use" from "this disk's boot tracks are free storage". A 2.20-lineage
+; disk has a BOOT IMAGE on tracks 0-2 and NO entry, because under DSM=$7F it never
+; needed one -- those blocks were not expressible. Mounted on a 2.23 system it is
+; therefore INDISTINGUISHABLE FROM A DATA DISKETTE, and 2.23 will allocate its boot
+; tracks to the next file that needs the space. Every 2.20 disk in existence is in
+; that state. Neither reference says so; both describe only the intended case.
+; NOTE the same reference's DPB table prints DSM=127 for both versions, which the
+; shipped BIOS bytes contradict ($7F on 2.20, $8B on 2.23, verified across 8 archived
+; images). Our bytes win; the reference is internally inconsistent, since its own
+; "allocated to the system tracks" claim needs DSM>127 to be expressible at all.
+;
+; RESERVATION, NOT CONDUIT -- and the fold is still not decoration:
+;   * NO shipped tool moves data through these blocks. CPM60.COM's entire BDOS
+;     set is {$06,$09,$0E,$10,$13,$16,$19,$1B,$20}: no read or write call at all.
+;     COPY.COM touches the FCB only with DRV_SET / F_DELETE / F_MAKE / F_CLOSE.
+;     Both write the system image by RAW RPC to the 6502 instead, and the 60K
+;     installer's own loop starts at TRACK 0 SECTOR 0 and runs 48 units = tracks
+;     0,1,2 (CPMV223-60K/CPM60_installer.asm), which independently confirms what
+;     region the entry describes. So the entry ACCOUNTS FOR the system area; it
+;     is not a data path either tool uses.
+;   * But the fold is not needed to make the reservation coherent. ALLOC_FROM_FCB
+;     range-checks a block number and sets a BITMAP bit; it never converts a block
+;     to a track. The reservation would work with no fold at all. The fold is
+;     reached ONLY from this deblock, on real record I/O.
+;   * And that I/O works. Round-trip verified in the emulator: a known 256-byte
+;     pattern placed in the TPA and written with SAVE into block 128 arrived
+;     byte-for-byte at track 0 sector 0.
+;   So the twelve blocks are genuine, working storage that no Microsoft tool uses.
+;   The beneficiary is ordinary user files on a disk with no boot image to protect,
+;   which is exactly the use CiderPress2 describes.
+;
+; CONSEQUENCE, and the hazard is SPECIFIC: a disk that carries a boot image but
+; NOT the protecting entry. That is every 2.20-lineage system disk (DSM=$7F, so
+; it never needed one) read on a 2.23 system. Once blocks 0-127 are full the
+; allocator hands out 128-139, and the write does NOT fail and does NOT reach a
+; drive error -- it silently overwrites tracks 0-2 and destroys the boot pipeline.
+; Verified in the emulator: SAVE into block 128 reported success, committed the
+; directory entry, and changed 689 bytes of track 0. A non-bootable data disk is
+; NOT at risk; there the same writes are the intended use of the space.
 ; See docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Part 5.
 ; ----------------------------------------------------------------------------
         LD A,(REQ_TRACK)                 ; $BCDA  3A D1 FE   requested track

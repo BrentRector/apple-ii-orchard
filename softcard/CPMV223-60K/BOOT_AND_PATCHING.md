@@ -48,9 +48,13 @@ driver; the rest is the embedded 60K system image.
    entry), fill the FCB alloc map with blocks `$80-$8B`, fn `$10` close.
    `COPY.COM /S` runs this same sequence, so two shipped tools write the
    reservation; see `docs/CPM_Disk_Creation.md`.
-2. **Raw-write the embedded image** (`$0168-$0197`): set `$F3EB`=2 (sector count),
-   `$F3E9`=`$14` (track 20), `B`=`$30` (48 pages), source page in `H`. Each pass
-   pokes `$F3E0`, loads `HL`=`$0E03` (page `$0E`, function `$03` = write), and
+2. **Raw-write the embedded image** (`$0168-$0197`): set `$F3EB`=2 (the IOB
+   **command**, 2 = write), `$F3E9`=`$14` (the IOB **buffer page**, Apple `$1400`),
+   `HL`=`$0000` and `B`=`$30` (48 units). `$F3E0`/`$F3E1` are the IOB **track** and
+   **sector**, so `HL` starts at track 0 sector 0 and the loop walks sectors 0-15 of
+   tracks 0, 1, 2: 12,288 bytes = the three system tracks. (An earlier version of
+   this note called `$F3EB` a sector count and `$F3E9` "track 20"; all three cell
+   names were wrong.) Each pass loads `HL`=`$0E03` (page `$0E`, function `$03` = write), and
    calls `SUB_01F9`: `LD ($F3D0),HL ; LD HL,($F3DE) ; LD (HL),A` — it writes the
    opcode byte through the live RPC trampoline pointer (`$F3DE`), which lands on
    a `$C700`/`$E700` slot access that fires the 6502 RWTS. After each unit it
