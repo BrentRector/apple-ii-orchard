@@ -163,6 +163,13 @@ SPT:    DEFW    $0020                    ; Sectors Per Track: counts 128-byte RE
 BSH:    DEFB    $03                      ; Block SHift: log2(records per block) -> 8 records
 BLM:    DEFB    $07                      ; BLock Mask: (records per block) - 1 -> 1 KB blocks
 EXM:    DEFB    $00                      ; EXtent Mask
+; DSM over-counts: 140 blocks / 4 per track = 35 file tracks, which with OFF=3 implies a
+;   38-track disk; the medium is 35 tracks. The 2.20 twin's $7F gives 32 + 3 = 35 exactly.
+;   Blocks 128-139 map to tracks 35-37 and do not exist. What absorbs them is the directory
+;   entry (user $1F, lowercase "cp/m    sys", block map exactly 128-139) that TWO shipped
+;   Microsoft tools write: CPM60.COM (../CPM60_installer.asm) and COPY.COM on its /S path.
+;   So $8B is an error and the entry is Microsoft's shipped workaround for it. A disk
+;   written without /S carries no entry and IS exposed. See docs/CPM_Disk_Creation.md. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2

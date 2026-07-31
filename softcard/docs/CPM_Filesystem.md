@@ -16,7 +16,7 @@ For Microsoft SoftCard CP/M 5.25" floppies, the filesystem parameters are:
 | Total bytes | 143,360 (140 KB) |
 | Reserved tracks | 3 (tracks 0-2 = boot pipeline) |
 | Block size | 1 KB |
-| Directory entries | 64 |
+| Directory entries | 48 (`DRM` = `$2F`; the 2 reserved blocks hold room for 64, only 48 are used) |
 | Directory tracks | 3-4 (first 32 sectors of the file area) |
 | Records / block | 8 (CP/M 128-byte records) |
 

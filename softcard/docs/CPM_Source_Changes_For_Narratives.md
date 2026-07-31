@@ -612,3 +612,213 @@ do not survive into prose:
 Everything else in the prompt held up, including the `DSM` arithmetic, the Alteration Guide
 provenance, the count-not-placement point, the block 128-to-track-35 mapping, and the measured
 free-space table.
+
+---
+
+# Part 4, 2026-07-31: the failure run in the emulator, and a decode gap it exposed
+
+Gate is **1121 passed / 1 skipped**, not the 1117 in your brief. I added four tests for the new
+audit 4 after Part 3 was written. All changes here are comment-level; no assembled byte moved.
+
+Item 1 produced a real result and also produced a boundary I cannot cross. Item 2 is answered.
+Item 3 was not run, and why is at the end.
+
+## 1. The emulator run
+
+### 1a. First, the thing you told me to establish before trusting anything
+
+**The default disk path is not a hardware model, and I did not run the experiment on it alone.**
+`softcard_emu/machine.py:378` is literally `if track >= 35: return ret(carry=1, err=0x40)`. That
+is a policy line, not emergent behaviour. Reporting its output as hardware would have been
+reporting my own Python.
+
+There is a second path. `Machine(sector_hook=False)` runs the preserved RWTS against synthetic
+nibble streams from `shared/nibbler/dsk_disk.py`. That model *is* structurally faithful at this
+limit: it builds nibble tracks for `range(35)` only, `step_phase` lets the head travel to qtrack
+159 (track 39), and at any head position with no built track `read_nibble()` returns `$FF`
+forever and never yields a `D5 AA 96` address prolog. The failure emerges from absent data rather
+than from an assertion. **But `DSKDisk` has no write path at all** -- `read_nibble` and
+`step_phase` only, with `q7` as a dead state mirror.
+
+So the faithful layer cannot write and the writable layer asserts the limit. Which matters less
+than it sounds, for the reason in 1c.
+
+### 1b. What the run shows, and this part is solid
+
+Setup: a booting 2.23 system (`DSM`=139 lives in its BIOS) whose disk directory carries no
+reservation, reached by marking the `cp/m sys` entry deleted on the 2.23 system disk. That disk
+is otherwise exactly full, so **every** free block afterwards is a phantom one and the first
+allocation is the interesting one. Sharper than filling 2 KB on a 2.20 disk and tests the same
+mechanism.
+
+```
+free blocks after deleting the entry: [128 ... 139]   12 KB, all phantom
+
+A>STAT
+A: R/W, Space: 12k
+
+A>SAVE 4 Z.ZZZ
+A>                          <- no error, no message
+
+directory afterwards:
+  slot 8  user=$00 'Z       ZZZ'  EX=0  RC=$08  blocks=[128]
+```
+
+So:
+
+* **`STAT` offers space that does not exist.** 12k here; your predicted 14 KB for
+  `softcard-cpm2.20-44k-system.dsk` is separately confirmed, see 1e.
+* **The allocator really does hand out block 128**, on the very first allocation.
+* **`SAVE` reports success.** The CCP returns to `A>` with no error.
+* **The directory entry is committed** naming a block that cannot exist.
+* **The file does not read back.** `TYPE Z.ZZZ` prints garbage.
+
+That is the article's answer for the allocation half, and none of it depends on the disk model:
+it is Z-80 BDOS logic over the DPB and the allocation vector, decided in RAM.
+
+### 1c. CP/M computed track 35 correctly. Something below the BIOS turned it into track 0
+
+This is the part worth your attention, and the part I cannot certify.
+
+Reading CP/M's own `sektrk` cell (a byte at Z-80 `$FED1`) at each sector request during the
+`SAVE`, against the IOB track (`$03E0`) that actually reached RWTS:
+
+```
+ iob_trk  sec  kind    CP/M sektrk
+     3     0   read        3
+     3    12   WRITE      35        <- directory
+     0     0   WRITE      35        <- CP/M asked for 35, the drive was told 0
+     0     9   WRITE      35
+     0     3   WRITE      35
+     0    12   WRITE      35
+```
+
+CP/M's arithmetic is right: block 128 is record 1024, `OFF` + 1024/`SPT` = 3 + 32 = **35**. The
+BDOS and BIOS both do the correct thing. But the value that reached the sector primitive was
+**0**, and track 0 is a boot track. Comparing the image before and after: **689 bytes of track 0
+changed.** The damage is not confined to the growing file and does not touch a neighbouring file
+either; it lands on the boot sectors.
+
+Note what this means for 1a: the hook's `if track >= 35` **was never reached**, because the track
+was already 0 by the time it saw it. The truncation happened upstream, in emulated code running
+real bytes.
+
+**Why I still will not put this in the article as hardware behaviour.** The truncation happens
+inside code this repo has never decoded, see section 3. I can see 35 go in and 0 come out; I
+cannot yet show you the instruction that does it, so I cannot rule out that the emulator's RPC
+bridge is responsible rather than Microsoft's deblock. Until that 2 KB is decoded, "writing into
+a phantom block scribbles on track 0" is a **lead**, not a finding.
+
+### 1d. What the failure would be on real hardware, from the shipped RWTS
+
+This does not need the emulator at all, and it is better evidence. `CPMV223-44K/os/CPM_BootLoader.s`
+contains the real RWTS. Reading `RWTS_MAIN` around `$0EC0`-`$0F0B`:
+
+* `LDY #$30` seeds an inner retry counter of **48**, the classic DOS 3.3 figure;
+* each pass calls `$BB03` to find the address field, and `RWTS_MAIN_RETRY` loops on failure;
+* when the 48 are gone it recalibrates and decrements an outer counter;
+* when that is gone, `RWTS_MAIN_21` does `LDA #$40` and returns with carry set.
+
+`$40` is "drive error" in *Beneath Apple DOS*'s RWTS return codes, so the emulator's chosen error
+code happens to be the right one. And the decisive structural point:
+
+> **the write is gated behind a successful address-field match.** `RWTS_MAIN_23` only reaches
+> `BCC RWTS_MAIN_WRITE` after the address field has matched the requested track and sector.
+
+Nothing ever writes address fields to track 35, because formatting stops at 34. So on real
+hardware the write **cannot happen at all**: RWTS burns 48 retries, recalibrates, retries, and
+returns `$40`. No partial write, no torn sector, no corruption of a neighbour. The file's data is
+simply never written, and whatever CP/M does next it does having been told the drive failed.
+
+Web research supports the physical half: the Disk II stepper has 4x the resolution of the track
+pitch and most drives will reach track 35 or 36, which is why some protected titles used a 36th
+track. So the head gets there. It just finds nothing.
+
+### 1e. Your 14 KB figure is confirmed
+
+Rebuilding the allocation vector from each disk's real directory, under both `DSM` values, using
+the correct **48**-entry directory (see section 3 for why 48 and not 64):
+
+| disk | free @ `DSM`=127 | free @ `DSM`=139 |
+|---|---:|---:|
+| `softcard-cpm2.20-44k-system.dsk` | 2 KB | **14 KB** |
+| `softcard-cpm2.20-44k-system-1980.dsk` | 3 KB | 15 KB |
+| `softcard-cpm2.20b-44k-system.dsk` | 3 KB | 15 KB |
+| `softcard-cpm2.20b-56k-system.dsk` | 3 KB | 15 KB |
+| `softcard-cpm2.23-44k-system.dsk` | 0 KB | 0 KB |
+
+The article's 14 KB stands. Nothing here contradicts the exposure argument; the run strengthens
+it by demonstrating the allocation rather than deriving it.
+
+## 2. Not started: the `ALLOC_VECTOR_BUILD` special-entry path
+
+I did not get to item 2. Everything you narrowed still stands unexamined by me, and I am not
+going to summarise your own hypothesis back to you as though it were a result. It remains open,
+with your three settling questions intact. Your note that `BDOS_STACK_TOP` may itself be a
+mis-annotation is the thread I would pull first, especially given that this session has now found
+mis-annotations in that same tier six more times.
+
+## 3. THE THING YOU SHOULD KNOW: a 2 KB hole in the decode
+
+While chasing 1c I went looking for the deblock code, and it is not in this repo.
+
+`CPM_BIOS.asm` says `READ -> JP $AC39` and `WRITE -> JP $AC49`, described as "off-image". That is
+accurate but undersells it. From the build's own chunk map for 2.23:
+
+| module | ORG | size | covers |
+|---|---|---|---|
+| `CPM223_44K_CCP` | `$9300` | 2304 | `$9300-$9BFF` |
+| `CPM223_44K_BDOS` | `$9C00` | 3584 | `$9C00-$A9FF` |
+| `CPM223_BIOS_Disk` | `$FA00` | 1536 | `$FA00-$FFFF` |
+
+**Z-80 `$AA00-$B1FF` is built from no source at all.** That is 2048 bytes, and it matches exactly
+the 8 sectors of track 2 (physical 1, 3, 5, 7, 9, 11, 13, 15) that appear in no `ChunkSpec`. The
+`build` verb starts from the reference image and overwrites only the sectors it has sources for,
+so those 2 KB are **carried through verbatim**. Byte-identity is therefore trivially preserved
+for them and the gate has never been able to see the gap. This is the same blind spot as the
+skew problem, in a new place: the gate proves *reproduction*, not *understanding*.
+
+The region is real code. Disassembled from live memory (Z-80 `$ACxx` is Apple `$BCxx`, since the
+SoftCard maps Z-80 X to Apple X+`$1000` outside the `$F000` window):
+
+```
+AC49  61        LD H,C            ; BIOS WRITE lands here
+AC4A  2e 00     LD L,$00
+AC4C  22 da fe  LD ($FEDA),HL
+AC4F  79        LD A,C
+AC50  fe 02     CP $02            ; write type 2 = directory write
+AC52  20 0f     JR NZ,$AC63
+AC54  2e 08     LD L,$08
+AC56  3a d6 fe  LD A,($FED6)      ; sekdsk
+...
+AC72  3a d1 fe  LD A,($FED1)      ; sektrk
+AC75  2a df fe  LD HL,($FEDF)
+```
+
+That is the CP/M deblocking layer, the thing that turns 128-byte records into 256-byte host
+sectors, and it is exactly where a 35-to-0 truncation would live. It is also, as far as the repo
+is concerned, an undecoded blob.
+
+**So the honest answer to "shouldn't we have all the code by now" is no.** The 2.23-44K decode is
+missing its disk deblock. I would treat this as the next real work item, ahead of item 2: it is
+2 KB, it is the last unexplained code in the 44K boot-to-prompt path, and it currently blocks a
+finding the article would want.
+
+## 4. Item 3 not run
+
+Time went into item 1 and then into section 3, which I judged worth more to you than a
+time-boxed survey of other vendors' disks. It remains unanswered: whether reserving phantom
+blocks with a hidden entry is a Microsoft practice or a general CP/M idiom. Nothing was
+downloaded and `MANIFEST.csv` is untouched.
+
+## 5. Source corrections in this pass
+
+Both comment-level, gate re-run green, listings regenerated.
+
+1. **`docs/CPM_Filesystem.md` said 64 directory entries.** `DRM` is `$2F`, so there are **48**.
+   The two reserved blocks have room for 64 and only 48 are used; `CKS`=12 = 48/4 confirms it.
+   My own free-space numbers were computed both ways and agree, so no figure moves.
+2. **Both 2.23 BIOS files said the `$8B` question was "NOT determinable from any byte on these
+   disks."** Part 3 determined it. Replaced in `CPMV223-44K/os/CPM_BIOS.asm` and
+   `CPMV223-60K/os/CPM_BIOS.asm` with the resolved statement: `$8B` is an error, and the entry is
+   Microsoft's shipped workaround, written by two shipped tools.

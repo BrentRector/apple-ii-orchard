@@ -139,8 +139,15 @@ EXM:    DEFB    $00                      ; EXtent Mask
 ;   list exactly blocks 128-139 -- the twelve blocks past the twin's 128. The BDOS's
 ;   allocation-vector rebuild skips only $E5 entries and does not range-check the user
 ;   number, so that entry is honoured and those twelve blocks stay marked in use.
-;   Whether $8B is an error masked by that entry or a deliberate convention is NOT
-;   determinable from any byte on these disks. [RE]
+;   RESOLVED (2026-07-31): the entry is a DELIBERATE CONVENTION, written by two shipped
+;   Microsoft tools -- CPM60.COM (CPMV223-60K/CPM60_installer.asm) and COPY.COM on its /S
+;   path (CPMV223-44K/utilities/COPY.asm $037F). Both set user 31, verify blocks 128-139
+;   are free in the allocation bitmap, F_MAKE the file, hand-fill the block map $80..$8B,
+;   set RC=$60/EX=0 and F_CLOSE. COPY routes the free-space failure to its own shipped
+;   string "Disk space already in use", which names what is being reserved. So $8B is an
+;   error, and the entry is Microsoft's shipped workaround for it -- not a mastering-time
+;   patch. A disk written without /S carries no entry and IS exposed. See
+;   docs/CPM_Disk_Creation.md and docs/CPM_Source_Changes_For_Narratives.md Part 4. [RE]
 DSM:    DEFW    $008B                    ; Disk Size Max: highest allocation block number: 139 -> 140 blocks
 DRM:    DEFW    $002F                    ; DiRectory Max: highest directory entry number: 47 -> 48 entries
 AL0:    DEFB    $C0                      ; ALlocation bitmap, directory-reserved blocks, high byte -> 2
