@@ -1949,15 +1949,23 @@ DRV_INSTALL_RWTS_3:
 ;   Clobbers: A,C,DE,HL.
 ;   Algorithm: get the RC/CR pointers; if WRITE_TYPE_FLAG != 2 then C = WRITE_TYPE_FLAG else C = 0; write
 ;       (FCB_CURREC + C) into CR and FCB_RECCOUNT into RC.
-;   [RE] inverse of LOAD_FCB_POSITION with a special case when WRITE_TYPE_FLAG == 2 (the adjustment is
-;       zeroed). [?] meaning of the WRITE_TYPE_FLAG selector values UNKNOWN.
+;   [RE] inverse of LOAD_FCB_POSITION. RESOLVED: WRITE_TYPE_FLAG is a SEQUENTIAL-vs-RANDOM
+;       selector, and the "adjustment" is simply whether CR advances to the next record:
+;         0 = random read   -> C=0, CR unchanged   (BDOS_SEEK_NOREAD sets it)
+;         1 = sequential    -> C=1, CR += 1        (FILE_READ_SEQ and FILE_WRITE_SEQ set it)
+;         2 = random write  -> C=0, CR unchanged   (special-cased to 0 here)
+;       Sequential access must leave CR pointing at the next record so the following call
+;       continues; random access must not, because the caller positions via R0/R1/R2 each
+;       time. That is the whole meaning of the special case.
+;       NOTE the name is a mild misnomer: the cell governs READS as well as writes, and it is
+;       not the CP/M BIOS write-type parameter (nothing passes it to a BIOS WRITE here).
 ; ----------------------------------------------------------------------
 DRV_INSTALL_RWTS_6:
         CALL DRV_INSTALL_RWTS_2
         ; mode/adjust selector; value 2 zeroes the adjustment
         LD A,(WRITE_TYPE_FLAG)
-        ; special-case selector value 2
-        CP $02
+        ; only ACCESS_RAND_ZF suppresses the advance here; ACCESS_RANDOM is already 0
+        CP ACCESS_RAND_ZF
         JP NZ,STORE_FCB_POSITION_2
         XOR A
 STORE_FCB_POSITION_2:
@@ -3899,8 +3907,7 @@ DISK_FINISH_OK:
 ;   [RE] CP/M 2.2 sequential read entry
 ; ----------------------------------------------------------------------
 FILE_READ_SEQ:
-        ; mode = 1 (sequential read)
-        LD A,$01
+        LD A,ACCESS_SEQ
         ; store the sequential/random mode flag (1=sequential)
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
@@ -3980,8 +3987,7 @@ FILE_READ_ERROR:
 ;   [RE] CP/M 2.2 sequential write entry
 ; ----------------------------------------------------------------------
 FILE_WRITE_SEQ:
-        ; mode = 1 (sequential write)
-        LD A,$01
+        LD A,ACCESS_SEQ
         ; store the sequential/random mode flag (1=sequential)
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
@@ -4368,8 +4374,8 @@ BDOS_WRITE_RET:
 ;              afterward.) [RE]
 ; ----------------------------------------------------------------------
 BDOS_SEEK_NOREAD:
+        ; ACCESS_RANDOM (0). XOR A, not LD A,ACCESS_RANDOM: that would emit different bytes.
         XOR A
-        ; Write type = 0 (cleared before the seek).
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; BDOS_SEEK_COMPUTE -- compute the target extent/record from the FCB random-record field (R0/R1/R2)
@@ -5547,8 +5553,7 @@ BDOS_RETURN_RESULT:
 F_WRITEZF_H:
         ; auto-select the FCB's drive prefix
         CALL FCB_AUTO_DRIVE_SELECT
-        ; write-mode 2 = write random with zero fill of new blocks
-        LD A,$02
+        LD A,ACCESS_RAND_ZF
         ; select zero-fill write mode
         LD (WRITE_TYPE_FLAG),A
         ; C=0 parameter to the random-record extract core
@@ -5606,6 +5611,19 @@ RW_DIRECTION_FLAG:
         DEFB    "\0"
 DIR_MATCH_FLAG:
         DEFB    "\0"
+; ----------------------------------------------------------------------
+; WRITE_TYPE_FLAG values. ONE symbol per VALUE: sequential READ and sequential WRITE both
+; use 1, so there is no separate WRITE_SEQ constant to define (defining a second name for
+; the same value would be the duplicate-definition the repo forbids).
+;
+; The cell decides ONE thing: whether STORE_FCB_POSITION advances CR to the next record
+; afterwards. Sequential access must, so the following call continues where this one left
+; off; random access must not, because the caller repositions via R0/R1/R2 each time.
+; ----------------------------------------------------------------------
+ACCESS_RANDOM   EQU 0    ; random access positioned by a seek (BDOS_SEEK_NOREAD); CR unchanged
+ACCESS_SEQ      EQU 1    ; sequential read OR write (FILE_READ_SEQ / FILE_WRITE_SEQ); CR += 1
+ACCESS_RAND_ZF  EQU 2    ; fn 40 F_WRITEZF, Write Random with Zero Fill; CR unchanged
+; ----------------------------------------------------------------------
 WRITE_TYPE_FLAG:
         DEFB    "\0"
 DRV_SELECT_ARG:

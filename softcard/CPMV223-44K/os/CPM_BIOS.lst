@@ -48,45 +48,45 @@
   32+ 0000              TPA         EQU $0100      ; transient program area / load address
   33+ 0000
   34+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
-  35+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
-  36+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
-  37+ 0000              C_WRITE     EQU 2          ; console output (E = char)
-  38+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
-  39+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
-  40+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
-  41+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
-  42+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
-  43+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
-  44+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
-  45+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
-  46+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
-  47+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
-  48+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
-  49+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
-  50+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
-  51+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
-  52+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
-  53+ 0000              F_SNEXT     EQU 18         ; search for next
-  54+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
-  55+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
-  56+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
-  57+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
-  58+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
-  59+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
-  60+ 0000              DRV_GET     EQU 25         ; return current drive -> A
-  61+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
-  62+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
-  63+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
-  64+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
-  65+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
-  66+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
-  67+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
-  68+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
-  69+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
-  70+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
-  71+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
-  72+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
-  73+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+  35+ 0000              P_TERMCPM   EQU 0          ; [DOC CPMREF "System Reset"] system reset (return to CCP)
+  36+ 0000              C_READ      EQU 1          ; [DOC CPMREF "CONSOLE INPUT"] console input (echoed) -> A
+  37+ 0000              C_WRITE     EQU 2          ; [DOC CPMREF "CONSOLE OUTPUT"] console output (E = char)
+  38+ 0000              A_READ      EQU 3          ; [DOC CPMREF "READER INPUT"] reader (AUX) input -> A
+  39+ 0000              A_WRITE     EQU 4          ; [DOC CPMREF "PUNCH OUTPUT"] punch (AUX) output (E = char)
+  40+ 0000              L_WRITE     EQU 5          ; [DOC CPMREF "LIST OUTPUT"] list (printer) output (E = char)
+  41+ 0000              C_RAWIO     EQU 6          ; [DOC CPMREF "DIRECT CONSOLE I/O"] direct console I/O (E=$FF read / else write)
+  42+ 0000              A_STATIN    EQU 7          ; [DOC CPMREF "GET I/O BYTE"] get IOBYTE -> A
+  43+ 0000              A_STATOUT   EQU 8          ; [DOC CPMREF "SET I/O BYTE"] set IOBYTE (E = value)
+  44+ 0000              C_WRITESTR  EQU 9          ; [DOC CPMREF "PRINT STRING"] print '$'-terminated string (DE -> string)
+  45+ 0000              C_READSTR   EQU 10         ; [DOC CPMREF "READ CONSOLE BUFFER"] buffered console line input (DE -> buffer)
+  46+ 0000              C_STAT      EQU 11         ; [DOC CPMREF "GET CONSOLE STATUS"] console status -> A (0 = none ready)
+  47+ 0000              S_BDOSVER   EQU 12         ; [DOC CPMREF "RETURN VERSION NUMBER"] return BDOS version -> HL
+  48+ 0000              DRV_ALLRESET EQU 13        ; [DOC CPMREF "RESET DISK SYSTEM"] reset disk system
+  49+ 0000              DRV_SET     EQU 14         ; [DOC CPMREF "SELECT DISK"] select drive (E = 0=A..15=P)
+  50+ 0000              F_OPEN      EQU 15         ; [DOC CPMREF "OPEN FILE"] open file (DE -> FCB)
+  51+ 0000              F_CLOSE     EQU 16         ; [DOC CPMREF "CLOSE FILE"] close file (DE -> FCB)
+  52+ 0000              F_SFIRST    EQU 17         ; [DOC CPMREF "SEARCH FOR FIRST"] search for first (DE -> FCB)
+  53+ 0000              F_SNEXT     EQU 18         ; [DOC CPMREF "SEARCH FOR NEXT"] search for next
+  54+ 0000              F_DELETE    EQU 19         ; [DOC CPMREF "DELETE FILE"] delete file (DE -> FCB)
+  55+ 0000              F_READ      EQU 20         ; [DOC CPMREF "READ SEQUENTIAL"] read sequential (DE -> FCB)
+  56+ 0000              F_WRITE     EQU 21         ; [DOC CPMREF "WRITE SEQUENTIAL"] write sequential (DE -> FCB)
+  57+ 0000              F_MAKE      EQU 22         ; [DOC CPMREF "MAKE FILE"] create file (DE -> FCB)
+  58+ 0000              F_RENAME    EQU 23         ; [DOC CPMREF "RENAME FILE"] rename file (DE -> FCB)
+  59+ 0000              DRV_LOGINVEC EQU 24        ; [DOC CPMREF "RETURN LOGIN VECTOR"] return login vector -> HL
+  60+ 0000              DRV_GET     EQU 25         ; [DOC CPMREF "RETURN CURRENT DISK"] return current drive -> A
+  61+ 0000              F_DMAOFF    EQU 26         ; [DOC CPMREF "SET DMA ADDRESS"] set DMA address (DE)
+  62+ 0000              DRV_ALLOCVEC EQU 27        ; [DOC CPMREF "GET ADDR (ALLOC)"] return allocation vector -> HL
+  63+ 0000              DRV_SETRO   EQU 28         ; [DOC CPMREF "WRITE PROTECT DISK"] write-protect current drive
+  64+ 0000              DRV_ROVEC   EQU 29         ; [DOC CPMREF "GET READ/ONLY VECTOR"] return read-only vector -> HL
+  65+ 0000              F_ATTRIB    EQU 30         ; [DOC CPMREF "SET FILE ATTRIBUTES"] set file attributes (DE -> FCB)
+  66+ 0000              DRV_DPB     EQU 31         ; [DOC CPMREF "GET ADDR (DISK PARMS)"] return DPB address -> HL
+  67+ 0000              F_USERNUM   EQU 32         ; [DOC CPMREF "SET/GET USER CODE"] get/set user number (E=$FF get / else set)
+  68+ 0000              F_READRAND  EQU 33         ; [DOC CPMREF "READ RANDOM"] read random (DE -> FCB)
+  69+ 0000              F_WRITERAND EQU 34         ; [DOC CPMREF "WRITE RANDOM"] write random (DE -> FCB)
+  70+ 0000              F_SIZE      EQU 35         ; [DOC CPMREF "COMPUTE FILE SIZE"] compute file size (DE -> FCB)
+  71+ 0000              F_RANDREC   EQU 36         ; [DOC CPMREF "SET RANDOM RECORD"] set random record (DE -> FCB)
+  72+ 0000              DRV_RESET   EQU 37         ; [?] no titled entry in the bundled Reference Manual. reset drives (DE = drive vector)
+  73+ 0000              F_WRITEZF   EQU 40         ; [?] no titled entry in the bundled Reference Manual. write random with zero fill (DE -> FCB)
   74+ 0000
   75+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
   76+ 0000              ; ---------------------------------------------------------------------------

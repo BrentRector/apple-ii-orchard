@@ -32,45 +32,45 @@ CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, 
 TPA         EQU $0100      ; transient program area / load address
 
 ; ---- BDOS function numbers (register C) ----------------------------------------
-P_TERMCPM   EQU 0          ; system reset (return to CCP)
-C_READ      EQU 1          ; console input (echoed) -> A
-C_WRITE     EQU 2          ; console output (E = char)
-A_READ      EQU 3          ; reader (AUX) input -> A
-A_WRITE     EQU 4          ; punch (AUX) output (E = char)
-L_WRITE     EQU 5          ; list (printer) output (E = char)
-C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
-A_STATIN    EQU 7          ; get IOBYTE -> A
-A_STATOUT   EQU 8          ; set IOBYTE (E = value)
-C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
-C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
-C_STAT      EQU 11         ; console status -> A (0 = none ready)
-S_BDOSVER   EQU 12         ; return BDOS version -> HL
-DRV_ALLRESET EQU 13        ; reset disk system
-DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
-F_OPEN      EQU 15         ; open file (DE -> FCB)
-F_CLOSE     EQU 16         ; close file (DE -> FCB)
-F_SFIRST    EQU 17         ; search for first (DE -> FCB)
-F_SNEXT     EQU 18         ; search for next
-F_DELETE    EQU 19         ; delete file (DE -> FCB)
-F_READ      EQU 20         ; read sequential (DE -> FCB)
-F_WRITE     EQU 21         ; write sequential (DE -> FCB)
-F_MAKE      EQU 22         ; create file (DE -> FCB)
-F_RENAME    EQU 23         ; rename file (DE -> FCB)
-DRV_LOGINVEC EQU 24        ; return login vector -> HL
-DRV_GET     EQU 25         ; return current drive -> A
-F_DMAOFF    EQU 26         ; set DMA address (DE)
-DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
-DRV_SETRO   EQU 28         ; write-protect current drive
-DRV_ROVEC   EQU 29         ; return read-only vector -> HL
-F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
-DRV_DPB     EQU 31         ; return DPB address -> HL
-F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
-F_READRAND  EQU 33         ; read random (DE -> FCB)
-F_WRITERAND EQU 34         ; write random (DE -> FCB)
-F_SIZE      EQU 35         ; compute file size (DE -> FCB)
-F_RANDREC   EQU 36         ; set random record (DE -> FCB)
-DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
-F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+P_TERMCPM   EQU 0          ; [DOC CPMREF "System Reset"] system reset (return to CCP)
+C_READ      EQU 1          ; [DOC CPMREF "CONSOLE INPUT"] console input (echoed) -> A
+C_WRITE     EQU 2          ; [DOC CPMREF "CONSOLE OUTPUT"] console output (E = char)
+A_READ      EQU 3          ; [DOC CPMREF "READER INPUT"] reader (AUX) input -> A
+A_WRITE     EQU 4          ; [DOC CPMREF "PUNCH OUTPUT"] punch (AUX) output (E = char)
+L_WRITE     EQU 5          ; [DOC CPMREF "LIST OUTPUT"] list (printer) output (E = char)
+C_RAWIO     EQU 6          ; [DOC CPMREF "DIRECT CONSOLE I/O"] direct console I/O (E=$FF read / else write)
+A_STATIN    EQU 7          ; [DOC CPMREF "GET I/O BYTE"] get IOBYTE -> A
+A_STATOUT   EQU 8          ; [DOC CPMREF "SET I/O BYTE"] set IOBYTE (E = value)
+C_WRITESTR  EQU 9          ; [DOC CPMREF "PRINT STRING"] print '$'-terminated string (DE -> string)
+C_READSTR   EQU 10         ; [DOC CPMREF "READ CONSOLE BUFFER"] buffered console line input (DE -> buffer)
+C_STAT      EQU 11         ; [DOC CPMREF "GET CONSOLE STATUS"] console status -> A (0 = none ready)
+S_BDOSVER   EQU 12         ; [DOC CPMREF "RETURN VERSION NUMBER"] return BDOS version -> HL
+DRV_ALLRESET EQU 13        ; [DOC CPMREF "RESET DISK SYSTEM"] reset disk system
+DRV_SET     EQU 14         ; [DOC CPMREF "SELECT DISK"] select drive (E = 0=A..15=P)
+F_OPEN      EQU 15         ; [DOC CPMREF "OPEN FILE"] open file (DE -> FCB)
+F_CLOSE     EQU 16         ; [DOC CPMREF "CLOSE FILE"] close file (DE -> FCB)
+F_SFIRST    EQU 17         ; [DOC CPMREF "SEARCH FOR FIRST"] search for first (DE -> FCB)
+F_SNEXT     EQU 18         ; [DOC CPMREF "SEARCH FOR NEXT"] search for next
+F_DELETE    EQU 19         ; [DOC CPMREF "DELETE FILE"] delete file (DE -> FCB)
+F_READ      EQU 20         ; [DOC CPMREF "READ SEQUENTIAL"] read sequential (DE -> FCB)
+F_WRITE     EQU 21         ; [DOC CPMREF "WRITE SEQUENTIAL"] write sequential (DE -> FCB)
+F_MAKE      EQU 22         ; [DOC CPMREF "MAKE FILE"] create file (DE -> FCB)
+F_RENAME    EQU 23         ; [DOC CPMREF "RENAME FILE"] rename file (DE -> FCB)
+DRV_LOGINVEC EQU 24        ; [DOC CPMREF "RETURN LOGIN VECTOR"] return login vector -> HL
+DRV_GET     EQU 25         ; [DOC CPMREF "RETURN CURRENT DISK"] return current drive -> A
+F_DMAOFF    EQU 26         ; [DOC CPMREF "SET DMA ADDRESS"] set DMA address (DE)
+DRV_ALLOCVEC EQU 27        ; [DOC CPMREF "GET ADDR (ALLOC)"] return allocation vector -> HL
+DRV_SETRO   EQU 28         ; [DOC CPMREF "WRITE PROTECT DISK"] write-protect current drive
+DRV_ROVEC   EQU 29         ; [DOC CPMREF "GET READ/ONLY VECTOR"] return read-only vector -> HL
+F_ATTRIB    EQU 30         ; [DOC CPMREF "SET FILE ATTRIBUTES"] set file attributes (DE -> FCB)
+DRV_DPB     EQU 31         ; [DOC CPMREF "GET ADDR (DISK PARMS)"] return DPB address -> HL
+F_USERNUM   EQU 32         ; [DOC CPMREF "SET/GET USER CODE"] get/set user number (E=$FF get / else set)
+F_READRAND  EQU 33         ; [DOC CPMREF "READ RANDOM"] read random (DE -> FCB)
+F_WRITERAND EQU 34         ; [DOC CPMREF "WRITE RANDOM"] write random (DE -> FCB)
+F_SIZE      EQU 35         ; [DOC CPMREF "COMPUTE FILE SIZE"] compute file size (DE -> FCB)
+F_RANDREC   EQU 36         ; [DOC CPMREF "SET RANDOM RECORD"] set random record (DE -> FCB)
+DRV_RESET   EQU 37         ; [?] no titled entry in the bundled Reference Manual. reset drives (DE = drive vector)
+F_WRITEZF   EQU 40         ; [?] no titled entry in the bundled Reference Manual. write random with zero fill (DE -> FCB)
 
 ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
 ; ---------------------------------------------------------------------------

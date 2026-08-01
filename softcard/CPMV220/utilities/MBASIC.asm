@@ -11808,7 +11808,7 @@ FILE_CLOSE_3:
 FILE_CLOSE_4:
         XOR A                            ; $5720  AF
         LD (DE),A                        ; $5721  12        clear channel state byte
-        LD C,$10                         ; $5722  0E 10     C = fn 16 (close file)
+        LD C,F_CLOSE                         ; $5722  0E 10     C = fn 16 (close file)
         INC DE                           ; $5724  13        DE -> FCB
         CALL BDOS                    ; $5725  CD 05 00  close it
         JP ERR_9                    ; $5728  C3 64 0D
@@ -11860,7 +11860,7 @@ L_575D:
 FILES_CLOSE_ALL_3:
         POP DE                           ; $5766  D1
         CALL SET_DMA_FCB                    ; $5767  CD 78 58
-        LD C,$10                         ; $576A  0E 10
+        LD C,F_CLOSE                         ; $576A  0E 10
         CALL BDOS                    ; $576C  CD 05 00
         POP BC                           ; $576F  C1
 FILES_CLOSE_ALL_4:
@@ -12053,7 +12053,7 @@ SET_DMA_FCB:
         LD HL,RST5_VEC                   ; $587B  21 28 00  HL = $28 (buffer offset)
         ADD HL,DE                        ; $587E  19        HL = FCB + $28
         EX DE,HL                         ; $587F  EB        DE = DMA address
-        LD C,$1A                         ; $5880  0E 1A     C = fn 26 (set DMA)
+        LD C,F_DMAOFF                         ; $5880  0E 1A     C = fn 26 (set DMA)
         CALL BDOS                    ; $5882  CD 05 00
         POP HL                           ; $5885  E1
         POP DE                           ; $5886  D1
@@ -12293,18 +12293,18 @@ FILE_OPEN_6:
         CP $02                           ; $5A0A  FE 02   mode 2 = OUTPUT?
         JR NZ,FILE_OPEN_9                 ; $5A0C  20 12
         PUSH DE                          ; $5A0E  D5
-        LD C,$13                         ; $5A0F  0E 13    C = fn 19 (delete file)
+        LD C,F_DELETE                         ; $5A0F  0E 13    C = fn 19 (delete file)
         CALL BDOS                    ; $5A11  CD 05 00  remove any old copy
         POP DE                           ; $5A14  D1
 FILE_OPEN_7:
-        LD C,$16                         ; $5A15  0E 16    C = fn 22 (make file)
+        LD C,F_MAKE                         ; $5A15  0E 16    C = fn 22 (make file)
 FILE_OPEN_8:
         CALL BDOS                    ; $5A17  CD 05 00  create new file
         INC A                            ; $5A1A  3C        $FF -> 0 means dir full
         JP Z,ERR_18+1               ; $5A1B  CA 85 0D  -> "Disk full" error
         JR FILE_OPEN_10                   ; $5A1E  18 13
 FILE_OPEN_9:
-        LD C,$0F                         ; $5A20  0E 0F    C = fn 15 (open file)
+        LD C,F_OPEN                         ; $5A20  0E 0F    C = fn 15 (open file)
         CALL BDOS                    ; $5A22  CD 05 00
         INC A                            ; $5A25  3C        $FF -> 0 means not found
         JR NZ,FILE_OPEN_10                ; $5A26  20 0B   opened OK
@@ -12425,7 +12425,7 @@ FILE_OPEN_16:
 ;      Finally maps the BDOS A-result into an MBASIC error/return code.
 FCB_BDOS_IO:
         PUSH DE                          ; $5B44  D5
-        LD C,A                           ; $5B45  4F        C = BDOS function
+        LD C,C_READSTR                           ; $5B45  4F        C = BDOS function
         PUSH BC                          ; $5B46  C5
         CALL BDOS                    ; $5B47  CD 05 00
         POP BC                           ; $5B4A  C1
@@ -12473,12 +12473,12 @@ SUB_5B70:
 SUB_5B70_1:
         CALL SUB_5BA3                    ; $5B86  CD A3 5B
         PUSH DE                          ; $5B89  D5
-        LD C,$1A                         ; $5B8A  0E 1A
+        LD C,F_DMAOFF                         ; $5B8A  0E 1A
         CALL BDOS                    ; $5B8C  CD 05 00
         LD HL,(L_0863)                   ; $5B8F  2A 63 08
         INC HL                           ; $5B92  23
         EX DE,HL                         ; $5B93  EB
-        LD C,$14                         ; $5B94  0E 14
+        LD C,F_READ                         ; $5B94  0E 14
         CALL BDOS                    ; $5B96  CD 05 00
         OR A                             ; $5B99  B7
         POP DE                           ; $5B9A  D1
@@ -12928,7 +12928,7 @@ COLD_START_70:
 COLD_START_71:
 ; [AI] BDOS fn 12 -- return CP/M version number; A!=0 selects the CP/M-2.x
 ;      record-locking I/O path, A==0 the CP/M-1.4 path (chosen just below).
-        LD C,$0C                         ; $5EC4  0E 0C   C = fn 12 (get version)
+        LD C,S_BDOSVER                         ; $5EC4  0E 0C   C = fn 12 (get version)
 COLD_START_72:
         CALL BDOS                    ; $5EC6  CD 05 00
 COLD_START_73:

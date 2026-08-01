@@ -132,7 +132,7 @@ BIOS_DISPATCH:
         LD (HL),A                        ; $0198  77         ; [AI] store -> hand control to the 6502, run the op
         RET                              ; $0199  C9
 WAIT_KEY:
-        LD C,$06                         ; $019A  0E 06       ; [AI] BDOS fn 6 = direct console I/O
+        LD C,C_RAWIO                         ; $019A  0E 06       ; [AI] BDOS fn 6 = direct console I/O
 WAIT_KEY_POLL:
         LD E,$FF                         ; $019C  1E FF       ; [AI] E=$FF -> input/status poll
         CALL BDOS                    ; $019E  CD 05 00
@@ -140,7 +140,7 @@ WAIT_KEY_POLL:
         JP Z,WAIT_KEY                    ; $01A2  CA 9A 01    ; [AI] no -> keep polling
         RET                              ; $01A5  C9
 PRINT_STR:
-        LD C,$09                         ; $01A6  0E 09       ; [AI] BDOS fn 9 = print $-terminated string at DE
+        LD C,C_WRITESTR                         ; $01A6  0E 09       ; [AI] BDOS fn 9 = print $-terminated string at DE
 PRINT_STR_BDOS:
         JP BDOS                      ; $01A8  C3 05 00
 ; [AI] Sign-on banner + insert-disk prompt:

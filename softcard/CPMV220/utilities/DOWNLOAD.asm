@@ -44,12 +44,12 @@ MAIN_ERR_MSG:
         LD DE,MSG_CMD_ERROR              ; $0104  11 C0 01   [AI] point DE at "Command Error$" for the exit path
 MAIN_CHECK_EMPTY:
         JP Z,EXIT_PRINT                  ; $0107  CA 8D 01   [AI] no filename -> print error and quit
-        LD C,$13                         ; $010A  0E 13      [AI] BDOS fn 19 = delete file
+        LD C,F_DELETE                         ; $010A  0E 13      [AI] BDOS fn 19 = delete file
         LD DE,TFCB                ; $010C  11 5C 00   [AI] FCB built from the command-line filename
         PUSH DE                          ; $010F  D5
         CALL BDOS                    ; $0110  CD 05 00   [AI] delete any existing copy of the target file
         POP DE                           ; $0113  D1
-        LD C,$16                         ; $0114  0E 16      [AI] BDOS fn 22 = make (create) file
+        LD C,F_MAKE                         ; $0114  0E 16      [AI] BDOS fn 22 = make (create) file
         CALL BDOS                    ; $0116  CD 05 00   [AI] create the empty destination file
         INC A                            ; $0119  3C         [AI] make returns $FF on failure -> INC makes it 0
         LD DE,MSG_NO_DIR_SPACE           ; $011A  11 CE 01   [AI] point DE at "No directory space$"
@@ -108,7 +108,7 @@ RECORD_GOOD:
         LD E,$2E                         ; $016A  1E 2E      [AI] '.'
         CALL CONOUT                      ; $016C  CD BB 01   [AI] progress dot to the console
         LD DE,TFCB                ; $016F  11 5C 00
-        LD C,$15                         ; $0172  0E 15      [AI] BDOS fn 21 = write sequential (from DMA buffer)
+        LD C,F_WRITE                         ; $0172  0E 15      [AI] BDOS fn 21 = write sequential (from DMA buffer)
         CALL BDOS                    ; $0174  CD 05 00   [AI] write the 128-byte record to the file
         LD E,$47                         ; $0177  1E 47      [AI] 'G' (good / ACK)
         CALL SEND_BYTE                   ; $0179  CD 93 01   [AI] tell host to send the next record
@@ -118,7 +118,7 @@ RECORD_GOOD:
 TRANSFER_DONE:
         LD (KEYSTB),A             ; $017F  32 10 E0   [AI] mark transfer complete
         LD DE,TFCB                ; $0182  11 5C 00
-        LD C,$10                         ; $0185  0E 10      [AI] BDOS fn 16 = close file
+        LD C,F_CLOSE                         ; $0185  0E 10      [AI] BDOS fn 16 = close file
         CALL BDOS                    ; $0187  CD 05 00   [AI] flush directory / close the destination file
         LD DE,MSG_COMPLETE               ; $018A  11 E1 01   [AI] "\r\nDOWNLOAD Complete$"
 
@@ -153,13 +153,13 @@ RECV_BYTE_READY:
 
 ; [AI] PRINT_STRING: BDOS fn 9, print $-terminated string at DE to the console.
 PRINT_STRING:
-        LD C,$09                         ; $01B6  0E 09
+        LD C,C_WRITESTR                         ; $01B6  0E 09
 PRINT_STRING_BDOS:
         JP BDOS                      ; $01B8  C3 05 00   [AI] tail-call BDOS (RET returns to PRINT_STRING's caller)
 
 ; [AI] CONOUT: BDOS fn 2, write the single character in E to the console.
 CONOUT:
-        LD C,$02                         ; $01BB  0E 02
+        LD C,C_WRITE                         ; $01BB  0E 02
         JP BDOS                      ; $01BD  C3 05 00   [AI] tail-call BDOS
 
 ; [AI] "Command Error$" -- shown when no filename is given on the command line.

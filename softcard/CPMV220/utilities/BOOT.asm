@@ -546,9 +546,9 @@ PAD_FALLTHROUGH_255:
 ; [AI] Prompt the user, wait for a key, then arm the 6502 to boot from floppy.
 REBOOT_MAIN:
         LD DE,MSG_PRESS_RETURN           ; $0200  11 17 02   ; [AI] DE -> "PRESS RETURN TO BOOT$"
-        LD C,$09                         ; $0203  0E 09       ; [AI] BDOS fn 9 = print $-terminated string
+        LD C,C_WRITESTR                         ; $0203  0E 09       ; [AI] BDOS fn 9 = print $-terminated string
         CALL BDOS                    ; $0205  CD 05 00    ; [AI] print the prompt to the console
-        LD C,$01                         ; $0208  0E 01       ; [AI] BDOS fn 1 = console input (wait for one key, echo); A = char
+        LD C,C_READ                         ; $0208  0E 01       ; [AI] BDOS fn 1 = console input (wait for one key, echo); A = char
         CALL BDOS                    ; $020A  CD 05 00    ; [AI] block until the user presses a key (RETURN); key returned in A
         LD HL,APPLE_DISKII_SLOT6         ; $020D  21 00 C6    ; [AI] HL = $C600, Disk II slot-6 boot ROM entry
         LD (A_VEC),HL         ; $0210  22 D0 F3    ; [AI] publish the 6502 boot vector ($C600) to the host comm cell

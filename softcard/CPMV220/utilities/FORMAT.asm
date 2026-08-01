@@ -127,7 +127,7 @@ PROMPT_READ_LINE:
         CALL PRINT_STR                   ; $01AA  CD C8 01   ; [AI] "Format disk in which drive? "
         LD A,$80                         ; $01AD  3E 80      ; [AI] max input length = 128
         LD (TBUFF),A               ; $01AF  32 80 00   ; [AI] set up the read-console-buffer header
-        LD C,$0A                         ; $01B2  0E 0A      ; [AI] BDOS fn 10 = read console line
+        LD C,C_READSTR                         ; $01B2  0E 0A      ; [AI] BDOS fn 10 = read console line
         LD DE,TBUFF                ; $01B4  11 80 00   ; [AI] DE -> buffer ($0080)
         CALL BDOS                    ; $01B7  CD 05 00
         LD A,$0A                         ; $01BA  3E 0A
@@ -144,7 +144,7 @@ PRINT_STR_FALL:
 CONOUT:
         LD E,A                           ; $01CC  5F         ; [AI] CONOUT(A): output char in A
 CONOUT_SETFN:
-        LD C,$02                         ; $01CD  0E 02      ; [AI] BDOS fn 2 = console output
+        LD C,C_WRITE                         ; $01CD  0E 02      ; [AI] BDOS fn 2 = console output
 CONOUT_BDOS:
         JP BDOS                      ; $01CF  C3 05 00   ; [AI] tail-call BDOS (DE/C already set)
 CHECK_WRITE_PROTECT:
@@ -178,7 +178,7 @@ DO_WARMBOOT:
 CONIN_DIRECT:
         LD E,$FF                         ; $0201  1E FF      ; [AI] E=$FF -> input (vs output) for fn 6
 CONIN_DIRECT_FN:
-        LD C,$06                         ; $0203  0E 06      ; [AI] BDOS fn 6 = direct console I/O
+        LD C,C_RAWIO                         ; $0203  0E 06      ; [AI] BDOS fn 6 = direct console I/O
         CALL BDOS                    ; $0205  CD 05 00
         OR A                             ; $0208  B7
         JR Z,CONIN_DIRECT                ; $0209  28 F6      ; [AI] A=0 -> no key ready, poll again

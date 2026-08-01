@@ -8000,7 +8000,7 @@ CLOSE_FILE_6:
         POP DE                           ; $5AF6  D1
 CLOSE_FILE_7:
         CALL $7BFA                       ; $5AF7  CD FA 7B
-        LD C,$10                         ; $5AFA  0E 10   ; [AI] BDOS fn 16 = close file
+        LD C,F_CLOSE                         ; $5AFA  0E 10   ; [AI] BDOS fn 16 = close file
         CALL BDOS                    ; $5AFC  CD 05 00 ; [AI] DE -> FCB
         POP BC                           ; $5AFF  C1
         LD D,$29                         ; $5B00  16 29
@@ -8143,11 +8143,11 @@ FILE_OPEN_STMT_4:
         JP NZ,SUB_33C9_13                ; $5CE8  C2 D0 34
 ; [AI] NAME old TO new: open the existing file, then rename it via BDOS.
         LD DE,L_08AA                     ; $5CEB  11 AA 08
-        LD C,$0F                         ; $5CEE  0E 0F   ; [AI] BDOS fn 0F = open file
+        LD C,F_OPEN                         ; $5CEE  0E 0F   ; [AI] BDOS fn 0F = open file
         CALL BDOS                    ; $5CF0  CD 05 00
         INC A                            ; $5CF3  3C       ; [AI] A=$FF (255) on open failure -> 0
         JP NZ,SUB_0C75_11+1              ; $5CF4  C2 65 0D ; [AI] not found -> error
-        LD C,$17                         ; $5CF7  0E 17   ; [AI] BDOS fn 17 = rename file
+        LD C,F_RENAME                         ; $5CF7  0E 17   ; [AI] BDOS fn 17 = rename file
         LD DE,L_089A                     ; $5CF9  11 9A 08 ; [AI] DE -> rename FCB (old|new names)
         CALL BDOS                    ; $5CFC  CD 05 00
         POP HL                           ; $5CFF  E1
@@ -8255,17 +8255,17 @@ OPEN_BY_MODE:
         CP $02                           ; $5D9A  FE 02   ; [AI] output mode?
         JR NZ,OPEN_BY_MODE_2                 ; $5D9C  20 12   ; [AI] no -> just open existing
         PUSH DE                          ; $5D9E  D5
-        LD C,$13                         ; $5D9F  0E 13   ; [AI] BDOS fn 19 = delete file (clear old)
+        LD C,F_DELETE                         ; $5D9F  0E 13   ; [AI] BDOS fn 19 = delete file (clear old)
         CALL BDOS                    ; $5DA1  CD 05 00
         POP DE                           ; $5DA4  D1
 OPEN_BY_MODE_1:
-        LD C,$16                         ; $5DA5  0E 16   ; [AI] BDOS fn 22 = make (create) file
+        LD C,F_MAKE                         ; $5DA5  0E 16   ; [AI] BDOS fn 22 = make (create) file
         CALL BDOS                    ; $5DA7  CD 05 00
         INC A                            ; $5DAA  3C       ; [AI] $FF -> 0 means "no directory space"
         JP Z,SUB_0C75_10+1               ; $5DAB  CA 62 0D ; [AI] -> "Disk full" error
         JR OPEN_BY_MODE_3                    ; $5DAE  18 13
 OPEN_BY_MODE_2:
-        LD C,$0F                         ; $5DB0  0E 0F   ; [AI] BDOS fn 0F = open existing file
+        LD C,F_OPEN                         ; $5DB0  0E 0F   ; [AI] BDOS fn 0F = open existing file
         CALL BDOS                    ; $5DB2  CD 05 00
         INC A                            ; $5DB5  3C
         JR NZ,OPEN_BY_MODE_3                 ; $5DB6  20 0B
@@ -8709,7 +8709,7 @@ SUB_6242:
         LD ($0001),HL                    ; $624B  22 01 00 ; [AI] patch page-zero $0001 (the WBOOT JP target word) to hook BASIC's restart
         LD HL,(Z_CPU)                    ; $624E  2A DE F3
         LD (L_45EB),HL                   ; $6251  22 EB 45
-        LD C,$0C                         ; $6254  0E 0C   ; [AI] BDOS fn 0C = return CP/M version
+        LD C,S_BDOSVER                         ; $6254  0E 0C   ; [AI] BDOS fn 0C = return CP/M version
         CALL BDOS                    ; $6256  CD 05 00 ; [AI] -> HL=version, A=L
         LD (L_08CB),A                    ; $6259  32 CB 08 ; [AI] stash version byte for later checks
         OR A                             ; $625C  B7

@@ -3069,9 +3069,12 @@ CCP_FCB_DRIVE_PREFIX:
 ;   In/Out: 15 bytes following the drive-prefix flag, completing the FCB-sized
 ;     record region the CCP keeps in its data page.
 ;   Clobbers: --
-;   Algorithm: reserved scratch / FCB-tail bytes; no code in this cluster reads them
-;     meaningfully. Exact use beyond padding the FCB record is UNKNOWN.
-;   [?] purpose beyond reserved FCB-tail padding is UNKNOWN.
+;   Algorithm: RESOLVED by arithmetic, and the label is a misnomer. CCP_FCB is at $9BCD and
+;     an FCB is 36 bytes ($9BCD-$9BF0), so these bytes at $9BF1 are NOT part of the FCB: the
+;     FCB's last byte is CCP_FCB_DRIVE_PREFIX at $9BF0, which is FCB+35 = R2, reused by the
+;     CCP as a flag because the CCP never does random access. The 15 bytes here run $9BF1-$9BFF
+;     and BDOS_FBASE is $9C00, so they are simply FILL closing the CCP image on the BDOS
+;     boundary. That is why no code reads them: there is nothing to read.
 ; ----------------------------------------------------------------------
 CCP_FCB_TAIL:
         DEFS    15, $00                  ; fill

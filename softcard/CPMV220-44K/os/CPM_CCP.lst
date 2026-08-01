@@ -46,45 +46,45 @@
   32+ 0000              TPA         EQU $0100      ; transient program area / load address
   33+ 0000
   34+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
-  35+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
-  36+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
-  37+ 0000              C_WRITE     EQU 2          ; console output (E = char)
-  38+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
-  39+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
-  40+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
-  41+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
-  42+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
-  43+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
-  44+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
-  45+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
-  46+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
-  47+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
-  48+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
-  49+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
-  50+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
-  51+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
-  52+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
-  53+ 0000              F_SNEXT     EQU 18         ; search for next
-  54+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
-  55+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
-  56+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
-  57+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
-  58+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
-  59+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
-  60+ 0000              DRV_GET     EQU 25         ; return current drive -> A
-  61+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
-  62+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
-  63+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
-  64+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
-  65+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
-  66+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
-  67+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
-  68+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
-  69+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
-  70+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
-  71+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
-  72+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
-  73+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+  35+ 0000              P_TERMCPM   EQU 0          ; [DOC CPMREF "System Reset"] system reset (return to CCP)
+  36+ 0000              C_READ      EQU 1          ; [DOC CPMREF "CONSOLE INPUT"] console input (echoed) -> A
+  37+ 0000              C_WRITE     EQU 2          ; [DOC CPMREF "CONSOLE OUTPUT"] console output (E = char)
+  38+ 0000              A_READ      EQU 3          ; [DOC CPMREF "READER INPUT"] reader (AUX) input -> A
+  39+ 0000              A_WRITE     EQU 4          ; [DOC CPMREF "PUNCH OUTPUT"] punch (AUX) output (E = char)
+  40+ 0000              L_WRITE     EQU 5          ; [DOC CPMREF "LIST OUTPUT"] list (printer) output (E = char)
+  41+ 0000              C_RAWIO     EQU 6          ; [DOC CPMREF "DIRECT CONSOLE I/O"] direct console I/O (E=$FF read / else write)
+  42+ 0000              A_STATIN    EQU 7          ; [DOC CPMREF "GET I/O BYTE"] get IOBYTE -> A
+  43+ 0000              A_STATOUT   EQU 8          ; [DOC CPMREF "SET I/O BYTE"] set IOBYTE (E = value)
+  44+ 0000              C_WRITESTR  EQU 9          ; [DOC CPMREF "PRINT STRING"] print '$'-terminated string (DE -> string)
+  45+ 0000              C_READSTR   EQU 10         ; [DOC CPMREF "READ CONSOLE BUFFER"] buffered console line input (DE -> buffer)
+  46+ 0000              C_STAT      EQU 11         ; [DOC CPMREF "GET CONSOLE STATUS"] console status -> A (0 = none ready)
+  47+ 0000              S_BDOSVER   EQU 12         ; [DOC CPMREF "RETURN VERSION NUMBER"] return BDOS version -> HL
+  48+ 0000              DRV_ALLRESET EQU 13        ; [DOC CPMREF "RESET DISK SYSTEM"] reset disk system
+  49+ 0000              DRV_SET     EQU 14         ; [DOC CPMREF "SELECT DISK"] select drive (E = 0=A..15=P)
+  50+ 0000              F_OPEN      EQU 15         ; [DOC CPMREF "OPEN FILE"] open file (DE -> FCB)
+  51+ 0000              F_CLOSE     EQU 16         ; [DOC CPMREF "CLOSE FILE"] close file (DE -> FCB)
+  52+ 0000              F_SFIRST    EQU 17         ; [DOC CPMREF "SEARCH FOR FIRST"] search for first (DE -> FCB)
+  53+ 0000              F_SNEXT     EQU 18         ; [DOC CPMREF "SEARCH FOR NEXT"] search for next
+  54+ 0000              F_DELETE    EQU 19         ; [DOC CPMREF "DELETE FILE"] delete file (DE -> FCB)
+  55+ 0000              F_READ      EQU 20         ; [DOC CPMREF "READ SEQUENTIAL"] read sequential (DE -> FCB)
+  56+ 0000              F_WRITE     EQU 21         ; [DOC CPMREF "WRITE SEQUENTIAL"] write sequential (DE -> FCB)
+  57+ 0000              F_MAKE      EQU 22         ; [DOC CPMREF "MAKE FILE"] create file (DE -> FCB)
+  58+ 0000              F_RENAME    EQU 23         ; [DOC CPMREF "RENAME FILE"] rename file (DE -> FCB)
+  59+ 0000              DRV_LOGINVEC EQU 24        ; [DOC CPMREF "RETURN LOGIN VECTOR"] return login vector -> HL
+  60+ 0000              DRV_GET     EQU 25         ; [DOC CPMREF "RETURN CURRENT DISK"] return current drive -> A
+  61+ 0000              F_DMAOFF    EQU 26         ; [DOC CPMREF "SET DMA ADDRESS"] set DMA address (DE)
+  62+ 0000              DRV_ALLOCVEC EQU 27        ; [DOC CPMREF "GET ADDR (ALLOC)"] return allocation vector -> HL
+  63+ 0000              DRV_SETRO   EQU 28         ; [DOC CPMREF "WRITE PROTECT DISK"] write-protect current drive
+  64+ 0000              DRV_ROVEC   EQU 29         ; [DOC CPMREF "GET READ/ONLY VECTOR"] return read-only vector -> HL
+  65+ 0000              F_ATTRIB    EQU 30         ; [DOC CPMREF "SET FILE ATTRIBUTES"] set file attributes (DE -> FCB)
+  66+ 0000              DRV_DPB     EQU 31         ; [DOC CPMREF "GET ADDR (DISK PARMS)"] return DPB address -> HL
+  67+ 0000              F_USERNUM   EQU 32         ; [DOC CPMREF "SET/GET USER CODE"] get/set user number (E=$FF get / else set)
+  68+ 0000              F_READRAND  EQU 33         ; [DOC CPMREF "READ RANDOM"] read random (DE -> FCB)
+  69+ 0000              F_WRITERAND EQU 34         ; [DOC CPMREF "WRITE RANDOM"] write random (DE -> FCB)
+  70+ 0000              F_SIZE      EQU 35         ; [DOC CPMREF "COMPUTE FILE SIZE"] compute file size (DE -> FCB)
+  71+ 0000              F_RANDREC   EQU 36         ; [DOC CPMREF "SET RANDOM RECORD"] set random record (DE -> FCB)
+  72+ 0000              DRV_RESET   EQU 37         ; [?] no titled entry in the bundled Reference Manual. reset drives (DE = drive vector)
+  73+ 0000              F_WRITEZF   EQU 40         ; [?] no titled entry in the bundled Reference Manual. write random with zero fill (DE -> FCB)
   74+ 0000
   75+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
   76+ 0000              ; ---------------------------------------------------------------------------
@@ -3321,29 +3321,32 @@
 3069  9BF1              ;   In/Out: 15 bytes following the drive-prefix flag, completing the FCB-sized
 3070  9BF1              ;     record region the CCP keeps in its data page.
 3071  9BF1              ;   Clobbers: --
-3072  9BF1              ;   Algorithm: reserved scratch / FCB-tail bytes; no code in this cluster reads them
-3073  9BF1              ;     meaningfully. Exact use beyond padding the FCB record is UNKNOWN.
-3074  9BF1              ;   [?] purpose beyond reserved FCB-tail padding is UNKNOWN.
-3075  9BF1              ; ----------------------------------------------------------------------
-3076  9BF1              CCP_FCB_TAIL:
-3077  9BF1 00 00 00...          DEFS    15, $00                  ; fill
-3078  9C00              CCP_IMAGE_END:                           ; first byte past the CCP image
-3079  9C00              ; ----------------------------------------------------------------------
-3080  9C00              ; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
-3081  9C00              ; entry jump.
-3082  9C00              ;   In: none (static image bytes at the BDOS run base).
-3083  9C00              ;   Out: bytes +0..+5 are the per-copy serial/header cells (not code); the JP at +6 (BDOS_ENTRY) is
-3084  9C00              ;        the actual entry.
-3085  9C00              ;   Clobbers: n/a (data + one jump).
-3086  9C00              ;   Algorithm: OBSERVED -- the six bytes here are DEFB $BD,$16,$00,$00,$16,$DF, the standard CP/M
-3087  9C00              ;              FBASE serial-number / header cells. The disassembler renders them as spurious
-3088  9C00              ;              SBC/AND/XOR/OR instructions further on, but these +0..+5 bytes are DATA. The byte at
-3089  9C00              ;              +6 is the JP BDOS_ENTRY/dispatcher that the page-zero BDOS=$0005 jump-vector lands
-3090  9C00              ;              on. [RE] standard CP/M 2.2 FBASE header layout.
-3091  9C00              ; ----------------------------------------------------------------------
-3092  9C00                  IFNDEF CPM_LINK
-3093  9C00                  ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9400..$9C00 slot exactly
-3094  9C00                  SAVEBIN "{out_bin}", CCP_ENTRY, CCP_SIZE
-3095  9C00                  ENDIF
-3096  9C00
+3072  9BF1              ;   Algorithm: RESOLVED by arithmetic, and the label is a misnomer. CCP_FCB is at $9BCD and
+3073  9BF1              ;     an FCB is 36 bytes ($9BCD-$9BF0), so these bytes at $9BF1 are NOT part of the FCB: the
+3074  9BF1              ;     FCB's last byte is CCP_FCB_DRIVE_PREFIX at $9BF0, which is FCB+35 = R2, reused by the
+3075  9BF1              ;     CCP as a flag because the CCP never does random access. The 15 bytes here run $9BF1-$9BFF
+3076  9BF1              ;     and BDOS_FBASE is $9C00, so they are simply FILL closing the CCP image on the BDOS
+3077  9BF1              ;     boundary. That is why no code reads them: there is nothing to read.
+3078  9BF1              ; ----------------------------------------------------------------------
+3079  9BF1              CCP_FCB_TAIL:
+3080  9BF1 00 00 00...          DEFS    15, $00                  ; fill
+3081  9C00              CCP_IMAGE_END:                           ; first byte past the CCP image
+3082  9C00              ; ----------------------------------------------------------------------
+3083  9C00              ; BDOS_FBASE -- BDOS image header at FBASE ($9C00): 6 serial/header bytes, then the FDOS
+3084  9C00              ; entry jump.
+3085  9C00              ;   In: none (static image bytes at the BDOS run base).
+3086  9C00              ;   Out: bytes +0..+5 are the per-copy serial/header cells (not code); the JP at +6 (BDOS_ENTRY) is
+3087  9C00              ;        the actual entry.
+3088  9C00              ;   Clobbers: n/a (data + one jump).
+3089  9C00              ;   Algorithm: OBSERVED -- the six bytes here are DEFB $BD,$16,$00,$00,$16,$DF, the standard CP/M
+3090  9C00              ;              FBASE serial-number / header cells. The disassembler renders them as spurious
+3091  9C00              ;              SBC/AND/XOR/OR instructions further on, but these +0..+5 bytes are DATA. The byte at
+3092  9C00              ;              +6 is the JP BDOS_ENTRY/dispatcher that the page-zero BDOS=$0005 jump-vector lands
+3093  9C00              ;              on. [RE] standard CP/M 2.2 FBASE header layout.
+3094  9C00              ; ----------------------------------------------------------------------
+3095  9C00                  IFNDEF CPM_LINK
+3096  9C00                  ASSERT CCP_IMAGE_END == BDOS_FBASE    ; the CCP image must fill its $9400..$9C00 slot exactly
+3097  9C00                  SAVEBIN "{out_bin}", CCP_ENTRY, CCP_SIZE
+3098  9C00                  ENDIF
+3099  9C00
 # file closed: CPM_CCP.asm

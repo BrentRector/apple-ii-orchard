@@ -55,7 +55,7 @@ RELOC_START_2:
 RELOC_START_3:
         LD DE,BANNER_MSG                     ; $0142  11 30 01
 RELOC_START_4:
-        LD C,$09                         ; $0145  0E 09
+        LD C,C_WRITESTR                         ; $0145  0E 09
 RELOC_START_5:
         CALL BDOS                        ; $0147  CD 05 00
 RELOC_START_6:
@@ -1204,7 +1204,7 @@ GET_CMD_CHAR:
         PUSH BC                          ; $0774  C5
         XOR A                            ; $0775  AF
         LD (REC_BUF_POS),A             ; $0776  32 5B 00
-        LD C,$0F                         ; $0779  0E 0F
+        LD C,F_OPEN                         ; $0779  0E 0F
         LD DE,TFCB                ; $077B  11 5C 00
         CALL BDOS                    ; $077E  CD A8 06
         POP BC                           ; $0781  C1
@@ -1568,7 +1568,7 @@ CMD_R_LOAD_BODY:
 CMD_R_HEX_REC:
         PUSH HL                          ; $09F4  E5
         LD DE,TFCB                ; $09F5  11 5C 00
-        LD C,$14                         ; $09F8  0E 14
+        LD C,F_READ                         ; $09F8  0E 14
         CALL BDOS                    ; $09FA  CD A8 06
         POP HL                           ; $09FD  E1
         OR A                             ; $09FE  B7
@@ -1647,7 +1647,7 @@ GET_HEX_BYTE_REC:
         POP BC                           ; $0A78  C1
         RET                              ; $0A79  C9
 PRINT_NEXT_PC:
-        LD C,$0C                         ; $0A7A  0E 0C
+        LD C,S_BDOSVER                         ; $0A7A  0E 0C
         CALL BDOS                    ; $0A7C  CD A8 06
         LD HL,NEXT_PC_MSG                     ; $0A7F  21 A3 0A
 PRINT_NEXT_PC_1:
@@ -1823,7 +1823,7 @@ GET_HEXFILE_CHAR_1:
         OR A                             ; $0BC4  B7
         JP GET_HEXFILE_CHAR_RET                    ; $0BC5  C3 DB 0B
 GET_HEXFILE_CHAR_2:
-        LD C,$14                         ; $0BC8  0E 14
+        LD C,F_READ                         ; $0BC8  0E 14
         LD DE,TFCB                ; $0BCA  11 5C 00
         CALL BDOS                    ; $0BCD  CD A8 06
         OR A                             ; $0BD0  B7
@@ -1843,7 +1843,7 @@ CMD_ERROR:
         CALL PUT_CHAR_A                    ; $0BE4  CD FB 0B
         JP READ_COMMAND                    ; $0BE7  C3 05 07
 RESET_LINE_BUF:
-        LD C,$0A                         ; $0BEA  0E 0A
+        LD C,C_READSTR                         ; $0BEA  0E 0A
         LD DE,LINE_BUF_MAX                     ; $0BEC  11 B9 0F
         CALL BDOS                    ; $0BEF  CD A8 06
         LD HL,LINE_BUF                     ; $0BF2  21 BB 0F
@@ -1856,7 +1856,7 @@ PUT_CHAR_A:
         PUSH DE                          ; $0BFC  D5
         PUSH BC                          ; $0BFD  C5
         LD E,A                           ; $0BFE  5F
-        LD C,$02                         ; $0BFF  0E 02
+        LD C,C_WRITE                         ; $0BFF  0E 02
         CALL BDOS                    ; $0C01  CD A8 06
         POP BC                           ; $0C04  C1
         POP DE                           ; $0C05  D1
@@ -1913,7 +1913,7 @@ CON_BREAK_POLL:
         PUSH BC                          ; $0C53  C5
         PUSH DE                          ; $0C54  D5
         PUSH HL                          ; $0C55  E5
-        LD C,$0B                         ; $0C56  0E 0B
+        LD C,C_STAT                         ; $0C56  0E 0B
         CALL BDOS                    ; $0C58  CD A8 06
         AND $01                          ; $0C5B  E6 01
         POP HL                           ; $0C5D  E1

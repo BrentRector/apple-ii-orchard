@@ -258,7 +258,7 @@ SUB_0249_1:
 CONOUT:
         LD E,A                           ; $024E  5F         ; [AI] BDOS fn 2 = console output of char in A
 SUB_024E_1:
-        LD C,$02                         ; $024F  0E 02
+        LD C,C_WRITE                         ; $024F  0E 02
 CONOUT_2:
         JP BDOS                      ; $0251  C3 05 00   ; [AI] tail-call into BDOS
 
@@ -367,7 +367,7 @@ SUB_02BD_1:
 ; [AI] key is ready, abort to warm boot on ^C ($03), and uppercase the result.
 CONIN_UPPER:
         LD E,$FF                         ; $02C8  1E FF      ; [AI] fn 6 input request
-        LD C,$06                         ; $02CA  0E 06      ; [AI] BDOS fn 6 = direct console I/O
+        LD C,C_RAWIO                         ; $02CA  0E 06      ; [AI] BDOS fn 6 = direct console I/O
         CALL BDOS                    ; $02CC  CD 05 00
         OR A                             ; $02CF  B7         ; [AI] no key ready?
 SUB_02C8_1:

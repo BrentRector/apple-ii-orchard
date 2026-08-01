@@ -73,7 +73,7 @@ MAIN_LOOP:
         LD A,$80                         ; $0127  3E 80     ; [AI] 128 = max length for BDOS fn 10 (buffered console input)
         LD ($0922),A                     ; $0129  32 22 09  ; [AI] set up the read-console-buffer header (max len byte)
         LD DE,$0922                      ; $012C  11 22 09  ; [AI] DE -> input buffer (len, count, chars...)
-        LD C,$0A                         ; $012F  0E 0A     ; [AI] BDOS fn 10 = read console buffer (edited line input)
+        LD C,C_READSTR                         ; $012F  0E 0A     ; [AI] BDOS fn 10 = read console buffer (edited line input)
         CALL BDOS                    ; $0131  CD 05 00
         CALL PUT_CRLF                    ; $0134  CD C2 04
         LD A,($0923)                     ; $0137  3A 23 09  ; [AI] number of characters the user typed
@@ -145,7 +145,7 @@ FLUSH_KBD:
 ; [AI] Returns A=0 (Z set) if no character ready, else the character (NZ).
 CONSOLE_STATUS_IN:
         LD E,$FF                         ; $01B2  1E FF
-        LD C,$06                         ; $01B4  0E 06     ; [AI] BDOS fn 6 = direct console I/O
+        LD C,C_RAWIO                         ; $01B4  0E 06     ; [AI] BDOS fn 6 = direct console I/O
         CALL BDOS                    ; $01B6  CD 05 00
         OR A                             ; $01B9  B7        ; [AI] set Z if no key
         RET                              ; $01BA  C9
@@ -258,11 +258,11 @@ COPY_TYPE_OK:
         CALL SET_APPLE_PARAMS            ; $027D  CD E3 02  ; [AI] arm the 6502 RWTS params (buffer/drive/slot)
         LD DE,TFCB                ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
-        LD C,$13                         ; $0284  0E 13     ; [AI] BDOS fn 19 = delete file (remove any old copy)
+        LD C,F_DELETE                         ; $0284  0E 13     ; [AI] BDOS fn 19 = delete file (remove any old copy)
         CALL BDOS                    ; $0286  CD 05 00
         POP DE                           ; $0289  D1
         PUSH DE                          ; $028A  D5
-        LD C,$16                         ; $028B  0E 16     ; [AI] BDOS fn 22 = make (create) the CP/M output file
+        LD C,F_MAKE                         ; $028B  0E 16     ; [AI] BDOS fn 22 = make (create) the CP/M output file
         CALL BDOS                    ; $028D  CD 05 00
         LD DE,STR_DIR_FULL               ; $0290  11 BC 06  ; [AI] "Directory full"
         INC A                            ; $0293  3C        ; [AI] $FF return from make -> 0 means error
@@ -328,7 +328,7 @@ OPEN_CPM_OUTPUT:
         CALL SET_APPLE_PARAMS            ; $02FE  CD E3 02
         LD DE,TFCB                ; $0301  11 5C 00
 OPEN_CPM_FCB:
-        LD C,$0F                         ; $0304  0E 0F     ; [AI] BDOS fn 15 = open file
+        LD C,F_OPEN                         ; $0304  0E 0F     ; [AI] BDOS fn 15 = open file
         CALL BDOS                    ; $0306  CD 05 00
         LD A,(DIR_REC_HI)                ; $0309  3A 15 05
         LD (DEFAULT_CR),A                ; $030C  32 7C 00  ; [AI] restore FCB current-record so we append
@@ -341,7 +341,7 @@ SAVE_FCB_POS:
         LD (DIR_REC_LO),A                ; $031B  32 14 05  ; [AI] remember position byte
 MAKE_CPM_FILE:
         LD DE,TFCB                ; $031E  11 5C 00
-        LD C,$10                         ; $0321  0E 10     ; [AI] BDOS fn 16 = close file
+        LD C,F_CLOSE                         ; $0321  0E 10     ; [AI] BDOS fn 16 = close file
         CALL BDOS                    ; $0323  CD 05 00
         LD HL,$1A22                      ; $0326  21 22 1A  ; [AI] CP/M-side buffer addr ($1A22) for next phase
         LD (CPM_BUF_PTR),HL              ; $0329  22 16 05
@@ -386,7 +386,7 @@ FLUSH_REC_LOOP:
         PUSH BC                          ; $0368  C5
         PUSH HL                          ; $0369  E5
         EX DE,HL                         ; $036A  EB
-        LD C,$1A                         ; $036B  0E 1A     ; [AI] BDOS fn 26 = set DMA address (this record)
+        LD C,F_DMAOFF                         ; $036B  0E 1A     ; [AI] BDOS fn 26 = set DMA address (this record)
         CALL BDOS                    ; $036D  CD 05 00
         LD A,(DIR_FILE_TYPE)             ; $0370  3A 0E 05  ; [AI] Apple file type
         OR A                             ; $0373  B7
@@ -402,7 +402,7 @@ FLUSH_STRIP_HI:
         DJNZ FLUSH_STRIP_HI              ; $037F  10 F9
 FLUSH_WRITE:
         LD DE,TFCB                ; $0381  11 5C 00
-        LD C,$15                         ; $0384  0E 15     ; [AI] BDOS fn 21 = write sequential
+        LD C,F_WRITE                         ; $0384  0E 15     ; [AI] BDOS fn 21 = write sequential
         CALL BDOS                    ; $0386  CD 05 00
         OR A                             ; $0389  B7
         LD DE,STR_DISK_FULL              ; $038A  11 CB 06  ; [AI] "Disk full"
@@ -626,7 +626,7 @@ PRINT_BANNER_3:
         POP DE                           ; $04D2  D1
 ; [AI] PRINT_STRING: print the $-terminated string at DE via BDOS fn 9.
 PRINT_STRING:
-        LD C,$09                         ; $04D3  0E 09     ; [AI] BDOS fn 9 = print $-string
+        LD C,C_WRITESTR                         ; $04D3  0E 09     ; [AI] BDOS fn 9 = print $-string
 PRINT_STRING_TAIL:
         JP BDOS                      ; $04D5  C3 05 00
 ; [AI] PROMPT_TWO_DRIVES: if Apple and CP/M drives differ, show the two-drive
@@ -668,7 +668,7 @@ PUT_CHAR_3:
 PUT_CHAR_4:
         LD E,A                           ; $0500  5F        ; [AI] E = char for BDOS
 PUT_CHAR_5:
-        LD C,$02                         ; $0501  0E 02     ; [AI] BDOS fn 2 = console output
+        LD C,C_WRITE                         ; $0501  0E 02     ; [AI] BDOS fn 2 = console output
 PUT_CHAR_6:
         CALL BDOS                    ; $0503  CD 05 00
 PUT_CHAR_7:

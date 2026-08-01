@@ -1453,7 +1453,7 @@ FCB_PRIME_FIELDS:
 FCB_WRITEBACK_REC:
         CALL FCB_PTR_RC_CR
         LD A,(WRITE_TYPE_FLAG)
-        CP $02
+        CP ACCESS_RAND_ZF
         JR NZ,FCB_WRITEBACK_REC_1
         XOR A
 FCB_WRITEBACK_REC_1:
@@ -2690,7 +2690,7 @@ FCB_ADVANCE_RECORD_5:
 ;        entry feeds the read/deblock core. Twin of the 44K FILE_READ_SEQ (mode-flag set + fall-through).
 ; ----------------------------------------------------------------------
 FILE_WRITE_SEQ:
-        LD A,$01
+        LD A,ACCESS_SEQ
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; FILE_READ_RECORD -- read the FCB's current record into the DMA buffer (shared read core).
@@ -2739,7 +2739,7 @@ FILE_READ_RECORD_2:
 ;        entry feeds the write core. Twin of the 44K FILE_WRITE_SEQ (mode-flag set + fall-through).
 ; ----------------------------------------------------------------------
 FILE_READ_SEQ:
-        LD A,$01
+        LD A,ACCESS_SEQ
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
 ; BDOS_WRITE -- BDOS WRITE primitive (fn 21 F_WRITE / fn 34 F_WRITERAND / fn 40 F_WRITEZF target). Write
@@ -2900,6 +2900,7 @@ BDOS_WRITE_11:
 ;       consume C -- it is merely preserved on the stack across the seek and used by the caller after.) [RE]
 ; ----------------------------------------------------------------------
 BDOS_SEEK_NOREAD:
+        ; ACCESS_RANDOM (0). XOR A, not LD A,ACCESS_RANDOM: that would emit different bytes.
         XOR A
         LD (WRITE_TYPE_FLAG),A
 ; ----------------------------------------------------------------------
@@ -3613,7 +3614,7 @@ BDOS_F_RESET_DRIVE:
 ; ----------------------------------------------------------------------
 BDOS_F_WRITEZF:
         CALL FCB_AUTO_DRIVE_SELECT
-        LD A,$02
+        LD A,ACCESS_RAND_ZF
         LD (WRITE_TYPE_FLAG),A
         LD C,$00
         CALL BDOS_SEEK_COMPUTE
@@ -3736,6 +3737,18 @@ RW_DIRECTION_FLAG:                       ; 1 byte  (44K $A9D3)
         ORG RW_DIRECTION_FLAG + 1
 DIR_MATCH_FLAG:                          ; 1 byte  (44K $A9D4)
         ORG DIR_MATCH_FLAG + 1
+; ----------------------------------------------------------------------
+; WRITE_TYPE_FLAG values. ONE symbol per VALUE: sequential READ and sequential WRITE both use
+; 1, so there is no separate WRITE_SEQ constant (a second name for the same value would be the
+; duplicate definition the repo forbids). The cell decides ONE thing: whether
+; STORE_FCB_POSITION advances CR afterwards. Sequential must, so the next call continues where
+; this one stopped; random must not, because the caller repositions via R0/R1/R2 each time.
+; EQUs emit no bytes, so declaring them inside this ORG'd layout does not move the counter.
+; ----------------------------------------------------------------------
+ACCESS_RANDOM   EQU 0    ; random access positioned by a seek; CR unchanged
+ACCESS_SEQ      EQU 1    ; sequential read OR write; CR += 1
+ACCESS_RAND_ZF  EQU 2    ; fn 40 F_WRITEZF, Write Random with Zero Fill; CR unchanged
+; ----------------------------------------------------------------------
 WRITE_TYPE_FLAG:                         ; 1 byte  (44K $A9D5)
         ORG WRITE_TYPE_FLAG + 1
 DRV_SELECT_ARG:                          ; 1 byte  (44K $A9D6)

@@ -29,7 +29,7 @@
 START:
         LD DE,MSG_BANNER                 ; $0100  11 A8 01  ; [AI] DE -> "APPLE ][ CP/M 13 Sector..." banner
 START_PRINT_BANNER:
-        LD C,$09                         ; $0103  0E 09     ; [AI] BDOS fn 9 = print $-terminated string
+        LD C,C_WRITESTR                         ; $0103  0E 09     ; [AI] BDOS fn 9 = print $-terminated string
 PRINT_BANNER_CALL:
         CALL BDOS                    ; $0105  CD 05 00  ; [AI] emit banner to console
 START_DISPATCH:
@@ -82,7 +82,7 @@ ERR_INVALID_DRIVE:
         LD DE,MSG_INVALID_DRIVE          ; $0145  11 23 02
 ; [AI] PRINT_AND_WBOOT: print $-string at DE via BDOS fn 9, then JP WBOOT (warm boot).
 PRINT_AND_WBOOT:
-        LD C,$09                         ; $0148  0E 09     ; [AI] BDOS fn 9 = print $-string
+        LD C,C_WRITESTR                         ; $0148  0E 09     ; [AI] BDOS fn 9 = print $-string
 PRINT_AND_WBOOT_CALL:
         CALL BDOS                    ; $014A  CD 05 00
 PRINT_AND_WBOOT_C9:
