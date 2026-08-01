@@ -1550,3 +1550,135 @@ through 9 are a small fraction of what was re-read.
 
 `docs/CPM_Filesystem.md` still said "all 64 slots free" in prose after the `DRM`=`$2F` fix
 corrected the table to 48. Now consistent.
+
+---
+
+# Part 10, 2026-08-01: CP/M structures, the 60K joining the shared headers, two new audits
+
+Commits `487ff3e` `e03b580` `ba7fb43` `85e7ba9` `37710c8`. Gate **1125 passed / 1 skipped**
+(1121 plus 4 new tests), byte-identical throughout.
+
+**No finding changes.** Everything in Parts 1-9 stands. This is structural work in the sources
+plus tooling, and it matters to you for two reasons: labels you may quote have changed again, and
+it produced one new suspect of the same kind you found.
+
+## 1. Labels changed. Again, and this should be the last time
+
+Brent's design: a directory entry and an FCB are the same 32 bytes with the FCB adding four, so
+`cpm22.inc` now defines `DIRECTORY_ENTRY` and has `FCB` contain it. Shared fields are reached
+through whichever structure the code is actually holding:
+
+```
+FCB.DIRECTORY_ENTRY.EX      when the pointer is an FCB
+DIRECTORY_ENTRY.EX          when it is a directory entry (e.g. in DIRBUF)
+FCB.CR                      the FCB-only tail
+```
+
+Struct names are spelled out; **field names keep their CP/M manual spellings** (`EX`, `S1`, `S2`,
+`RC`, `AL`, `CR`, `R0`-`R2`). I argued for spelling the fields out too and was overruled, correctly:
+they only ever looked opaque sitting on a bare number, and the struct path supplies the context the
+abbreviation assumes.
+
+The relationship is a machine-checked invariant, not a comment:
+
+```asm
+    ASSERT FCB.CR == DIRECTORY_ENTRY     ; CR begins where the directory entry ends
+    ASSERT FCB == DIRECTORY_ENTRY + 4
+```
+
+`DPB_LAYOUT` and `DPH_LAYOUT` exist too, suffixed because `CPM_BIOS.asm` already uses `DPB`, `SPT`,
+`DSM` and `OFF` as instance labels for the real data block. Type and instance needed separating.
+
+**59 sites converted** across the three BDOS trees, plus 41 utility sites that had been using flat
+`FCB_*` EQUs (now retired). If the article quotes an operand, re-diff it.
+
+## 2. Why this was worth doing, in your terms
+
+It removes the condition that produced the defect you found. `EX` was called "the current-record
+byte" at 12 sites because the operand was `$000C` and nothing contradicted the comment. A field name
+cannot drift from its offset, and a step between fields is now arithmetic:
+
+```asm
+    LD BC,FCB.DIRECTORY_ENTRY.S2 - FCB.DIRECTORY_ENTRY.EX   ; was LD BC,$0002
+    LD HL,FCB.CR - FCB.DIRECTORY_ENTRY.RC                   ; was LD HL,$0011
+    LD C,DIRECTORY_ENTRY - DIRECTORY_ENTRY.RC               ; was LD C,$11
+```
+
+The classification could not be automated, which is the part worth reporting. Of the 71 candidate
+sites, 12 stay literal:
+
+* `F_RENAME`'s `+16` is the **second filename**, not the allocation map, at the identical offset.
+* One `+$0B` the filter surfaced in the BIOS is a **tab-table stride**, not a field at all.
+* One site sets `BC` once and reuses it for a directory entry and then for an FCB, which is only
+  correct because an FCB embeds an entry at offset 0. The composition is what makes that legible.
+
+A regex would have gotten the first two wrong.
+
+## 3. A new suspect, same family as yours. Flagged, not fixed
+
+`FCB_MERGE_NEXT` backs up 20 bytes from the end of the allocation-map loop, under a comment saying
+it reaches "the record-count field". Entry+32 minus 20 is offset **12**, which is `EX`. And the `+3`
+step immediately after reaches 15, which is `RC` and only makes sense if the first landing really is
+`EX`.
+
+So that is the EX/RC confusion you found, in a **third** place. I left it as found with a `[?]`
+rather than correcting it, because the 16-bit block-number path advances the pointer differently
+and I did not trace it. If you want it settled, say so; otherwise it is on record.
+
+## 4. The 60K now shares the headers, and that exposed three fake sharings
+
+The 60K was the only tree with **zero** includes; both 44K trees already pull `cpm22.inc` into CCP,
+BDOS and BIOS. Fixing that turned up three places where sharing was nominal:
+
+* **`CPM60.asm` included `cpm22.inc` inside `MODULE ccp`**, so the header was namespaced there. The
+  `bdos` and `bios` modules' includes then became no-ops and their struct references **silently
+  resolved to 0** -- six wrong bytes, caught only by the byte gate.
+* **The 60K BIOS and BDOS re-declared six base-page symbols** with values identical to the header.
+  Removed. The fuller IOBYTE wording that lived there, with its `[DOC S&HD 2-18]` citation, moved
+  into `cpm22.inc` rather than being lost.
+* **`regenerate.parse_label_addrs` assembled checked-in sources with no includes staged.**
+
+That last one is the third helper this session with the same flaw, and the same failure mode each
+time: **sjasmplus resolves an unknown name to 0 and assembles**, so a missing header yields
+plausible wrong bytes instead of an error. `assemble.py` checks the return code and was always safe.
+The two helpers that only checked "did an output file appear" were not. If you use the
+byte-identical gate as a theme, this is the concrete case: the gate is not the weak link, a
+cross-check that quietly tests less than it appears to is.
+
+## 5. Audits 5 and 6
+
+Both cross-tree contradictions found by hand this session slipped past audit 3, so they are now
+covered.
+
+* **Audit 5**: a label marked unknown in one tree and explained in another. Catches the `$$$.SUB`
+  probe case. Finds **9** candidates today, none urgent; every hit is free information because the
+  answer is already in the repository.
+* **Audit 6**: the trees disagree about what a numbered offset **is**. Catches the `EX` mislabel.
+  Audit 3 missed it because the disagreement was about a noun rather than a state; audit 5 missed it
+  because neither tree hedged.
+
+Two confessions about building them, both relevant to your tally:
+
+* **Audit 6's first regex matched nothing at all.** It expected `offset 12 = the extent byte`, but
+  this corpus writes the noun first: `the FCB current-record byte (offset 12)`. It reported zero and
+  looked healthy.
+* **Audit 5's `UNKNOWN` branch was dead**, from two literal backspace bytes where `\bUNKNOWN\b`
+  belonged. My test passed anyway, because the sample string contained *both* `[?]` and `UNKNOWN`,
+  so the other alternative matched and the test succeeded for the wrong reason.
+
+Both were caught only by running the audits against the actual pre-fix text. An audit that has
+quietly stopped matching is worse than no audit, because it reports clean. That is now the second
+distinct way I have seen a check pass while measuring nothing, and it belongs next to the
+missing-include story if you write about verification.
+
+## 6. Housekeeping
+
+`softcard/t.asm`, a scratch test file I accidentally committed in an earlier `git add -A`, is
+removed. `docs/CPM_Filesystem.md` had "all 64 slots free" in prose after the `DRM`=`$2F` fix
+corrected the table to 48; now consistent.
+
+## 7. Open
+
+* The `FCB_MERGE_NEXT` `[?]` in section 3.
+* Audit 5's 9 candidates, each a place where one tree already knows what another does not.
+* Audit 1's two long-standing BASIC.asm false positives, unchanged and allowed for by number.
