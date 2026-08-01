@@ -3,20 +3,16 @@
 ; Range:  $0100-$18FF  (6144 bytes)
 
     DEVICE NOSLOT64K
+; WBOOTV / BDOS / TBUFF / TFCB / TPA and the BDOS function codes come from cpm22.inc,
+; the single source of truth. They used to be re-declared below with identical values.
+    INCLUDE "cpm22.inc"            ; CP/M 2.2 ABI: base page + BDOS function codes
 
 ; -- External symbols --
-WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE_ADDR               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-CDISK_ADDR                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-TFCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
 DEFAULT_RND          EQU $007D               ; Default FCB random record number (3 bytes — low/middle/high).
-TBUFF          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $102E -> DO_FILE_STATUS_21+1        shared instruction tail: $102E is reachable code inside the instruction at $102D
 
-TPA     EQU $0100                        ; CP/M transient program area (local; file has its own BDOS label)
     ORG TPA
 
 ; [AI] ============================================================
@@ -237,7 +233,7 @@ CONOUT_3:
 CONOUT_4:
         EX DE,HL                         ; $0499  EB
 CONOUT_5:
-        LD C,$02                         ; $049A  0E 02
+        LD C,C_WRITE                         ; $049A  0E 02
 CONOUT_6:
         CALL BDOS                    ; $049C  CD 4C 14
 CONOUT_7:
@@ -334,7 +330,7 @@ BDOS_SELDSK:
         LD HL,(L_1528)                   ; $04FA  2A 28 15
         LD H,$00                         ; $04FD  26 00
         EX DE,HL                         ; $04FF  EB
-        LD C,$0E                         ; $0500  0E 0E
+        LD C,DRV_SET                         ; $0500  0E 0E
         CALL BDOS                    ; $0502  CD 4C 14
         RET                              ; $0505  C9
 ; [AI] dead/unreferenced wrapper: BDOS fn 15 (open file), result -> SEARCH_RESULT
@@ -377,7 +373,7 @@ BDOS_SETDMA:
         LD (HL),C                        ; $0546  71
         LD HL,(L_152D)                   ; $0547  2A 2D 15
         EX DE,HL                         ; $054A  EB
-        LD C,$1A                         ; $054B  0E 1A
+        LD C,F_DMAOFF                         ; $054B  0E 1A
         CALL BDOS                    ; $054D  CD 4C 14
         RET                              ; $0550  C9
 ; [AI] BDOS_GETALLOC: BDOS fn 27 -- return address of current drive's allocation vector in HL.
@@ -395,7 +391,7 @@ BDOS_GETLOGINVEC:
 ; [AI] BDOS_SETDISK_RO: BDOS fn 28 -- write-protect (temp R/O) the current drive.
 BDOS_SETDISK_RO:
         LD DE,WBOOTV                  ; $0563  11 00 00
-        LD C,$1C                         ; $0566  0E 1C
+        LD C,DRV_SETRO                         ; $0566  0E 1C
         CALL BDOS                    ; $0568  CD 4C 14
         RET                              ; $056B  C9
 ; [AI] BDOS_GETRO_VEC: BDOS fn 29 -- return read-only-drive vector in HL.
@@ -434,7 +430,7 @@ BDOS_FILESIZE:
         LD (HL),C                        ; $05A8  71
         LD HL,(L_1530)                   ; $05A9  2A 30 15
         EX DE,HL                         ; $05AC  EB
-        LD C,$23                         ; $05AD  0E 23
+        LD C,F_SIZE                         ; $05AD  0E 23
         CALL BDOS                    ; $05AF  CD 4C 14
         RET                              ; $05B2  C9
 ; [AI] GET_RECORD_CAPACITY: read DPB, compute total 128-byte record capacity

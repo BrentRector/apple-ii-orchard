@@ -50,16 +50,11 @@ MEMTOP_PAGE EQU $F0          ; top RAM page = memory size: 44K=$A1, 60K=$F0
 ; Range:  $D300-$DC05  (2310 bytes)
 
     DEVICE NOSLOT64K
+; WBOOTV / BDOS / TBUFF / TFCB / TPA and the BDOS function codes come from cpm22.inc,
+; the single source of truth. They used to be re-declared below with identical values.
+    INCLUDE "cpm22.inc"            ; CP/M 2.2 ABI: base page + BDOS function codes
 
 ; -- External symbols --
-WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE_ADDR               EQU $0003               ; I/O assignment byte — logical-to-physical device routing (CONSOLE/READER/PUNCH/LIST). 4 fields × 2 bits each.
-CDISK_ADDR                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-TFCB          EQU $005C               ; Default File Control Block — populated by CCP from command-line argument 1. Standard 36-byte FCB structure (drive + filename + extents + record number).
-TBUFF          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
-CMDLINE              EQU $0081               ; Command-line tail characters (uppercase, with leading space). Same buffer as DEFAULT_DMA.
-TPA            EQU $0100               ; Start of Transient Program Area. .COM files load here and execute starting at $0100.
 
 ; -- Mid-instruction references (shown inline as cover+offset) --
 ;   $DB26 -> SUB_DB06_2+1         shared instruction tail: $DB26 is reachable code inside the instruction at $DB25
@@ -118,11 +113,11 @@ BDOS_RESET_DISK:
         JR SUB_D3B6_1                    ; $D3B4  18 03
 BDOS_SELECT_DISK:
         LD E,A                           ; $D3B6  5F
-        LD C,$0E                         ; $D3B7  0E 0E
+        LD C,DRV_SET                         ; $D3B7  0E 0E
 SUB_D3B6_1:
         JP BDOS                      ; $D3B9  C3 05 00
 BDOS_CLOSE_FILE:
-        LD C,$10                         ; $D3BC  0E 10
+        LD C,F_CLOSE                         ; $D3BC  0E 10
 BDOS_CALL_SAVERES:
         CALL BDOS                    ; $D3BE  CD 05 00
         LD (SUB_DB06_18),A               ; $D3C1  32 A7 DB
@@ -148,7 +143,7 @@ BDOS_DELETE_FILE:
 BDOS_READ_SEQ_FCB:
         LD DE,SUB_DB06_12                ; $D3E0  11 86 DB
 BDOS_READ_SEQ:
-        LD C,$14                         ; $D3E3  0E 14
+        LD C,F_READ                         ; $D3E3  0E 14
 SUB_D3E3_1:
         CALL BDOS                    ; $D3E5  CD 05 00
         OR A                             ; $D3E8  B7
@@ -229,7 +224,7 @@ READ_COMMAND_LINE:
 READ_CON_BUFFER:
         CALL CLOSE_SUBMIT_FILE                    ; $D473  CD B5 D4
         CALL SAVE_USER_TO_CDISK                    ; $D476  CD FC D3
-        LD C,$0A                         ; $D479  0E 0A
+        LD C,C_READSTR                         ; $D479  0E 0A
         LD DE,READBUF_MAX                     ; $D47B  11 06 D3
         CALL BDOS                    ; $D47E  CD 05 00
 UPPERCASE_LINE:
@@ -251,21 +246,21 @@ SUB_D41B_4:
         LD (PARSE_PTR),HL                   ; $D496  22 88 D3
         RET                              ; $D499  C9
 CHECK_CON_BREAK:
-        LD C,$0B                         ; $D49A  0E 0B
+        LD C,C_STAT                         ; $D49A  0E 0B
         CALL BDOS                    ; $D49C  CD 05 00
         OR A                             ; $D49F  B7
         RET Z                            ; $D4A0  C8
-        LD C,$01                         ; $D4A1  0E 01
+        LD C,C_READ                         ; $D4A1  0E 01
         CALL BDOS                    ; $D4A3  CD 05 00
         OR A                             ; $D4A6  B7
         RET                              ; $D4A7  C9
 BDOS_GET_CUR_DISK:
-        LD C,$19                         ; $D4A8  0E 19
+        LD C,DRV_GET                         ; $D4A8  0E 19
         JP BDOS                      ; $D4AA  C3 05 00
 SET_DMA_DEFAULT:
         LD DE,TBUFF                ; $D4AD  11 80 00
 BDOS_SET_DMA:
-        LD C,$1A                         ; $D4B0  0E 1A
+        LD C,F_DMAOFF                         ; $D4B0  0E 1A
         JP BDOS                      ; $D4B2  C3 05 00
 CLOSE_SUBMIT_FILE:
         LD HL,SUB_DB06_7                 ; $D4B5  21 64 DB
@@ -947,7 +942,7 @@ SUB_D707_38:
         DEC A                            ; $D97A  3D
         CALL BDOS_SELECT_DISK                    ; $D97B  CD B6 D3
 SUB_D707_39:
-        LD C,$1F                         ; $D97E  0E 1F
+        LD C,DRV_DPB                         ; $D97E  0E 1F
         CALL BDOS                    ; $D980  CD 05 00
         INC HL                           ; $D983  23
         INC HL                           ; $D984  23

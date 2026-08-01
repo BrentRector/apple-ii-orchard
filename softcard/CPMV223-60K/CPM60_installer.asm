@@ -39,9 +39,6 @@
     ENDIF
 
 ; -- CP/M page-zero / BDOS --
-WBOOTV   EQU $0000   ; warm-boot vector (JP WBOOT). Also poked as RPC trigger.
-BDOS    EQU $0005   ; BDOS entry (CALL $0005)
-TFCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
 
 ; -- 60K-BIOS RWTS-bridge variables (high RAM, shared with 6502 via window) --
 RPC_PARM    EQU $F3D0   ; RPC parameter word (page/opcode passed to 6502)
@@ -52,11 +49,11 @@ RPC_TRAMP   EQU $F3DE   ; ptr to live RPC trampoline; opcode byte written thru i
 ; buffer-pointer high byte), and $F3E6 "drive letter glyph" (the glyph goes to $0284; this
 ; is the SLOT, $60 = slot 6 << 4).
     INCLUDE "apple_softcard.inc"
+    INCLUDE "cpm22.inc"            ; CP/M 2.2 ABI: base page + BDOS function codes
 ;   DSK_TRACK $F3E0  DSK_SECTOR $F3E1  DSK_DRIVE $F3E4  DSK_SLOT $F3E6
 ;   DSK_BUFFER $F3E8  DSK_BUFFER_HI $F3E9  DSK_STATUS $F3EA  DSK_COMMAND $F3EB
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
-TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
     ORG TPA
     ENDIF
 
@@ -90,7 +87,7 @@ TPA_START:
         LD A,(TFCB)      ; FCB drive byte (cmdline "X:" if supplied)
         OR A
         JP NZ,TPA_START_1       ; non-zero -> use the explicit drive
-        LD C,$19                ; fn $19 get current disk (0-based)
+        LD C,DRV_GET                ; fn $19 get current disk (0-based)
         CALL BDOS
         INC A                   ; make 1-based to match FCB convention
 TPA_START_1:
@@ -123,12 +120,12 @@ TPA_START_1:
 ; the allocation vector is only 16 bytes and this reads past its end.
 ; ---------------------------------------------------------------------------
         LD E,C
-        LD C,$0E                ; fn $0E select disk = C (0-based)
+        LD C,DRV_SET                ; fn $0E select disk = C (0-based)
         CALL BDOS
-        LD C,$13                ; fn $13 delete file
+        LD C,F_DELETE                ; fn $13 delete file
         LD DE,$0355             ; FCB "cp/m    sys" (the reservation entry)
         CALL BDOS
-        LD C,$1B                ; fn $1B Get Addr(Alloc); HL -> allocation bitmap
+        LD C,DRV_ALLOCVEC                ; fn $1B Get Addr(Alloc); HL -> allocation bitmap
         CALL BDOS
         LD DE,$0010             ; +$10 = bitmap byte covering blocks 128-135
         ADD HL,DE
@@ -140,7 +137,7 @@ TPA_START_1:
         AND $F0                 ; blocks 136-139 (top 4 bits) must be free
         OR A
         JP NZ,TPA_START_8       ; already in use -> "Disk I/O error"
-        LD C,$16                ; fn $16 make file (create "cp/m    sys")
+        LD C,F_MAKE                ; fn $16 make file (create "cp/m    sys")
         LD DE,$0355
         CALL BDOS
         INC A                   ; $FF -> 0 means make failed (no dir entry)
@@ -164,7 +161,7 @@ TPA_START_2:
         LD ($0364),A            ; FCB current-record / RC field
         XOR A
         LD ($0363),A            ; FCB extent = 0
-        LD C,$10                ; fn $10 close file -> commit directory entry
+        LD C,F_CLOSE                ; fn $10 close file -> commit directory entry
         LD DE,$0355
         CALL BDOS
         POP BC                  ; restore drive (C = 0-based)
@@ -298,7 +295,7 @@ RPC_WRITE:
 ;              a non-zero character.
 ; ---------------------------------------------------------------------------
 WAIT_KEY:
-        LD C,$06
+        LD C,C_RAWIO
         LD E,$FF                ; direct console input: poll keyboard
         CALL BDOS
         OR A
@@ -313,7 +310,7 @@ WAIT_KEY:
 ;   Algorithm: C <- $09 (print string); JP BDOS_VEC (tail call).
 ; ---------------------------------------------------------------------------
 PRINT_STR:
-        LD C,$09
+        LD C,C_WRITESTR
         JP BDOS
 
 ; ============================================================================
