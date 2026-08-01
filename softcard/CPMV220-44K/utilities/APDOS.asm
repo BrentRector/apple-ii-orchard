@@ -144,7 +144,7 @@ CONSOLE_STATUS:
         RET                              ; $01BA  C9
 PARSE_FILESPEC:
         LD A,$20                         ; $01BB  3E 20
-        LD HL,TFCB+FCB.DIRENT.FN                 ; $01BD  21 5D 00  blank the default FCB filename+type (11 bytes)
+        LD HL,TFCB+FCB.DIRECTORY_ENTRY.FN                 ; $01BD  21 5D 00  blank the default FCB filename+type (11 bytes)
         LD B,$0B                         ; $01C0  06 0B
 CONSOLE_STATUS_2:
         LD (HL),A                        ; $01C2  77
@@ -159,7 +159,7 @@ CONSOLE_STATUS_3:
         LD HL,$0924                      ; $01CF  21 24 09
         LD DE,CONOUT_CHAR_17             ; $01D2  11 12 05
         CALL PARSE_DRIVE_PREFIX          ; $01D5  CD A2 03
-        LD DE,TFCB+FCB.DIRENT.FN                 ; $01D8  11 5D 00  dest = FCB filename field
+        LD DE,TFCB+FCB.DIRECTORY_ENTRY.FN                 ; $01D8  11 5D 00  dest = FCB filename field
         LD B,$08                         ; $01DB  06 08
 CONSOLE_STATUS_4:
         CALL GET_UPPER_CHAR              ; $01DD  CD B9 03
@@ -173,7 +173,7 @@ CONSOLE_STATUS_4:
         DJNZ CONSOLE_STATUS_4            ; $01EC  10 EF
 CONSOLE_STATUS_5:
         LD B,$03                         ; $01EE  06 03
-        LD DE,TFCB+FCB.DIRENT.FT                 ; $01F0  11 65 00  dest = FCB file-type field
+        LD DE,TFCB+FCB.DIRECTORY_ENTRY.FT                 ; $01F0  11 65 00  dest = FCB file-type field
 CONSOLE_STATUS_6:
         CALL GET_UPPER_CHAR              ; $01F3  CD B9 03
         JR Z,CONSOLE_STATUS_7            ; $01F6  28 0F
@@ -241,10 +241,10 @@ CONSOLE_STATUS_13:
         LD (HL),A                        ; $026C  77
         CALL SET_DEST_FCB_DRIVE          ; $026D  CD 70 04
         XOR A                            ; $0270  AF
-        LD (TFCB+FCB.DIRENT.S2),A                    ; $0271  32 6A 00
+        LD (TFCB+FCB.DIRECTORY_ENTRY.S2),A                    ; $0271  32 6A 00
         LD (CONOUT_CHAR_19),A            ; $0274  32 14 05
         LD (CONOUT_CHAR_20),A            ; $0277  32 15 05
-        LD (TFCB+FCB.DIRENT.EX),A                    ; $027A  32 68 00
+        LD (TFCB+FCB.DIRECTORY_ENTRY.EX),A                    ; $027A  32 68 00
         CALL SETUP_SRC_READ              ; $027D  CD E3 02
         LD DE,TFCB               ; $0280  11 5C 00
         PUSH DE                          ; $0283  D5
@@ -308,9 +308,9 @@ SETUP_SRC_READ:
         LD A,$01                         ; $02E9  3E 01
         LD (DSK_TRACK),A                     ; $02EB  32 E0 F3
         DEC A                            ; $02EE  3D
-        LD (TFCB+FCB.DIRENT.S2),A                    ; $02EF  32 6A 00
+        LD (TFCB+FCB.DIRECTORY_ENTRY.S2),A                    ; $02EF  32 6A 00
         LD A,(CONOUT_CHAR_19)            ; $02F2  3A 14 05
-        LD (TFCB+FCB.DIRENT.EX),A                    ; $02F5  32 68 00
+        LD (TFCB+FCB.DIRECTORY_ENTRY.EX),A                    ; $02F5  32 68 00
         LD DE,CONOUT_CHAR_33             ; $02F8  11 16 06
 SETUP_SRC_READ_1:
         JP PROMPT_SWAP_IF_SAME           ; $02FB  C3 ED 04
@@ -328,7 +328,7 @@ CLOSE_OUTPUT_FILE_1:
 CLOSE_OUTPUT_FILE_2:
         LD A,(TFCB+FCB.CR)               ; $0312  3A 7C 00
         LD (CONOUT_CHAR_20),A            ; $0315  32 15 05
-        LD A,(TFCB+FCB.DIRENT.EX)               ; $0318  3A 68 00
+        LD A,(TFCB+FCB.DIRECTORY_ENTRY.EX)               ; $0318  3A 68 00
         LD (CONOUT_CHAR_19),A            ; $031B  32 14 05
 ; [AI] Opens/creates the CP/M destination file (BDOS function 16 close) and resets the record-count
 ;       workspace ($0516) before beginning to write a new file.

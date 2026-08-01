@@ -43,12 +43,25 @@ _FULL_COMMENT_RE = re.compile(r"^\s*;")
 _LST_LINE_RE = re.compile(r"^\s*(\d+)\s+([0-9A-Fa-f]{4})(?:\s|$)")
 
 
+# Every OS module may INCLUDE one of the shared EQU/STRUCT headers, so stage them all by
+# default. They are small, and a missing one does not fail loudly: sjasmplus resolves the
+# unknown names to 0 and assembles, which is how a silent wrong-address bug gets in.
+_SHARED_INCLUDES = tuple(
+    (Path(__file__).resolve().parents[1] / "include" / n)
+    for n in ("cpm22.inc", "apple_softcard.inc",
+              "cpm_system_220.inc", "cpm_system_223.inc")
+)
+
+
 class LabelAddressError(RuntimeError):
     """Raised when a source's label addresses could not be obtained."""
 
 
-def _line_addrs_from_listing(text: str) -> dict[int, int]:
+def _line_addrs_from_listing(text: str, includes: "tuple[Path, ...] | None" = None) -> dict[int, int]:
     """Assemble `text` and return {source line number: address} from the listing.
+
+    ``includes`` are staged next to the source, because a checked-in OS module may
+    INCLUDE a shared EQU/STRUCT header and will not assemble without it.
 
     The assembler listing is the same artifact ``os_listing.emit_listing`` emits
     for the tracked ``.lst`` files, so addresses come from one mechanism across
@@ -60,6 +73,9 @@ def _line_addrs_from_listing(text: str) -> dict[int, int]:
         raise LabelAddressError("sjasmplus not on PATH (source shared/toolchain/env.sh)")
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
+        for inc in (_SHARED_INCLUDES if includes is None else includes):
+            if Path(inc).exists():
+                shutil.copy(inc, td / Path(inc).name)
         (td / "r.asm").write_text(text, encoding="utf-8")
         proc = subprocess.run(["sjasmplus", "--lst=r.lst", "r.asm"],
                               cwd=str(td), capture_output=True, text=True)
@@ -84,7 +100,7 @@ def _line_addrs_from_listing(text: str) -> dict[int, int]:
         return out
 
 
-def parse_label_addrs(text: str) -> dict[str, int]:
+def parse_label_addrs(text: str, includes: "tuple[Path, ...] | None" = None) -> dict[str, int]:
     """Map each code/data label in `text` to its address, per the assembler.
 
     This ASSEMBLES the source and reads the addresses out of the assembler's
@@ -118,7 +134,7 @@ def parse_label_addrs(text: str) -> dict[str, int]:
         if m:
             label_lines.append((lineno, m.group(1)))
 
-    line_addrs = _line_addrs_from_listing(text)
+    line_addrs = _line_addrs_from_listing(text, includes)
     out: dict[str, int] = {}
     for lineno, name in label_lines:
         if name in equ_names:
@@ -575,8 +591,9 @@ def _assemble_savebin(text: str, includes: "tuple[Path, ...]" = ()) -> bytes:
         return b""
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
-        for inc in includes:
-            shutil.copy(inc, td / Path(inc).name)
+        for inc in (_SHARED_INCLUDES if includes is None else includes):
+            if Path(inc).exists():
+                shutil.copy(inc, td / Path(inc).name)
         (td / "r.asm").write_text(text, encoding="utf-8")
         subprocess.run(["sjasmplus", "r.asm"], cwd=str(td), capture_output=True, text=True)
         out = td / m.group(1)

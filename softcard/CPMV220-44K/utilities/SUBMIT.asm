@@ -199,7 +199,7 @@ OPEN_SUB_FILE:
         LD BC,FN_SUB_EXT                 ; $02E3  01 3A 01  push source = "SUB" type
         PUSH BC                          ; $02E6  C5
         LD E,$03                         ; $02E7  1E 03   count = 3
-        LD BC,TFCB+FCB.DIRENT.FT                 ; $02E9  01 65 00  dest = TFCB+FCB.DIRENT.FT (the file-type field)
+        LD BC,TFCB+FCB.DIRECTORY_ENTRY.FT                 ; $02E9  01 65 00  dest = TFCB+FCB.DIRECTORY_ENTRY.FT (the file-type field)
         CALL MEMCPY                      ; $02EC  CD 70 02
         LD BC,TFCB               ; $02EF  01 5C 00
         CALL BDOS_OPEN_FILE              ; $02F2  CD 07 02

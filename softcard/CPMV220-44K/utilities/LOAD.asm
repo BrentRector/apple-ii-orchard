@@ -129,7 +129,7 @@ RESTORE_CCP_STACK_26:
 RESTORE_CCP_STACK_27:
         LD E,$03                         ; $0287  1E 03
 RESTORE_CCP_STACK_28:
-        LD BC,TFCB+FCB.DIRENT.FT                 ; $0289  01 65 00  dest = TFCB+FCB.DIRENT.FT (file-type field, set to "COM")
+        LD BC,TFCB+FCB.DIRECTORY_ENTRY.FT                 ; $0289  01 65 00  dest = TFCB+FCB.DIRECTORY_ENTRY.FT (file-type field, set to "COM")
 RESTORE_CCP_STACK_29:
         CALL BLOCK_COPY                    ; $028C  CD 22 04
 RESTORE_CCP_STACK_30:

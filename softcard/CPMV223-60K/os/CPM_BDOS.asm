@@ -71,15 +71,13 @@
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     DEVICE NOSLOT64K
+    INCLUDE "cpm22.inc"          ; CP/M 2.2 ABI + the DIRECTORY_ENTRY / FCB structures
     ENDIF
 
 ; -- External symbols --
-WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE_ADDR               EQU $0003               ; [DOC S&HD 2-18..2-21] I/O assignment byte at $0003: maps four logical
-                                             ; devices to physical devices via four 2-bit fields -- CONSOLE (bits 0-1),
-                                             ; READER (bits 2-3), PUNCH (bits 4-5), LIST (bits 6-7). Read/written by BDOS
-                                             ; funcs 7 (Get I/O Byte) and 8 (Set I/O Byte); selects which I/O Vector Table
-                                             ; entry (#1 vs #2) the BIOS console/reader/punch/list routines use.
+; WBOOTV and IOBYTE_ADDR come from cpm22.inc, the single source of truth for the CP/M base
+; page. They used to be re-declared here with identical values; the fuller IOBYTE wording
+; that lived here, including its [DOC S&HD 2-18] citation, now lives in the header.
 WBOOT                EQU $FA03               ; BIOS entry 1  -- warm boot (on SoftCard 2.23: jumps to $FAB8)
 CONST                EQU $FA06               ; BIOS entry 2  -- console status
 CONIN                EQU $FA09               ; BIOS entry 3  -- console input
@@ -1323,7 +1321,8 @@ REC_BLOCK_SHIFT_6_3:
 ; ----------------------------------------------------------------------
 FCB_BLOCKMAP_INDEX_10:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$0010
+        ; the FCB's allocation map
+        LD DE,FCB.DIRECTORY_ENTRY.AL
         ADD HL,DE
         ADD HL,BC
         LD A,(BLOCK_WIDTH_FLAG)
@@ -1982,7 +1981,9 @@ ALLOC_BIT_RESTORE:
 ; ----------------------------------------------------------------------
 ALLOC_FROM_FCB:
         CALL FCB_BUF_PTR_ADD_OFFSET
-        LD DE,$0010
+        ; a DIRECTORY ENTRY in DIRBUF, not a user FCB: the routine's name is a misnomer,
+        ; which is what the struct path says here.
+        LD DE,DIRECTORY_ENTRY.AL
         ADD HL,DE
         PUSH BC
         LD C,$11
@@ -2350,6 +2351,8 @@ F_RENAME_HND:
         CALL DIR_SEARCH_FIRST
         LD HL,(BDOS_PARAM_PTR)
         LD A,(HL)
+        ; offset 16: the NEW-name half of a rename FCB. F_RENAME overloads bytes 16-31 as a
+        ; second filename, so this is NOT the allocation map despite the identical offset.
         LD DE,$0010
         ADD HL,DE
         LD (HL),A
@@ -2490,6 +2493,8 @@ F_CLOSE_HND:
         CALL DIR_SEARCH_FIRST
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
+        ; UNCLASSIFIED: +$10 into the directory entry on the rename path. Not traced
+        ; to a field, so kept literal rather than guessed at.
         LD BC,$0010
         CALL FCB_BUF_PTR_ADD_OFFSET
         ADD HL,BC
@@ -2616,7 +2621,8 @@ FCB_ADVANCE_RECORD:
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
         LD HL,(BDOS_PARAM_PTR)
-        LD BC,$000C
+        ; EX, the extent number's low 5 bits (CR lives at FCB.CR, not here)
+        LD BC,FCB.DIRECTORY_ENTRY.EX
         ADD HL,BC
         LD A,(HL)
         INC A
@@ -2631,7 +2637,8 @@ FCB_ADVANCE_RECORD:
         JR Z,FCB_ADVANCE_RECORD_2
         JR FCB_ADVANCE_RECORD_3
 FCB_NEXT_EXTENT:
-        LD BC,$0002
+        ; step from EX to S2, as arithmetic on the field names
+        LD BC,FCB.DIRECTORY_ENTRY.S2 - FCB.DIRECTORY_ENTRY.EX
         ADD HL,BC
         INC (HL)
         LD A,(HL)
@@ -2769,7 +2776,8 @@ BDOS_WRITE_STOREBLK:
         LD (CUR_BLOCK_NUMBER),HL
         EX DE,HL
         LD HL,(BDOS_PARAM_PTR)
-        LD BC,$0010
+        ; the FCB's allocation map
+        LD BC,FCB.DIRECTORY_ENTRY.AL
         ADD HL,BC
         LD A,(BLOCK_WIDTH_FLAG)
         OR A

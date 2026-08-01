@@ -41,8 +41,15 @@
     DEFINE CPM_LINK              ; same, for the folded canonical CCP (guards on CPM_LINK)
     DEFINE CFG_60K               ; memory-config axis: cpm_system_223.inc -> CCP $D300 / BDOS $DC00
 
+; The shared CP/M ABI header is pulled in at GLOBAL scope, before the modules, because the
+; DIRECTORY_ENTRY / FCB / DPB_LAYOUT / DPH_LAYOUT structures are referenced by the bdos and
+; bios modules as well as the ccp. It used to be included inside MODULE ccp only, which
+; namespaced it there; the guard inside the header then made the other modules' includes
+; no-ops and their struct references silently resolved to 0.
+    INCLUDE "cpm22.inc"
+
 ; --- installer driver: runs in place at $0100 (no relocation) -------------
-TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
+TPA     EQU $0100                        ; CP/M transient program area
     ORG TPA
     MODULE inst
     INCLUDE "CPM60_installer.asm"
@@ -68,7 +75,6 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
 ; the CCP (the folded CCP is exactly $0900 bytes, $D300-$DBFF). See CPM60_COM.md.
     ORG $0F00                    ; file $0E00
     MODULE ccp
-    INCLUDE "cpm22.inc"
     INCLUDE "cpm_system_223.inc"
     DISP $D300
     INCLUDE "os/CPM_CCP.asm"

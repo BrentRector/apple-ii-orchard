@@ -33,156 +33,162 @@
   17+ 0000                  DEFINE CPM22_INC
   18+ 0000
   19+ 0000              WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
-  20+ 0000              IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
-  21+ 0000              CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
-  22+ 0000              BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
-  23+ 0000              RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
-  24+ 0000              RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
-  25+ 0000              TFCB        EQU $005C      ; default FCB parsed from the command tail
-  26+ 0000              TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
-  27+ 0000              TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
-  28+ 0000              CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
-  29+ 0000              TPA         EQU $0100      ; transient program area / load address
-  30+ 0000
-  31+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
-  32+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
-  33+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
-  34+ 0000              C_WRITE     EQU 2          ; console output (E = char)
-  35+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
-  36+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
-  37+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
-  38+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
-  39+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
-  40+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
-  41+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
-  42+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
-  43+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
-  44+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
-  45+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
-  46+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
-  47+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
-  48+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
-  49+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
-  50+ 0000              F_SNEXT     EQU 18         ; search for next
-  51+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
-  52+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
-  53+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
-  54+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
-  55+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
-  56+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
-  57+ 0000              DRV_GET     EQU 25         ; return current drive -> A
-  58+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
-  59+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
-  60+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
-  61+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
-  62+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
-  63+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
-  64+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
-  65+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
-  66+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
-  67+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
-  68+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
-  69+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
-  70+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
-  71+ 0000
-  72+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
-  73+ 0000              ; ---------------------------------------------------------------------------
-  74+ 0000              ; CP/M 2.2 on-disk / in-memory STRUCTURES.
-  75+ 0000              ;
-  76+ 0000              ; These replace the flat FCB_* offset EQUs that used to live here. A structure
-  77+ 0000              ; gives the field a NAME at the use site instead of a bare number, and it lets a
-  78+ 0000              ; step between two fields be written as arithmetic on the names, which a magic
-  79+ 0000              ; number cannot be checked against. That is the same rule the repo already
-  80+ 0000              ; applies to code sizes (a size is label-after minus label-on-first-byte).
-  81+ 0000              ;
-  82+ 0000              ; It is not cosmetic. Every structure below had a field mislabelled in the
-  83+ 0000              ; sources at some point, and each time the cause was the same: the operand was a
-  84+ 0000              ; bare number, so nothing contradicted a wrong comment. FCB offset 12 was called
-  85+ 0000              ; "the current-record byte" at twelve sites across two trees; the DPB byte the
-  86+ 0000              ; deblock tests was called a "deblock flag"; the DPH word holding the DPB pointer
-  87+ 0000              ; was reached by an unnamed +10.
-  88+ 0000              ;
-  89+ 0000              ; A DIRECTORY ENTRY and an FCB are the same 32 bytes, with the FCB adding four:
-  90+ 0000              ;
-  91+ 0000              ;      0                              31 32   33 34 35
-  92+ 0000              ;     +--------------------------------+-----+--------+
-  93+ 0000              ;     |          DIRENT (32)           | CR  | R0 R1 R2|
-  94+ 0000              ;     +--------------------------------+-----+--------+
-  95+ 0000              ;     |<---------- FCB (36) ---------------------------->|
+  20+ 0000              IOBYTE_ADDR EQU $0003      ; [DOC S&HD 2-18] logical<->physical device map: four 2-bit
+  21+ 0000                                         ;   fields, CONSOLE (0-1), READER (2-3), PUNCH (4-5), LIST
+  22+ 0000                                         ;   (6-7); set via STAT or BDOS fns 7/8. Each field selects
+  23+ 0000                                         ;   which I/O Vector Table entry (#1 or #2) is used.
+  24+ 0000              CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
+  25+ 0000              BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
+  26+ 0000              RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  27+ 0000              RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  28+ 0000              TFCB        EQU $005C      ; default FCB parsed from the command tail
+  29+ 0000              TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
+  30+ 0000              TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
+  31+ 0000              CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
+  32+ 0000              TPA         EQU $0100      ; transient program area / load address
+  33+ 0000
+  34+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
+  35+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
+  36+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
+  37+ 0000              C_WRITE     EQU 2          ; console output (E = char)
+  38+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
+  39+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
+  40+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
+  41+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
+  42+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
+  43+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
+  44+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
+  45+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
+  46+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
+  47+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
+  48+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
+  49+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
+  50+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
+  51+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
+  52+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
+  53+ 0000              F_SNEXT     EQU 18         ; search for next
+  54+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
+  55+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
+  56+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
+  57+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
+  58+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
+  59+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
+  60+ 0000              DRV_GET     EQU 25         ; return current drive -> A
+  61+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
+  62+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
+  63+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
+  64+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
+  65+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
+  66+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
+  67+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
+  68+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
+  69+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
+  70+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
+  71+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
+  72+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
+  73+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+  74+ 0000
+  75+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
+  76+ 0000              ; ---------------------------------------------------------------------------
+  77+ 0000              ; CP/M 2.2 on-disk / in-memory STRUCTURES.
+  78+ 0000              ;
+  79+ 0000              ; These replace the flat FCB_* offset EQUs that used to live here. A structure
+  80+ 0000              ; gives the field a NAME at the use site instead of a bare number, and it lets a
+  81+ 0000              ; step between two fields be written as arithmetic on the names, which a magic
+  82+ 0000              ; number cannot be checked against. That is the same rule the repo already
+  83+ 0000              ; applies to code sizes (a size is label-after minus label-on-first-byte).
+  84+ 0000              ;
+  85+ 0000              ; It is not cosmetic. Every structure below had a field mislabelled in the
+  86+ 0000              ; sources at some point, and each time the cause was the same: the operand was a
+  87+ 0000              ; bare number, so nothing contradicted a wrong comment. FCB offset 12 was called
+  88+ 0000              ; "the current-record byte" at twelve sites across two trees; the DPB byte the
+  89+ 0000              ; deblock tests was called a "deblock flag"; the DPH word holding the DPB pointer
+  90+ 0000              ; was reached by an unnamed +10.
+  91+ 0000              ;
+  92+ 0000              ; A DIRECTORY ENTRY and an FCB are the same 32 bytes, with the FCB adding four.
+  93+ 0000              ; The STRUCT carries the spelled-out name and the FIELDS keep their CP/M manual names.
+  94+ 0000              ; EX and RC and AL only ever looked opaque because they sat on a bare number; read as
+  95+ 0000              ; FCB.DIRECTORY_ENTRY.EX the path supplies the context the abbreviation assumes:
   96+ 0000              ;
-  97+ 0000              ; So reach a shared field through the structure you actually hold:
-  98+ 0000              ;   holding an FCB          ->  FCB.DIRENT.EX
-  99+ 0000              ;   holding a directory     ->  DIRENT.EX          (e.g. entries in DIRBUF)
- 100+ 0000              ; Both are 12. The difference is that the NAME states which one the code has,
- 101+ 0000              ; and that distinction is real: ALLOC_FROM_FCB, despite its name, walks a
- 102+ 0000              ; DIRECTORY ENTRY out of DIRBUF, not a user FCB.
- 103+ 0000              ; ---------------------------------------------------------------------------
- 104+ 0000                  STRUCT DIRENT
- 105+ 0000 ~            ST          BYTE           ; 0   status. In a DIRECTORY entry this is the user
- 106+ 0000 ~                                       ;     number (0..31), or $E5 for a free/deleted slot.
- 107+ 0000 ~                                       ;     In an FCB the same byte is DRI's DR, the drive
- 108+ 0000 ~                                       ;     code (0 = default, 1..16 = A..P). One byte, two
- 109+ 0000 ~                                       ;     meanings, depending on which structure you hold.
- 110+ 0000 ~            FN          BLOCK 8        ; 1   filename, space-padded
- 111+ 0000 ~            FT          BLOCK 3        ; 9   filetype; high bits flag R/O, SYS, archive
- 112+ 0000 ~            EX          BYTE           ; 12  extent number, LOW 5 BITS ONLY. The extent is a
- 113+ 0000 ~                                       ;     PAIR: EX + 32*S2. This is NOT the current record;
- 114+ 0000 ~                                       ;     CR is at offset 32 and is 7 bits (0..127).
- 115+ 0000 ~            S1          BYTE           ; 13  reserved
- 116+ 0000 ~            S2          BYTE           ; 14  extent number, high bits (see EX)
- 117+ 0000 ~            RC          BYTE           ; 15  record count for the current extent (0..128)
- 118+ 0000 ~            AL          BLOCK 16       ; 16  allocation map: 16 block bytes, or 8 block words
- 119+ 0000 ~                                       ;     when DSM > 255 (see BLOCK_WIDTH_FLAG)
- 120+ 0000                  ENDS                   ; = 32
- 121+ 0000
- 122+ 0000                  STRUCT FCB
- 123+ 0000 ~            DIRENT      DIRENT         ; 0   the directory-entry image, byte for byte
- 124+ 0000 ~            CR          BYTE           ; 32  current record within the extent (0..127)
- 125+ 0000 ~            R0          BYTE           ; 33  random record number, low byte
- 126+ 0000 ~            R1          BYTE           ; 34  random record number, middle byte
- 127+ 0000 ~            R2          BYTE           ; 35  random record number, high byte (overflow)
- 128+ 0000                  ENDS                   ; = 36
- 129+ 0000
- 130+ 0000                  ASSERT DIRENT == 32                  ; a directory entry is 32 bytes
- 131+ 0000                  ASSERT FCB.CR == DIRENT              ; CR begins where the directory entry ends
- 132+ 0000                  ASSERT FCB == DIRENT + 4
- 133+ 0000                  ASSERT FCB.DIRENT.EX == DIRENT.EX    ; the prefix really is shared
- 134+ 0000
- 135+ 0000              ; Disk Parameter Block, the 15 bytes the BIOS hands the BDOS per drive.
- 136+ 0000              ; NAMED *_LAYOUT because the OS sources already use DPB, DPH_TABLE, SPT, DSM and OFF as
- 137+ 0000              ; INSTANCE labels for the real data block in CPM_BIOS.asm. This is the TYPE, not the instance.
- 138+ 0000                  STRUCT DPB_LAYOUT
- 139+ 0000 ~            SPT         WORD           ; 0   sectors (128-byte RECORDS) per track
- 140+ 0000 ~            BSH         BYTE           ; 2   block shift: log2(records per block)
- 141+ 0000 ~            BLM         BYTE           ; 3   block mask: (records per block) - 1
- 142+ 0000 ~            EXM         BYTE           ; 4   extent mask
- 143+ 0000 ~            DSM         WORD           ; 5   highest allocation block number
- 144+ 0000 ~            DRM         WORD           ; 7   highest directory entry number
- 145+ 0000 ~            AL0         BYTE           ; 9   directory-reserved block bitmap, high byte
- 146+ 0000 ~            AL1         BYTE           ; 10  ditto, low byte
- 147+ 0000 ~            CKS         WORD           ; 11  directory checksum vector size
- 148+ 0000 ~            OFF         WORD           ; 13  reserved tracks before the file area
- 149+ 0000                  ENDS                   ; = 15
- 150+ 0000
- 151+ 0000                  ASSERT DPB_LAYOUT.DSM == 5      ; SELDSK reaches the DSM byte with a bare +5
- 152+ 0000                  ASSERT DPB_LAYOUT == 15
- 153+ 0000
- 154+ 0000              ; Disk Parameter Header, one per drive, 16 bytes.
- 155+ 0000                  STRUCT DPH_LAYOUT
- 156+ 0000 ~            XLT         WORD           ; 0   sector-translate table, or 0 for none
- 157+ 0000 ~            SCRATCH     BLOCK 6        ; 2   BDOS scratch (3 words)
- 158+ 0000 ~            DIRBUF      WORD           ; 8   -> the 128-byte directory buffer (one per system)
- 159+ 0000 ~            DPB         WORD           ; 10  -> this drive's DPB
- 160+ 0000 ~            CSV         WORD           ; 12  -> directory checksum vector
- 161+ 0000 ~            ALV         WORD           ; 14  -> allocation vector
- 162+ 0000                  ENDS                   ; = 16
- 163+ 0000
- 164+ 0000                  ASSERT DPH_LAYOUT.DPB == 10     ; SELDSK reaches the DPB pointer with a bare +10
- 165+ 0000                  ASSERT DPH_LAYOUT == 16
- 166+ 0000
- 167+ 0000
- 168+ 0000                  ENDIF
+  97+ 0000              ;      0                              31 32   33 34 35
+  98+ 0000              ;     +--------------------------------+-----+--------+
+  99+ 0000              ;     |      DIRECTORY_ENTRY (32)      | CR  | R0 R1 R2|
+ 100+ 0000              ;     +--------------------------------+-----+--------+
+ 101+ 0000              ;     |<---------- FCB (36) ---------------------------->|
+ 102+ 0000              ;
+ 103+ 0000              ; So reach a shared field through the structure you actually hold:
+ 104+ 0000              ;   holding an FCB          ->  FCB.DIRECTORY_ENTRY.EX
+ 105+ 0000              ;   holding a directory     ->  DIRECTORY_ENTRY.EX           (e.g. in DIRBUF)
+ 106+ 0000              ; Both are 12. The difference is that the NAME states which one the code has,
+ 107+ 0000              ; and that distinction is real: ALLOC_FROM_FCB, despite its name, walks a
+ 108+ 0000              ; DIRECTORY ENTRY out of DIRBUF, not a user FCB.
+ 109+ 0000              ; ---------------------------------------------------------------------------
+ 110+ 0000                  STRUCT DIRECTORY_ENTRY
+ 111+ 0000 ~            ST      BYTE           ; 0   status. In a DIRECTORY entry this is the user number
+ 112+ 0000 ~                                   ;     (0..31), or $E5 for a free/deleted slot. In an FCB the
+ 113+ 0000 ~                                   ;     same byte is DRI's DR, the drive code (0 = default,
+ 114+ 0000 ~                                   ;     1..16 = A..P). One byte, two meanings, and which one
+ 115+ 0000 ~                                   ;     applies is exactly what the struct path now states.
+ 116+ 0000 ~            FN      BLOCK 8        ; 1   filename, space-padded
+ 117+ 0000 ~            FT      BLOCK 3        ; 9   filetype; high bits flag R/O, SYS, archive
+ 118+ 0000 ~            EX      BYTE           ; 12  extent number, LOW 5 BITS ONLY. The extent is a PAIR:
+ 119+ 0000 ~                                   ;     EX + 32*S2. This is NOT the current record; that is CR
+ 120+ 0000 ~                                   ;     at offset 32, and it is 7 bits (0..127).
+ 121+ 0000 ~            S1      BYTE           ; 13  reserved
+ 122+ 0000 ~            S2      BYTE           ; 14  extent number, high bits (see EX)
+ 123+ 0000 ~            RC      BYTE           ; 15  records in the current extent (0..128)
+ 124+ 0000 ~            AL      BLOCK 16       ; 16  allocation map: 16 block bytes, or 8 block WORDS when
+ 125+ 0000 ~                                   ;     DSM > 255 (see BLOCK_WIDTH_FLAG)
+ 126+ 0000                  ENDS               ; = 32
+ 127+ 0000
+ 128+ 0000                  STRUCT FCB
+ 129+ 0000 ~            DIRECTORY_ENTRY  DIRECTORY_ENTRY  ; 0  the directory-entry image, byte for byte
+ 130+ 0000 ~            CR      BYTE           ; 32  current record within the extent (0..127)
+ 131+ 0000 ~            R0      BYTE           ; 33  random record number, low byte
+ 132+ 0000 ~            R1      BYTE           ; 34  random record number, middle byte
+ 133+ 0000 ~            R2      BYTE           ; 35  random record number, high byte (overflow)
+ 134+ 0000                  ENDS               ; = 36
+ 135+ 0000
+ 136+ 0000                  ASSERT DIRECTORY_ENTRY == 32                  ; a directory entry is 32 bytes
+ 137+ 0000                  ASSERT FCB.CR == DIRECTORY_ENTRY              ; CR begins where the entry ends
+ 138+ 0000                  ASSERT FCB == DIRECTORY_ENTRY + 4
+ 139+ 0000                  ASSERT FCB.DIRECTORY_ENTRY.EX == DIRECTORY_ENTRY.EX
+ 140+ 0000
+ 141+ 0000              ; Disk Parameter Block, the 15 bytes the BIOS hands the BDOS per drive.
+ 142+ 0000              ; NAMED *_LAYOUT because the OS sources already use DPB, DPH_TABLE, SPT, DSM and OFF as
+ 143+ 0000              ; INSTANCE labels for the real data block in CPM_BIOS.asm. This is the TYPE, not the instance.
+ 144+ 0000                  STRUCT DPB_LAYOUT
+ 145+ 0000 ~            SPT     WORD           ; 0   128-byte RECORDS per track, not 256-byte sectors
+ 146+ 0000 ~            BSH     BYTE           ; 2   block shift: log2(records per block)
+ 147+ 0000 ~            BLM     BYTE           ; 3   block mask: (records per block) - 1
+ 148+ 0000 ~            EXM     BYTE           ; 4   extent mask
+ 149+ 0000 ~            DSM     WORD           ; 5   highest allocation block number
+ 150+ 0000 ~            DRM     WORD           ; 7   highest directory entry number
+ 151+ 0000 ~            AL0     BYTE           ; 9   directory-reserved block bitmap, high byte
+ 152+ 0000 ~            AL1     BYTE           ; 10  ditto, low byte
+ 153+ 0000 ~            CKS     WORD           ; 11  directory checksum vector size
+ 154+ 0000 ~            OFF     WORD           ; 13  reserved tracks before the file area
+ 155+ 0000                  ENDS               ; = 15
+ 156+ 0000
+ 157+ 0000                  ASSERT DPB_LAYOUT.DSM == 5     ; SELDSK reaches the DSM byte with a bare +5
+ 158+ 0000                  ASSERT DPB_LAYOUT == 15
+ 159+ 0000
+ 160+ 0000              ; Disk Parameter Header, one per drive, 16 bytes.
+ 161+ 0000                  STRUCT DPH_LAYOUT
+ 162+ 0000 ~            XLT     WORD           ; 0   sector-translate table, or 0 for none
+ 163+ 0000 ~            SCRATCH BLOCK 6        ; 2   three scratch words the BDOS owns
+ 164+ 0000 ~            DIRBUF  WORD           ; 8   -> the 128-byte directory buffer (one per system)
+ 165+ 0000 ~            DPB     WORD           ; 10  -> this drive's DPB
+ 166+ 0000 ~            CSV     WORD           ; 12  -> directory checksum vector
+ 167+ 0000 ~            ALV     WORD           ; 14  -> allocation vector
+ 168+ 0000                  ENDS               ; = 16
  169+ 0000
+ 170+ 0000                  ASSERT DPH_LAYOUT.DPB == 10    ; SELDSK reaches the DPB pointer with a bare +10
+ 171+ 0000                  ASSERT DPH_LAYOUT == 16
+ 172+ 0000
+ 173+ 0000
+ 174+ 0000                  ENDIF
+ 175+ 0000
 # file closed: cpm22.inc
   15  0000                  INCLUDE "cpm_system_220.inc"
 # file opened: cpm_system_220.inc
@@ -2014,7 +2020,7 @@
 1782  A05E                      ; current FCB pointer (BDOS DE parameter)
 1783  A05E 2A 43 9F             LD HL,(BDOS_PARAM_PTR)
 1784  A061                      ; the FCB's allocation map (d0..d15)
-1785  A061 11 10 00             LD DE,FCB.DIRENT.AL
+1785  A061 11 10 00             LD DE,FCB.DIRECTORY_ENTRY.AL
 1786  A064 19                   ADD HL,DE
 1787  A065 09                   ADD HL,BC
 1788  A066                      ; 0 = 16-bit map entries (big disk, DSM>255); nonzero = 8-bit
@@ -2918,7 +2924,7 @@
 2686  A26E                      ; Skip to the 16-byte block map. NOTE the structure here is a DIRECTORY ENTRY read
 2687  A26E                      ; into DIRBUF, not a user FCB -- the routine's name is a misnomer, which is why this
 2688  A26E                      ; uses DIRENT and not FCB.DIRENT.
-2689  A26E 11 10 00             LD DE,DIRENT.AL
+2689  A26E 11 10 00             LD DE,DIRECTORY_ENTRY.AL
 2690  A271 19                   ADD HL,DE
 2691  A272 C5                   PUSH BC
 2692  A273                      ; Loop counter: 16 block pointers plus one (decremented before each iteration).
@@ -3540,7 +3546,7 @@
 3308  A41E 2A 43 9F             LD HL,(BDOS_PARAM_PTR)
 3309  A421 7E                   LD A,(HL)
 3310  A422                      ; offset 16: the NEW-name half of a rename FCB. F_RENAME overloads bytes 16-31 as a
-3311  A422                      ; second filename, so this is NOT DIRENT.AL despite the identical offset. Kept literal.
+3311  A422                      ; second filename, so this is NOT DIRECTORY_ENTRY.AL despite the identical offset. Kept literal.
 3312  A422 11 10 00             LD DE,$0010
 3313  A425 19                   ADD HL,DE
 3314  A426                      ; copy the FCB drive byte (offset 0) into the new-name half
@@ -3994,7 +4000,7 @@
 3762  A564 C8                   RET Z
 3763  A565 2A 43 9F             LD HL,(BDOS_PARAM_PTR)
 3764  A568                      ; EX, the extent number's low 5 bits (CR lives at FCB.CR, not here)
-3765  A568 01 0C 00             LD BC,FCB.DIRENT.EX
+3765  A568 01 0C 00             LD BC,FCB.DIRECTORY_ENTRY.EX
 3766  A56B 09                   ADD HL,BC
 3767  A56C 7E                   LD A,(HL)
 3768  A56D 3C                   INC A
@@ -4023,7 +4029,7 @@
 3791  A583              ; ----------------------------------------------------------------------
 3792  A583              FCB_NEXT_EXTENT:
 3793  A583                      ; step from EX to S2, as arithmetic on the field names
-3794  A583 01 02 00             LD BC,FCB.DIRENT.S2 - FCB.DIRENT.EX
+3794  A583 01 02 00             LD BC,FCB.DIRECTORY_ENTRY.S2 - FCB.DIRECTORY_ENTRY.EX
 3795  A586 09                   ADD HL,BC
 3796  A587                      ; advance to the next extent
 3797  A587 34                   INC (HL)

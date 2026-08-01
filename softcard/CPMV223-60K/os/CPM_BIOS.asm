@@ -37,17 +37,13 @@
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
     DEVICE NOSLOT64K
+    INCLUDE "cpm22.inc"          ; CP/M 2.2 ABI + the DPB_LAYOUT / DPH_LAYOUT structures
     ENDIF
 
 ; -- External symbols --
-WBOOTV            EQU $0000               ; Warm-boot vector — JP WBOOT in BIOS. Touching it causes a CP/M warm boot.
-IOBYTE_ADDR               EQU $0003               ; [DOC S&HD 2-18] IOBYTE_ADDR: logical-to-physical device map at $0003 -- four 2-bit fields,
-                                              ; CONSOLE (bits 0-1), READER (bits 2-3), PUNCH (bits 4-5), LIST (bits 6-7); set via STAT or
-                                              ; BDOS funcs 7/8. Each field's value selects which I/O Vector Table entry (#1 vs #2) is used.
-CDISK_ADDR                EQU $0004               ; Current drive (low nibble: 0=A, 1=B, ..., 15=P) and current user (high nibble, 0-15).
-BDOS             EQU $0005               ; BDOS call vector — JP BDOS_ENTRY. Programs use CALL $0005 to invoke BDOS. Word at $0006 is also the top-of-TPA marker.
-TBUFF          EQU $0080               ; Default 128-byte DMA buffer. BDOS cold-init / DRV_ALLRESET (fn 13) set the DMA address here and WBOOT re-issues SETDMA($0080); sector/record I/O moves 128 bytes through it. At program load this same buffer doubles as the command tail: the first byte ($0080) holds the tail length (0-127) and the characters follow at $0081 (CMDLINE).
-TPA            EQU $0100               ; Start of Transient Program Area. .COM files load here and execute starting at $0100.
+; WBOOTV / IOBYTE_ADDR / CDISK_ADDR / BDOS / TBUFF / TPA now come from cpm22.inc, the
+; single source of truth for the CP/M base page. They used to be re-declared here with
+; identical values, which is the duplicate-definition the repo forbids.
 SLOT_INFO_BASE       EQU $F3B8               ; [DOC S&HD 2-26/2-27] $F3B8 is the Disk Count Byte (number of disk controller cards x2);
                                               ; the Card Type Table (SLTTYP) proper starts at $F3B9, with slot S's entry at $F3B8+S
                                               ; (S=1..7). The cold-boot scan indexes this base by E (E=1..7) to read each slot's detected
@@ -975,7 +971,7 @@ SELDSK_IMPL_1:
         LD HL,DPH_TABLE
         CALL SLOT_IOBASE_CALC
         PUSH HL
-        LD DE,$000A
+        LD DE,DPH_LAYOUT.DPB    ; DPH+10 -> this drive's DPB
         ADD HL,DE
         LD E,(HL)
         INC HL

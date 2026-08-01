@@ -454,11 +454,15 @@ def os_module_sources(variant: str) -> dict:
 # "; $XXXX" address comments -- the addresses live in the listing, exactly as in
 # the 44K trees -- so the listing is the only place to read an address off the
 # 60K OS, and it has to stay fresh.
+# The 60K OS modules now share the same EQU/STRUCT headers the two 44K trees use, so the
+# standalone listing build has to stage them exactly as the CPM60.asm master does.
 SOURCES_223_60K_LISTING: dict[str, ChunkSource] = {
     "CPM223_60K_BIOS": ChunkSource(
         asm_path=OS223_60K / "CPM_BIOS.asm", cpu="z80", org=0xFA00, size=0x0600,
+        include_files=(CPM22_INC,),
     ),
     "CPM223_60K_BDOS": ChunkSource(
         asm_path=OS223_60K / "CPM_BDOS.asm", cpu="z80", org=0xDC00, size=0x0E00,
+        include_files=(CPM22_INC,),
     ),
 }

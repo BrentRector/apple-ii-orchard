@@ -1196,7 +1196,7 @@ DISK_STORE_SEC_TRK_6_3:
 DISK_STORE_SEC_TRK_10:
         LD HL,(BDOS_PARAM_PTR)
         ; the FCB's allocation map (d0..d15)
-        LD DE,FCB.DIRENT.AL
+        LD DE,FCB.DIRECTORY_ENTRY.AL
         ADD HL,DE
         ADD HL,BC
         LD A,(BLOCK_WIDTH_FLAG)
@@ -1890,7 +1890,7 @@ ALLOC_FROM_FCB:
         CALL FCB_BUF_PTR_ADD_OFFSET
         ; point HL at the 16-byte block map. The structure here is a DIRECTORY ENTRY read into
         ; DIRBUF, not a user FCB -- the routine's name is a misnomer, hence DIRENT not FCB.DIRENT.
-        LD DE,DIRENT.AL
+        LD DE,DIRECTORY_ENTRY.AL
         ADD HL,DE
         PUSH BC
         LD C,$11
@@ -2447,7 +2447,7 @@ F_RENAME_HND:
         LD HL,(BDOS_PARAM_PTR)
         LD A,(HL)
         ; offset 16: the NEW-name half of a rename FCB. F_RENAME overloads bytes 16-31 as a
-        ; second filename, so this is NOT DIRENT.AL despite the identical offset. Kept literal.
+        ; second filename, so this is NOT DIRECTORY_ENTRY.AL despite the identical offset. Kept literal.
         LD DE,$0010
         ADD HL,DE
         LD (HL),A
@@ -2845,7 +2845,7 @@ FCB_ADVANCE_RECORD:
         RET Z
         LD HL,(BDOS_PARAM_PTR)
         ; EX, the extent number's low 5 bits (CR lives at FCB.CR, not here)
-        LD BC,FCB.DIRENT.EX
+        LD BC,FCB.DIRECTORY_ENTRY.EX
         ADD HL,BC
         LD A,(HL)
         INC A
@@ -2874,7 +2874,7 @@ FCB_ADVANCE_RECORD:
 ; ----------------------------------------------------------------------
 FCB_NEXT_EXTENT:
         ; step from EX to S2, as arithmetic on the field names
-        LD BC,FCB.DIRENT.S2 - FCB.DIRENT.EX
+        LD BC,FCB.DIRECTORY_ENTRY.S2 - FCB.DIRECTORY_ENTRY.EX
         ADD HL,BC
         ; advance to the next extent
         INC (HL)
