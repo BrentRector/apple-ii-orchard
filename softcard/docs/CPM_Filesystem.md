@@ -24,7 +24,7 @@ Each directory entry is 32 bytes: 1 byte user/status, 8 bytes filename, 3 bytes 
 
 ## How a formatted disk gets an empty directory
 
-Nothing writes a directory structure, and nothing needs to. A directory slot whose first byte is `$E5` is a **free** slot, and the 6502 formatter fills every data field on the medium with `$E5`, so track 3 comes out of a format already a valid empty directory with all 64 slots free.
+Nothing writes a directory structure, and nothing needs to. A directory slot whose first byte is `$E5` is a **free** slot, and the 6502 formatter fills every data field on the medium with `$E5`, so track 3 comes out of a format already a valid empty directory with all 48 slots free (`DRM`=`$2F`).
 
 That the fill really is `$E5` is provable from the two 6-and-2 encoder constants the formatter pre-loads (`FORMAT_TRACK` at `$17DA` in `CPMV220-44K/utilities/FORMAT_6502.s`): primary `$39`, secondary `$2A`. The primary buffer holds `byte >> 2` and the secondary packs three 2-bit fields, each the byte's low two bits with the bit order reversed, so `$E5 = %11100101` gives `$E5 >> 2 = $39` and `%01` reversed thrice = `%00101010 = $2A`. No neighbouring value produces both; `$E6` would need `$15`. The 2.23 formatter embedded in `COPY.COM` (`COPY_6502.s`, buffers at `$1F00`) uses the identical pair.
 
@@ -48,6 +48,42 @@ Two hiding mechanisms are stacked on it: the **user number is 31**, outside the 
 On a **data** disk the aliasing is the point: it recovers the three reserved tracks as 12 KB of usable storage. The entry exists to protect a **boot** image. CiderPress2's CP/M format notes describe the same entry independently on Apple 5.25" CP/M disks, and attribute the technique to the Microsoft SoftCard, "used to allow extra storage on non-bootable disks".
 
 **The hazard is therefore specific: a disk that carries a boot image but not the protecting entry.** That is every 2.20-lineage system disk, which never needed one because its own `DSM` is `$7F`, read on a 2.23 system. Once blocks 0-127 are full the allocator hands out 128-139, and the write does not fail and does not reach a drive error: it silently overwrites tracks 0-2 and destroys the boot pipeline. Verified in the emulator, where a `SAVE` into block 128 reported success, committed its directory entry, and changed 689 bytes of track 0. A non-bootable data disk is not at risk. Full trace in [`CPM_Disk_Creation.md`](CPM_Disk_Creation.md).
+
+## Identifying a disk's configuration: do not use the first banner match
+
+A version-string scan that stops at the first match will misread these images. **Take the
+configuration from the DPB and the file list, not from a banner.**
+
+Scanning all nine 143,360-byte archive images for `NNK Ver. 2.NN` finds more than one token on four
+of them:
+
+| Image | Tokens found | Where the extra one comes from |
+|---|---|---|
+| `softcard-cpm2.23-44k-system.dsk` | `60K Ver. 2.23`, `44K Ver. 2.23`, `60K Ver. 2.23` | see below |
+| `softcard-cpm2.20-44k-system.dsk` | `44K Ver. 2.20`, `56K Ver. 2.20` | `CPM56.COM` |
+| `softcard-cpm2.20-44k-system-1980.dsk` | `44K Ver. 2.20`, `56K Ver. 2.20` | `CPM56.COM` |
+| `softcard-cpm2.20b-44k-system.dsk` | `44K Ver. 2.20B`, `56K Ver. 2.20B` | `CPM56.COM` |
+
+Two separate causes, both benign:
+
+1. **An upgrade utility carries its TARGET banner as file data.** `CPM60.COM` on the 2.23-44K disk
+   contains `60K Ver. 2.23`; `CPM56.COM` on the 2.20 disks contains `56K Ver. 2.20`. Confirmed by
+   extracting each file and searching it. Any disk shipping an upgrade utility will do this.
+2. **The 2.23-44K disk also carries a dead copy in its system tracks.** `60K Ver. 2.23` sits at
+   file offset `0x027D4`, which is track 2 physical sector 7. That sector is built from no source
+   and is never read during boot or `DIR`, so it is mastering residue, not a live banner. It is
+   also the lowest offset of the three, which is exactly why a first-match scan reads this 44K disk
+   as a 60K release.
+
+That third point also explains what the eight track-2 sectors in no `ChunkSpec` contain: leftover
+fragments from mastering. The build carries them through verbatim because nothing generates them.
+
+Two related string facts, for the same reason:
+
+* **"Microsoft" distinguishes nothing.** It appears on both families. What changes is the product
+  name: `Apple ][ CP/M` becomes `Softcard CP/M`.
+* No version token contains a vendor name: `44K Ver. 2.20`, `44K Ver. 2.20B`, `56K Ver. 2.20B`,
+  `44K Ver. 2.23`, `60K Ver. 2.23`.
 
 ## File inventory
 

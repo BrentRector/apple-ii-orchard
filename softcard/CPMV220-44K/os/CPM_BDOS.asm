@@ -3731,10 +3731,19 @@ DIR_ZERO_ALLOC:
 ; ----------------------------------------------------------------------
 ; FCB_ADVANCE_RECORD -- advance the FCB to the next record/extent for sequential write.
 ;   In: CURFCB_PTR ($9F43) -> open FCB.
-;   Out: FCB current-record / extent fields stepped; new extent opened or created as needed.
+;   Out: FCB EXTENT fields stepped (EX at offset 12, and S2 at 14 on wrap); new extent opened
+;        or created as needed.;
+;   FCB EXTENT PAIR (offsets 12 and 14). CP/M numbers extents with a PAIR of FCB bytes:
+;     EX (offset 12) holds the low 5 bits, S2 (offset 14) the high bits, so the extent
+;     number is EX + 32*S2. That is why this routine masks AND $1F and carries into
+;     offset 14. CR, the current-record byte, is at offset $20 and is 7 bits (0-127);
+;     it is NOT this field. Three earlier comments here named offset 12 "the
+;     current-record byte", and one said "wrap the current record mod 32 (128
+;     records/extent)", which states both numbers and cannot be right either way.
+;     The 60K twin's copy of this routine had it correct all along. [RE]
 ;   Clobbers: A,B,C,D,E,H,L,flags
 ;   Algorithm: clear the dir-changed flag, flush the current extent (F_CLOSE_HND via F_CLOSE_HND), bump the
-;              FCB current-record byte (offset 12) and wrap it mod 32; on wrap go open the next
+;              FCB EXTENT byte EX (offset 12) and wrap it mod 32; on wrap go open the next
 ;              extent (FCB_NEXT_EXTENT); otherwise check the extent mask (EXM at $A9C5) and the
 ;              dir-changed flag to decide between re-opening the current extent or merging the
 ;              just-flushed one.
@@ -3749,15 +3758,15 @@ FCB_ADVANCE_RECORD:
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
         LD HL,(BDOS_PARAM_PTR)
-        ; FCB offset 12 = current-record byte
+        ; FCB offset 12 = EX, the extent number's low 5 bits (CR lives at offset $20, not here)
         LD BC,$000C
         ADD HL,BC
         LD A,(HL)
         INC A
-        ; wrap the current record mod 32 (128 records/extent)
+        ; EX is a 5-bit field: wrap at 32 extents, then S2 (offset 14) takes the carry
         AND $1F
         LD (HL),A
-        ; record wrapped -> move to the next extent
+        ; EX wrapped past 31 -> carry into S2 and open the next extent
         JP Z,FCB_NEXT_EXTENT
         LD B,A
         ; load the extent mask (EXM)
@@ -3768,17 +3777,17 @@ FCB_ADVANCE_RECORD:
         JP Z,FCB_OPEN_NEXT_EXTENT
         JP FCB_MERGE_FOUND_EXTENT
 ; ----------------------------------------------------------------------
-; FCB_NEXT_EXTENT -- step the FCB to the next extent when the record count wraps.
-;   In: HL -> FCB current-record byte; FCB extent fields follow.
-;   Out: extent byte (offset 14) incremented; low-nibble rollover branches to finish.
+; FCB_NEXT_EXTENT -- carry into S2 when the EX field wraps past 31.
+;   In: HL -> the FCB's EX byte (offset 12); S1 and S2 follow at offsets 13 and 14.
+;   Out: S2 (offset 14) incremented; low-nibble rollover branches to finish.
 ;   Clobbers: A,B,C,H,L,flags
-;   Algorithm: advance HL by 2 to the extent byte (offset 14), increment it; if its low nibble is
+;   Algorithm: advance HL by 2 to S2 (offset 14), increment it; if its low nibble is
 ;              now zero a module of extents has rolled over and control goes to DISK_FINISH_OK;
 ;              otherwise fall into the open-next-extent path.
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_NEXT_EXTENT:
-        ; step from record byte (12) to the extent byte (14)
+        ; step from EX (offset 12) to S2 (offset 14)
         LD BC,$0002
         ADD HL,BC
         ; advance to the next extent

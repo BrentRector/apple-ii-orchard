@@ -2599,7 +2599,9 @@ DIR_ZERO_ALLOC:
 ; ----------------------------------------------------------------------
 ; FCB_ADVANCE_RECORD -- advance the FCB to the next record/extent for sequential access.
 ;   In: current FCB at $DF11; DPB EXM mask at $BFD2; the dir-changed flag $BFDF.
-;   Out: FCB current-record / extent fields stepped; new extent opened or created as needed; result $DF13.
+;   Out: FCB EXTENT fields stepped (EX at offset $0C, S2 at $0E on wrap); new extent opened or
+;        created as needed; result $DF13. (The body below already named these correctly; the
+;        two 44K twins called offset $0C the current-record byte, which it is not.)
 ;   Clobbers: A,B,C,D,E,H,L,flags.
 ;   Algorithm: clear the dir-changed flag (DIR_DIRTY_FLAG), flush the current extent (F_CLOSE_HND), bump the FCB
 ;       extent byte (offset $0C) mod 32; on wrap step the S2 module (offset $0E); otherwise use the EXM
