@@ -1449,3 +1449,104 @@ than renamed. Not article-relevant; noted so it is not lost.
 Everything else in this pass is repo housekeeping with no bearing on the write-up: include guards
 on the two shared headers, include staging in two build paths, and a corrected gate note in
 CLAUDE.md.
+
+---
+
+# Part 9, 2026-08-01: both corrections applied. Item 1 was bigger than reported
+
+Commit `0f9e9c0`. Gate **1121 passed / 1 skipped**, byte-identical. Verified both before acting.
+
+## 1. Offset 12: you are right, and it is 12 sites, not 3
+
+Confirmed from the instructions. Offset 12 read, `INC`, `AND $1F`, carry into offset 14 is CP/M's
+extent **pair**: `EX` at 12 holds the low 5 bits, `S2` at 14 the high bits, extent number =
+`EX + 32*S2`. `CR` is at offset `$20` and is 7 bits. Your two supporting arguments both hold: the
+file's own `CR = FCB+$20` convention, and the magnitude mismatch.
+
+The clincher you did not quote is that one comment refutes itself in a single line:
+
+```
+; wrap the current record mod 32 (128 records/extent)
+```
+
+It states both numbers. Whichever field it meant, one half is wrong.
+
+**The count is larger.** You found 3 sites in `CPMV220-44K`. The same routine family is in the
+2.23-44K BDOS with the same wording, so it is **6 sites in each of the two 44K trees**, plus one
+stale `Out:` line in the 60K. All 13 corrected.
+
+### And the 60K had it right all along
+
+`CPMV223-60K/os/CPM_BDOS.asm` already read:
+
+> "bump the FCB **extent** byte (offset `$0C`) mod 32; on wrap step the **S2 module** (offset `$0E`)"
+
+So this is a **cross-tree contradiction**, and it is the second one of exactly this shape. The
+first was `BDOS_USER_NUM` in Part 6, where the 60K also said "against the current user" while both
+44K files said "the BDOS default-FCB byte". Audit 3 cannot see either, because its polarity list
+compares opposite *states* and these trees disagree on a *noun*.
+
+Twice is a pattern, so the audit-5 idea filed as open in Part 7 §E3 is now clearly worth building:
+flag any label whose header is `[?]`/UNKNOWN or vague in one tree but definite in another. Both of
+these would have been caught by "one tree already knows what another does not". Still not built,
+but it has moved from a nice-to-have to the obvious next tooling job.
+
+### On your tally point
+
+Agreed, and it sharpens rather than repeats. This is a wrong field name on a **documented**
+structure, sitting beside correct uses of the same name in the same file, with a correct version of
+the same routine in a sibling tree. Not a guess about an unknown cell. If you write the tiers
+section, this is the strongest single example: the information needed to catch it was already in
+the repository, in three separate places, and none of it helped until someone read the
+instructions.
+
+## 2. The double banner: verified, and your guessed cause is not what happens
+
+The observation holds and generalises further than you had it. Scanning all nine 143,360-byte
+archive images for `NNK Ver. 2.NN`, **four** carry more than one token, not one:
+
+| Image | Tokens | Extra one is |
+|---|---|---|
+| `softcard-cpm2.23-44k-system.dsk` | `60K`, `44K`, `60K` (2.23) | see below |
+| `softcard-cpm2.20-44k-system.dsk` | `44K`, `56K` (2.20) | `CPM56.COM` |
+| `softcard-cpm2.20-44k-system-1980.dsk` | `44K`, `56K` (2.20) | `CPM56.COM` |
+| `softcard-cpm2.20b-44k-system.dsk` | `44K`, `56K` (2.20B) | `CPM56.COM` |
+
+**Two distinct causes, and neither is "one BIOS carrying both and choosing at sign-on".** You
+flagged that as unverified, and it is not what is happening:
+
+1. **An upgrade utility carries its target banner as file data.** `CPM60.COM` contains
+   `60K Ver. 2.23`; `CPM56.COM` contains `56K Ver. 2.20`. Confirmed by extracting each file and
+   searching it, not by offset arithmetic. Any disk shipping an upgrade utility does this, which is
+   why the 2.20 disks show it too.
+2. **The 2.23-44K disk carries a DEAD copy in its system tracks.** `60K Ver. 2.23` sits at file
+   offset `0x027D4` = track 2, physical sector 7. That sector is built from no source and is never
+   read during boot or `DIR`. Mastering residue. It has the **lowest offset of the three**, which is
+   precisely why a first-match scan reads that 44K disk as a 60K release.
+
+Your practical conclusion is unchanged and now better supported: take the configuration from the
+DPB and the file list, never from a banner. Recorded in `docs/CPM_Filesystem.md` under
+"Identifying a disk's configuration" so a future scanner does not repeat it. No repo tool does
+banner-based detection, so there was nothing to fix in code.
+
+**A loose end closed by accident.** Part 4 wondered what the eight track-2 sectors absent from
+every `ChunkSpec` contain. Cause 2 answers it: **leftover mastering fragments**, carried through
+the build verbatim because nothing generates them. That is also why my earlier attempt to match
+those sectors against live RAM found nothing. They are not loaded because they are not part of
+anything.
+
+## 3. On reporting hit rate
+
+Noted, and taken. Listing what you checked and found correct changed how I read the list: it made
+the offset-12 item read as a finding rather than as one more entry in a stream of faults. Worth
+keeping up in both directions.
+
+For symmetry, from my side this pass: `ALLOC_FROM_FCB`'s range check, `FCB_MERGE_USER`,
+`F_USERNUM_H`, `SELDSK`'s DPH/DPB walk, the `EXM` masking in `FCB_ADVANCE_RECORD` and the
+`DIR_DIRTY_FLAG` handling all read correctly against the instructions. The corrections in Parts 5
+through 9 are a small fraction of what was re-read.
+
+## 4. Also corrected while here
+
+`docs/CPM_Filesystem.md` still said "all 64 slots free" in prose after the `DRM`=`$2F` fix
+corrected the table to 48. Now consistent.
