@@ -1682,3 +1682,135 @@ corrected the table to 48; now consistent.
 * The `FCB_MERGE_NEXT` `[?]` in section 3.
 * Audit 5's 9 candidates, each a place where one tree already knows what another does not.
 * Audit 1's two long-standing BASIC.asm false positives, unchanged and allowed for by number.
+
+---
+
+# Part 11, 2026-08-01: unknowns traced to ground, and a regression of my own
+
+Commits `cfad28a` `61420f7` `cced8bd` `e407253`. Gate **1147 passed / 1 skipped** (1125 plus 22
+new cases), byte-identical.
+
+**No article finding changes.** Everything in Parts 1-10 stands. Two things here are worth your
+attention: a third instance of the EX/RC confusion, now proven rather than flagged, and a
+verification failure of mine that is the sharpest example yet of the theme you have been tracking.
+
+## 1. LEAD: I broke a file and claimed byte-identity for it
+
+This belongs first because it is the most useful thing in this part.
+
+Converting bare BDOS function numbers to symbols, my pattern accepted `[0-9A-Fa-f]{1,2}` for the
+operand. **`A` is a valid hex digit**, so `LD C,A` (a REGISTER move, one byte, `4F`) was rewritten
+to `LD C,C_READSTR` (two bytes, `0E 0A`). Every address after it shifted by one. The image stayed
+24,576 bytes because it is padded, so only the content moved.
+
+**The gate stayed green**, because nothing in the pipeline assembles that tree. I reported
+"byte-identical" on the strength of a check that never opened the file. I had even seen `LD C,A`
+in my own scan output and not reacted to it.
+
+Caught by going back and assembling the pre-change revision against the current one, file by file.
+One site affected, reverted, and all ten converted files then confirmed identical.
+
+That is the **third** time this session a check passed while measuring nothing, and the first where
+it was my own work it let through. The other two:
+
+* `sjasmplus` resolves an unresolved symbol to **0** and assembles happily, so a missing include
+  yields plausible wrong bytes rather than an error (Part 10 §4).
+* Audit 6's first regex matched nothing at all and reported a healthy zero; audit 5's `UNKNOWN`
+  branch was dead while its test passed for the wrong reason (Part 10 §5).
+
+If you write the verification section, these three are one story with three instances, and the
+moral is not "the byte gate is weak". The gate is the only thing that has ever caught this class.
+The moral is that **a check which silently covers less than it appears to is worse than no check**,
+because it reports clean. Each time, the fix was to make the thing measurable, not to look harder.
+
+The gap is now closed: `test_cpmv220_utilities_pin.py` pins a SHA256 of every source's assembled
+image in that tree, 22 new cases, so an edit that moves a byte fails loudly.
+
+## 2. And it turned up what those files actually are
+
+Chasing the regression answered a question nobody had asked. `CPMV220/utilities/*.asm` are **not
+56K sources**, despite living in the 2.20B-56K tree. They assemble to the **2.20-44K** disk's
+programs: `PIP` is byte-identical to that disk's `PIP.COM`, `STAT` differs by 20 of 6144 bytes,
+while against the 56K disk every one of the eleven differs by about 85%.
+
+They are an older, less-annotated decompilation of the utilities `CPMV220-44K/utilities/` now owns
+canonically. Not retired, because that is a human's call; pinned where they are instead.
+
+Relevant to you only if the article says anything about how many independent decompilations exist,
+or treats the 56K tree as covering 56K utilities. It does not.
+
+## 3. The EX/RC confusion, third instance, now proven
+
+Part 10 flagged `FCB_MERGE_NEXT` as suspect and I declined to correct it on inference. Now traced
+both ways.
+
+**Statically:** the allocation-map loop leaves the pointers at `base+32` on BOTH paths. The 8-bit
+path does one `INC HL` and one `DEC C` per slot over 16 slots; the 16-bit path does two of each
+over 8 slots. So the `-20` reaches offset **12**, which is `EX`, not the record count at 15.
+
+**At runtime:** breakpointing that instruction in the emulator, `HL-20` was exactly
+`BDOS_PARAM_PTR+12`, and the byte there was `0`, matching the FCB's `EX` and not its `RC` of `4`.
+
+Also settled: the 16-bit path is **unreachable on SoftCard hardware**, since every `DSM` here is
+139 or less so block numbers are always 8-bit. The loop ran 16 iterations per close, exactly as
+the 8-bit path predicts.
+
+So the count is now **three** places where offset 12 was called the current-record byte. The `-20`
+is written `DIRECTORY_ENTRY.EX - DIRECTORY_ENTRY` so it cannot drift from the fields again.
+
+## 4. Unknowns resolved
+
+* **`WRITE_TYPE_FLAG`'s selector values**, previously UNKNOWN. It is a sequential-vs-random
+  selector and the "adjustment" is only whether `CR` advances afterwards. Tracing every writer:
+  1 from both sequential entry points, 0 from the seek path, and **2 from function 40
+  specifically** (Write Random with Zero Fill), not random writes generally, because fn 34 reaches
+  the seek path that sets 0.
+* **`CCP_FCB_TAIL`**, "purpose beyond padding UNKNOWN", resolved by arithmetic, and the label is a
+  misnomer. `CCP_FCB` is `$9BCD` and an FCB is 36 bytes, so the FCB ends at `$9BF0`, which means
+  `CCP_FCB_DRIVE_PREFIX` there is `FCB+35` (`R2`), reused as a flag because the CCP never does
+  random access. The 15 bytes at `$9BF1`-`$9BFF` are fill closing the CCP image on the BDOS
+  boundary at `$9C00`. Nothing reads them because there is nothing to read.
+* **`REC_DIV4_SETUP`**, whose `/4` was UNKNOWN, answered by the 60K twin: it is **entries per
+  record**. CP/M packs four 32-byte directory entries into one 128-byte record, so `CUR_RECORD` is
+  an entry index and `index>>2` is the record holding it. This is exactly what audit 5 exists to
+  surface.
+* **`CON_RETYPE_LOOP`** had its two column cells transposed in both 44K trees and hedged as a
+  result. `CON_LINE_START_COL` is the column the input line began at, so the loop re-indents the
+  cursor after a CR/LF and the redisplayed line aligns under the prompt. The 60K was right.
+
+**27 bare trailing `[?]` tags** across the three BDOS files turned out to be a systematic artifact,
+every one appended to a complete `[RE]` statement with nothing after it. Removed. The tags that
+remain all carry real uncertainty text, which is what made that safe rather than a blind sweep.
+Audit 5 is tightened to match: `[?]` must be followed by text, and `UNKNOWN` is case-sensitive so
+the word in ordinary prose does not fire. **Nine candidates down to one.**
+
+Audit 1's two long-standing hits were re-checked and confirmed benign, with the reason now recorded
+at each site: both comments describe the loop-exit or fall-through case, not the branch-taken case
+the audit models.
+
+## 5. Function symbols, and a correction about "DRI's names"
+
+Every BDOS function symbol now carries **DRI's prose title, verbatim from the Reference Manual in
+the archive**, cited `[DOC CPMREF]`. 37 of 39 have a titled entry; `DRV_RESET` (37) and
+`F_WRITEZF` (40) have none in that manual and say so rather than carrying an invented title.
+
+Worth stating precisely if you name any of these in the article: **DRI never published symbolic
+names at all**, only these prose titles. `F_OPEN` / `C_READ` / `DRV_SET` is the conventional
+community naming, not Digital Research's.
+
+102 bare function numbers at real BDOS call sites were converted across 14 files, so the repo-wide
+count is now **zero**. The value-to-symbol map is read from `cpm22.inc` itself so the two cannot
+drift.
+
+The access-mode values also got named constants: `ACCESS_RANDOM` / `ACCESS_SEQ` /
+`ACCESS_RAND_ZF`, one symbol per value. There is deliberately no `WRITE_SEQ`, because sequential
+read and sequential write share the value 1 and a second name for it would be the duplicate
+definition the repo forbids.
+
+## 6. Open
+
+* Roughly 60 uncertainty markers still in the OS core, and 63 in `BASIC.asm`. Not worked through.
+* The one remaining audit-5 candidate is the DPB header, where the `[?]` correctly scopes a caveat
+  about acronym expansions not being DRI's. A real limitation: audit 5 compares whole headers, so
+  a properly-scoped hedge inside a long one reads as giving up.
+* Whether `CPMV220/utilities/` should be retired as a superseded duplicate.
