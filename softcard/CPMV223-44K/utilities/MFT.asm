@@ -9,7 +9,7 @@
 
 ; -- External symbols --
 ; MFT's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc
-; (INCLUDEd below): BDOS, CDISK_ADDR, TBUFF, TFCB, TFCB+FCB_CR, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
+; (INCLUDEd below): BDOS, CDISK_ADDR, TBUFF, TFCB, TFCB+FCB.CR, WBOOTV, and the C_*/A_*/L_*/F_*/DRV_*/S_* BDOS function
 ; constants. Defined once there, not re-derived per file. NOTE: LD HL/DE/BC,$0000 are the
 ; number zero (zero-init / dummy BDOS arg), kept literal; only a genuine JP/CALL through the
 ; warm-boot vector takes WBOOTV. Char/count LD C,$nn (not BDOS selectors) also stay literal.
@@ -170,7 +170,7 @@ TPA_START_40:
         XOR A                            ; $01F1  AF
         LD (TFCB),A               ; $01F2  32 5C 00
         LD ($0068),A                     ; $01F5  32 68 00
-        LD (TFCB+FCB_CR),A                ; $01F8  32 7C 00
+        LD (TFCB+FCB.CR),A                ; $01F8  32 7C 00
         CALL BDOS_DELETE_FILE            ; $01FB  CD CD 04
         LD HL,($0ADB)                    ; $01FE  2A DB 0A
         EX DE,HL                         ; $0201  EB
@@ -272,7 +272,7 @@ TPA_START_47:
         XOR A                            ; $02CA  AF
         LD (TFCB),A               ; $02CB  32 5C 00
         LD ($0068),A                     ; $02CE  32 68 00
-        LD (TFCB+FCB_CR),A                ; $02D1  32 7C 00
+        LD (TFCB+FCB.CR),A                ; $02D1  32 7C 00
         LD A,($0065)                     ; $02D4  3A 65 00
         AND $7F                          ; $02D7  E6 7F
         LD ($0065),A                     ; $02D9  32 65 00

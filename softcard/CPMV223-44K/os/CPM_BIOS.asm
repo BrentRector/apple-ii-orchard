@@ -11,6 +11,7 @@
 
     IFNDEF CPM_LINK
     DEVICE NOSLOT64K
+    INCLUDE "cpm22.inc"          ; CP/M 2.2 ABI + the DPB_LAYOUT / DPH_LAYOUT structures
     ORG $FA00
     ENDIF
 
@@ -1065,12 +1066,12 @@ SELDSK:
         LD HL,DPH_TABLE
         CALL SLOT_IO_SCALE
         PUSH HL
-        LD DE,$000A
+        LD DE,DPH_LAYOUT.DPB    ; DPH+10 -> this drive's DPB
         ADD HL,DE
         LD E,(HL)
         INC HL
         LD D,(HL)
-        LD HL,$0005
+        LD HL,DPB_LAYOUT.DSM    ; DPB+5 -> the DSM low byte
         ADD HL,DE
         LD A,(HL)
         ; self-modify: store the per-drive disk-parameter byte into the install template's LD

@@ -1781,8 +1781,8 @@ DISK_STORE_SEC_TRK_9:
 DISK_STORE_SEC_TRK_10:
         ; current FCB pointer (BDOS DE parameter)
         LD HL,(BDOS_PARAM_PTR)
-        ; FCB+$10 = the disk-allocation map (d0..d15)
-        LD DE,$0010
+        ; the FCB's allocation map (d0..d15)
+        LD DE,FCB.DIRENT.AL
         ADD HL,DE
         ADD HL,BC
         ; 0 = 16-bit map entries (big disk, DSM>255); nonzero = 8-bit
@@ -2683,8 +2683,10 @@ ALLOC_BIT_RESTORE:
 ALLOC_FROM_FCB:
         ; HL -> start of the current 32-byte directory entry in the buffer.
         CALL FCB_BUF_PTR_ADD_OFFSET
-        ; Skip to the 16-byte block-pointer map at offset $10 of the entry.
-        LD DE,$0010
+        ; Skip to the 16-byte block map. NOTE the structure here is a DIRECTORY ENTRY read
+        ; into DIRBUF, not a user FCB -- the routine's name is a misnomer, which is why this
+        ; uses DIRENT and not FCB.DIRENT.
+        LD DE,DIRENT.AL
         ADD HL,DE
         PUSH BC
         ; Loop counter: 16 block pointers plus one (decremented before each iteration).
@@ -3305,7 +3307,8 @@ F_RENAME_HND:
         CALL DIR_SEARCH_FIRST
         LD HL,(BDOS_PARAM_PTR)
         LD A,(HL)
-        ; offset 16: start of the new-name half of the FCB
+        ; offset 16: the NEW-name half of a rename FCB. F_RENAME overloads bytes 16-31 as a
+        ; second filename, so this is NOT DIRENT.AL despite the identical offset. Kept literal.
         LD DE,$0010
         ADD HL,DE
         ; copy the FCB drive byte (offset 0) into the new-name half
@@ -3758,8 +3761,8 @@ FCB_ADVANCE_RECORD:
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
         LD HL,(BDOS_PARAM_PTR)
-        ; FCB offset 12 = EX, the extent number's low 5 bits (CR lives at offset $20, not here)
-        LD BC,$000C
+        ; EX, the extent number's low 5 bits (CR lives at FCB.CR, not here)
+        LD BC,FCB.DIRENT.EX
         ADD HL,BC
         LD A,(HL)
         INC A
@@ -3787,8 +3790,8 @@ FCB_ADVANCE_RECORD:
 ;   [RE]
 ; ----------------------------------------------------------------------
 FCB_NEXT_EXTENT:
-        ; step from EX (offset 12) to S2 (offset 14)
-        LD BC,$0002
+        ; step from EX to S2, as arithmetic on the field names
+        LD BC,FCB.DIRENT.S2 - FCB.DIRENT.EX
         ADD HL,BC
         ; advance to the next extent
         INC (HL)

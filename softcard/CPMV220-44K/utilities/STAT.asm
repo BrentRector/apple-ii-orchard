@@ -194,7 +194,7 @@ TPA_START_56:
         SUB $01                          ; $0459  D6 01
         SBC A,A                          ; $045B  9F
         PUSH AF                          ; $045C  F5
-        LD A,(TFCB+FCB_F)                     ; $045D  3A 5D 00
+        LD A,(TFCB+FCB.DIRENT.FN)                     ; $045D  3A 5D 00
         SUB $20                          ; $0460  D6 20
         SUB $01                          ; $0462  D6 01
         SBC A,A                          ; $0464  9F
@@ -1649,7 +1649,7 @@ FILE_STATUS_MAIN_1:
         LD ($29CC),A                     ; $0DDE  32 CC 29
         JP FILE_STATUS_MAIN_3                    ; $0DE1  C3 F0 0D
 FILE_STATUS_MAIN_2:
-        LD A,(TFCB+FCB_F)                     ; $0DE4  3A 5D 00
+        LD A,(TFCB+FCB.DIRENT.FN)                     ; $0DE4  3A 5D 00
         CP $20                           ; $0DE7  FE 20
         JP NZ,FILE_STATUS_MAIN_3                 ; $0DE9  C2 F0 0D
         CALL PRINT_BYTES_REMAINING                    ; $0DEC  CD 26 0D
@@ -1659,9 +1659,9 @@ FILE_STATUS_MAIN_3:
         LD (FILE_COUNT),HL              ; $0DF3  22 B8 15
         LD A,L                           ; $0DF6  7D
         LD (TFCB),A               ; $0DF7  32 5C 00
-        LD HL,TFCB+FCB_EX                     ; $0DFA  21 68 00
+        LD HL,TFCB+FCB.DIRENT.EX                     ; $0DFA  21 68 00
         LD (HL),$3F                      ; $0DFD  36 3F
-        LD HL,TFCB+FCB_S2                     ; $0DFF  21 6A 00
+        LD HL,TFCB+FCB.DIRENT.S2                     ; $0DFF  21 6A 00
         LD (HL),$3F                      ; $0E02  36 3F
         LD BC,TFCB                ; $0E04  01 5C 00
         CALL BDOS_SEARCH_FIRST                    ; $0E07  CD 19 05
@@ -2183,14 +2183,14 @@ FILE_STATUS_MAIN_38:
         JP NC,FILE_STATUS_MAIN_41                ; $11C1  D2 E9 11
         LD BC,TFCB                ; $11C4  01 5C 00
         CALL BDOS_COMPUTE_FILESIZE                    ; $11C7  CD A3 05
-        LD A,(TFCB+FCB_R2)                     ; $11CA  3A 7F 00
+        LD A,(TFCB+FCB.R2)                     ; $11CA  3A 7F 00
         CP $00                           ; $11CD  FE 00
         JP Z,FILE_STATUS_MAIN_39                 ; $11CF  CA DB 11
         LD BC,TPA_START_39               ; $11D2  01 E6 03
         CALL PRINT_STRING                    ; $11D5  CD B1 04
         JP FILE_STATUS_MAIN_40                   ; $11D8  C3 E6 11
 FILE_STATUS_MAIN_39:
-        LD HL,(TFCB+FCB_R0)              ; $11DB  2A 7D 00
+        LD HL,(TFCB+FCB.R0)              ; $11DB  2A 7D 00
         LD B,H                           ; $11DE  44
         LD C,L                           ; $11DF  4D
         LD DE,$2710                      ; $11E0  11 10 27

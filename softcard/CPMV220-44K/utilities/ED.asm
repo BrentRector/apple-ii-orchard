@@ -9,7 +9,7 @@
 
 ; -- External symbols --
 ; ED's CP/M 2.2 base-page cells + BDOS entry vector come from cpm22.inc (INCLUDEd
-; below): WBOOTV $0000, CDISK_ADDR $0004, BDOS $0005, TFCB $005C (+ FCB_CR), TFCB2
+; below): WBOOTV $0000, CDISK_ADDR $0004, BDOS $0005, TFCB $005C (+ FCB.CR), TFCB2
 ; $006C, TBUFF $0080, and the C_*/F_*/DRV_* BDOS function constants. Defined once
 ; there, not re-derived per file. NOTE: the many LD HL/DE/BC,$0000 are the number
 ; zero (zero-init / dummy BDOS DE arg), kept literal; only the genuine CALL through
@@ -1867,7 +1867,7 @@ OPEN_FILES:
         LD (HL),$00                      ; $0D64  36 00
         LD HL,$006A                      ; $0D66  21 6A 00
         LD (HL),$00                      ; $0D69  36 00
-        LD HL,TFCB+FCB_CR                 ; $0D6B  21 7C 00
+        LD HL,TFCB+FCB.CR                 ; $0D6B  21 7C 00
         LD (HL),$00                      ; $0D6E  36 00
         LD L,$21                         ; $0D70  2E 21
         LD DE,$1B3D                      ; $0D72  11 3D 1B

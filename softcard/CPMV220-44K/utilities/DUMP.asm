@@ -10,7 +10,7 @@
 ; -- External symbols --
 ; CP/M 2.2 base-page cells and BDOS function numbers come from cpm22.inc (INCLUDEd
 ; below): WBOOTV $0000, BDOS $0005, TFCB $005C (+ FCB_* offsets, so the FCB
-; current-record byte $007C = TFCB+FCB_CR), TBUFF $0080, and the C_*/F_* function
+; current-record byte $007C = TFCB+FCB.CR), TBUFF $0080, and the C_*/F_* function
 ; constants. Defined once there. NOTE: the leftover-image MODULE in the BSS tail
 ; below is foreign relocatable code that never executes; it is left decoded
 ; structurally and is NOT given cpm22 names.
@@ -236,7 +236,7 @@ GET_NEXT_BYTE_14:
 OPEN_INPUT_FILE:
         XOR A                            ; $01C1  AF
 OPEN_INPUT_FILE_1:
-        LD (TFCB+FCB_CR),A               ; $01C2  32 7C 00
+        LD (TFCB+FCB.CR),A               ; $01C2  32 7C 00
 OPEN_INPUT_FILE_2:
         LD DE,TFCB               ; $01C5  11 5C 00
 OPEN_INPUT_FILE_3:

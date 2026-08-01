@@ -246,8 +246,8 @@ DDT_IMAGE:                          ; loader copy-source anchor (global, value $
 ; NOTE: the former "$005B/$005D/$0065/$007C -> PARSE_TOKEN_* +offset" entries were NOT
 ; mid-instruction code -- they are ABSOLUTE references to the FIXED real CP/M base page
 ; (DDT runs relocated, so these reach the low base page, not the image). They now render as
-; their real cells: $005B = REC_BUF_POS (record-buffer index), $005D = TFCB+FCB_F,
-; $0065 = TFCB+FCB_T, $007C = TFCB+FCB_CR.
+; their real cells: $005B = REC_BUF_POS (record-buffer index), $005D = TFCB+FCB.DIRENT.FN,
+; $0065 = TFCB+FCB.DIRENT.FT, $007C = TFCB+FCB.CR.
 
 
 JMP_DISPATCH:
@@ -1134,7 +1134,7 @@ STARTUP:
         LD (HL),E                        ; $06F3  73
         INC HL                           ; $06F4  23
         LD (HL),D                        ; $06F5  72
-        LD A,(TFCB+FCB_F)              ; $06F6  3A 5D 00
+        LD A,(TFCB+FCB.DIRENT.FN)              ; $06F6  3A 5D 00
         CP $20                           ; $06F9  FE 20
         JP Z,READ_COMMAND                  ; $06FB  CA 05 07
         LD HL,JMP_DISPATCH                     ; $06FE  21 00 00
@@ -1449,11 +1449,11 @@ CMD_H_HEXMATH:
         JP READ_COMMAND                    ; $0930  C3 05 07
 CMD_I_INPUT:
         XOR A                            ; $0933  AF
-        LD (TFCB+FCB_CR),A              ; $0934  32 7C 00
+        LD (TFCB+FCB.CR),A              ; $0934  32 7C 00
         LD (TFCB),A                ; $0937  32 5C 00
         CALL GET_LINE_CHAR                    ; $093A  CD 11 0C
         LD C,$09                         ; $093D  0E 09
-        LD HL,TFCB+FCB_F               ; $093F  21 5D 00
+        LD HL,TFCB+FCB.DIRENT.FN               ; $093F  21 5D 00
 CMD_I_NAME_LOOP:
         LD (HL),A                        ; $0942  77
         INC HL                           ; $0943  23
@@ -1474,7 +1474,7 @@ CMD_I_EXT:
         LD C,$04                         ; $095F  0E 04
         CP $2E                           ; $0961  FE 2E
         JP NZ,CMD_I_EXT_PAD                 ; $0963  C2 7A 09
-        LD HL,TFCB+FCB_T              ; $0966  21 65 00
+        LD HL,TFCB+FCB.DIRENT.FT              ; $0966  21 65 00
 CMD_I_EXT_LOOP:
         CALL GET_LINE_CHAR                    ; $0969  CD 11 0C
         CP $0D                           ; $096C  FE 0D
@@ -1507,7 +1507,7 @@ CMD_M_LOOP:
         JP Z,READ_COMMAND                  ; $0998  CA 05 07
         JP CMD_M_LOOP                   ; $099B  C3 8C 09
 IS_HEX_REQ:
-        LD HL,TFCB+FCB_T              ; $099E  21 65 00
+        LD HL,TFCB+FCB.DIRENT.FT              ; $099E  21 65 00
         LD A,(HL)                        ; $09A1  7E
         AND $7F                          ; $09A2  E6 7F
         CP $48                           ; $09A4  FE 48
