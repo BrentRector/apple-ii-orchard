@@ -1242,15 +1242,15 @@ DISK_STORE_SEC_TRK_17_1:
         RET
 DRV_INSTALL_RWTS_1:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000C
+        LD DE,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         RET
 DRV_INSTALL_RWTS_2:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000F
+        LD DE,FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         EX DE,HL
-        LD HL,$0011
+        LD HL,FCB.CR - FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         RET
 DRV_INSTALL_RWTS_3:
@@ -1425,7 +1425,7 @@ FCB_RO_FLAG_TEST:
 ; ----------------------------------------------------------------------
 CHECK_DIRENT_READONLY_INNER:
         ; advance to directory-entry byte +9 (type byte t1'; bit 7 = R/O attribute)
-        LD DE,$0009
+        LD DE,DIRECTORY_ENTRY.FT
         ADD HL,DE
         LD A,(HL)
         RLA
@@ -1475,7 +1475,7 @@ DIRENT_PTR_ADD:
 ; ----------------------------------------------------------------------
 FCB_GET_S2:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000E
+        LD DE,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,(HL)
         RET
@@ -2544,10 +2544,10 @@ FILE_SIZE_FROM_EXTENT:
         CALL BLOCK_COPY_INCC
         CALL MARK_FCB_S2_HIGHBIT
         POP DE
-        LD HL,$000C
+        LD HL,DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD C,(HL)
-        LD HL,$000F
+        LD HL,DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD B,(HL)
         POP HL
@@ -2569,7 +2569,7 @@ FILE_SIZE_FROM_EXTENT:
 ; ----------------------------------------------------------------------
 FILE_SIZE_STORE:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000F
+        LD DE,FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD (HL),A
         RET
@@ -2626,7 +2626,10 @@ F_CLOSE_HND:
         CALL DIR_SEARCH_FIRST
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
-        LD BC,$0010
+        ; The allocation map, +$10 into BOTH structures: BC is reused for a DIRECTORY
+        ; ENTRY and then for the FCB, which works because an FCB embeds a directory
+        ; entry at offset 0.
+        LD BC,DIRECTORY_ENTRY.AL
         CALL FCB_BUF_PTR_ADD_OFFSET
         ADD HL,BC
         EX DE,HL
@@ -2734,7 +2737,8 @@ FCB_MERGE_NEXT:
         CP (HL)
         JP C,FCB_MERGE_FINISH
         LD (HL),A
-        LD BC,$0003
+        ; step from EX to RC, as arithmetic on the field names
+        LD BC,DIRECTORY_ENTRY.RC - DIRECTORY_ENTRY.EX
         ADD HL,BC
         EX DE,HL
         ADD HL,BC
@@ -2794,7 +2798,7 @@ DIR_MAKE_ENTRY:
         LD (BDOS_PARAM_PTR),HL
         RET Z
         EX DE,HL
-        LD HL,$000F
+        LD HL,DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD C,$11
         XOR A
@@ -2807,7 +2811,7 @@ DIR_ZERO_ALLOC:
         INC HL
         DEC C
         JP NZ,DIR_ZERO_ALLOC
-        LD HL,$000D
+        LD HL,DIRECTORY_ENTRY.S1
         ADD HL,DE
         LD (HL),A
         CALL RECPTR_INC_STORE
@@ -3157,8 +3161,8 @@ BDOS_WRITE_STOREBLK:
         LD (CUR_BLOCK_NUMBER),HL
         EX DE,HL
         LD HL,(BDOS_PARAM_PTR)
-        ; Offset 16 = start of the allocation/disk-map area inside the FCB.
-        LD BC,$0010
+        ; the FCB's allocation map
+        LD BC,FCB.DIRECTORY_ENTRY.AL
         ADD HL,BC
         ; Test whether the drive uses 8-bit (small disk) or 16-bit block numbers.
         LD A,(BLOCK_WIDTH_FLAG)
@@ -3472,8 +3476,8 @@ BDOS_SEEK_COMPUTE:
         ; HL = pointer to the active FCB (CURFCB).
         LD HL,(BDOS_PARAM_PTR)
         EX DE,HL
-        ; Offset 33 (0x21) = FCB random-record field R0; HL = FCB+33 after ADD HL,DE.
-        LD HL,$0021
+        ; the FCB's random-record field R0
+        LD HL,FCB.R0
         ADD HL,DE
         LD A,(HL)
         ; Record-within-extent = R0 bits 0..6 (0..127).
@@ -3508,19 +3512,19 @@ BDOS_SEEK_COMPUTE:
         LD L,$06
         ; R2 (high random-record byte) non-zero -> record number out of range, abort the seek.
         JP NZ,RANDREC_POS_RET
-        LD HL,$0020
+        LD HL,FCB.CR
         ADD HL,DE
         LD (HL),A
-        ; Offset 12 = FCB extent (EX) byte.
-        LD HL,$000C
+        ; the FCB's EX (extent) byte
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD A,C
         ; Compare target extent (C) against the FCB's current extent.
         SUB (HL)
         ; Extent differs -> must reposition the directory to the new extent.
         JP NZ,BDOS_SEEK_REPOSITION
-        ; Offset 14 = FCB S2 (module) byte.
-        LD HL,$000E
+        ; the FCB's S2 (module) byte
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,B
         ; Compare target S2 (B) against the FCB's current S2.
@@ -3561,13 +3565,13 @@ BDOS_SEEK_REPOSITION:
         INC A
         ; Create/allocate mode -> take the extent-allocate path.
         JP Z,FCB_EXTENT_TO_TRKSEC_7
-        ; Offset 12 = FCB extent (EX) byte.
-        LD HL,$000C
+        ; the FCB's EX (extent) byte
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         ; Store the new target extent into the FCB.
         LD (HL),C
         ; Offset 14 = FCB S2 byte.
-        LD HL,$000E
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         ; Store the new target S2 (module) into the FCB.
         LD (HL),B
@@ -3730,7 +3734,7 @@ FCB_ALLOC_PREP:
         LD C,(HL)
         LD B,$00
         ; offset $0C = FCB extent (ex) byte
-        LD HL,$000C
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD A,(HL)
         RRCA
@@ -3747,7 +3751,7 @@ FCB_ALLOC_PREP:
         ADD A,B
         LD B,A
         ; offset $0E = FCB S2 byte (extent-high / module)
-        LD HL,$000E
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,(HL)
         ; first of four ADD A,A: shift S2 left to form the high record bits
@@ -3789,8 +3793,8 @@ FCB_ALLOC_BLOCK_NUM_2:
         ; begin a masked directory search over those 12 bytes
         CALL DIR_SEARCH_FIRST
         LD HL,(BDOS_PARAM_PTR)
-        ; offset $21 = FCB random-record field r0 (D=0 used to zero the bytes)
-        LD DE,$0021
+        ; the FCB's random-record field r0 (D=0 used to zero the bytes)
+        LD DE,FCB.R0
         ADD HL,DE
         PUSH HL
         ; r0 := 0 (zero the 3-byte running maximum)
@@ -3907,7 +3911,7 @@ F_RANDREC_H:
         CALL FCB_ALLOC_PREP
         ; field r0,r1,r2
         ; HL = $0021; the next ADD HL,DE makes HL = FCB + $21, the start of the 3-byte random-record
-        LD HL,$0021
+        LD HL,FCB.R0
         ADD HL,DE
         ; store r0 (record number, low byte)
         LD (HL),C

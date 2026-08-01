@@ -1401,7 +1401,7 @@ BLOCK_BASE_RECORD_17_1:
 ; ----------------------------------------------------------------------
 FCB_PTR_EXTENT:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000C
+        LD DE,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         RET
 ; ----------------------------------------------------------------------
@@ -1414,10 +1414,10 @@ FCB_PTR_EXTENT:
 ; ----------------------------------------------------------------------
 FCB_PTR_RC_CR:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000F
+        LD DE,FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         EX DE,HL
-        LD HL,$0011
+        LD HL,FCB.CR - FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         RET
 ; ----------------------------------------------------------------------
@@ -1595,7 +1595,7 @@ FCB_RO_FLAG_TEST:
 ; CHECK_DIRENT_READONLY_INNER -- inner entry of FCB_RO_FLAG_TEST (HL already on the directory entry). [RE]
 ; ----------------------------------------------------------------------
 CHECK_DIRENT_READONLY_INNER:
-        LD DE,$0009
+        LD DE,DIRECTORY_ENTRY.FT
         ADD HL,DE
         LD A,(HL)
         RLA
@@ -1645,7 +1645,7 @@ DIRENT_PTR_ADD:
 ; ----------------------------------------------------------------------
 FCB_GET_S2:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000E
+        LD DE,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,(HL)
         RET
@@ -2423,10 +2423,10 @@ FILE_SIZE_FROM_EXTENT:
         LDIR
         CALL MARK_FCB_S2_HIGHBIT
         POP DE
-        LD HL,$000C
+        LD HL,DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD C,(HL)
-        LD HL,$000F
+        LD HL,DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD B,(HL)
         POP HL
@@ -2441,7 +2441,7 @@ FILE_SIZE_FROM_EXTENT:
         LD A,$80
 FILE_SIZE_STORE:
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$000F
+        LD DE,FCB.DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD (HL),A
         RET
@@ -2493,9 +2493,12 @@ F_CLOSE_HND:
         CALL DIR_SEARCH_FIRST
         CALL CUR_RECORD_BYTES_EQUAL
         RET Z
-        ; UNCLASSIFIED: +$10 into the directory entry on the rename path. Not traced
-        ; to a field, so kept literal rather than guessed at.
-        LD BC,$0010
+        ; The allocation map, +$10 into BOTH structures. BC is set once and reused for a
+        ; DIRECTORY ENTRY (via FCB_BUF_PTR_ADD_OFFSET) and then for the FCB, which is
+        ; correct precisely because an FCB embeds a directory entry at offset 0, so
+        ; DIRECTORY_ENTRY.AL and FCB.DIRECTORY_ENTRY.AL are the same number. The two
+        ; pointers are then compared map byte by map byte.
+        LD BC,DIRECTORY_ENTRY.AL
         CALL FCB_BUF_PTR_ADD_OFFSET
         ADD HL,BC
         EX DE,HL
@@ -2547,7 +2550,8 @@ FCB_MERGE_NEXT:
         CP (HL)
         JR C,FCB_MERGE_FINISH
         LD (HL),A
-        LD BC,$0003
+        ; step from EX to RC, as arithmetic on the field names
+        LD BC,DIRECTORY_ENTRY.RC - DIRECTORY_ENTRY.EX
         ADD HL,BC
         EX DE,HL
         ADD HL,BC
@@ -2586,7 +2590,7 @@ DIR_MAKE_ENTRY:
         LD (BDOS_PARAM_PTR),HL
         RET Z
         EX DE,HL
-        LD HL,$000F
+        LD HL,DIRECTORY_ENTRY.RC
         ADD HL,DE
         LD C,$11
         XOR A
@@ -2595,7 +2599,7 @@ DIR_ZERO_ALLOC:
         INC HL
         DEC C
         JR NZ,DIR_ZERO_ALLOC
-        LD HL,$000D
+        LD HL,DIRECTORY_ENTRY.S1
         ADD HL,DE
         LD (HL),A
         CALL RECPTR_INC_STORE
@@ -2905,7 +2909,7 @@ BDOS_SEEK_COMPUTE:
         PUSH BC
         LD HL,(BDOS_PARAM_PTR)
         EX DE,HL
-        LD HL,$0021
+        LD HL,FCB.R0
         ADD HL,DE
         LD A,(HL)
         AND $7F
@@ -2931,15 +2935,15 @@ BDOS_SEEK_COMPUTE:
         DEC L
         LD L,$06
         JR NZ,RANDREC_POS_RET
-        LD HL,$0020
+        LD HL,FCB.CR
         ADD HL,DE
         LD (HL),A
-        LD HL,$000C
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD A,C
         SUB (HL)
         JR NZ,BDOS_SEEK_REPOSITION
-        LD HL,$000E
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,B
         SUB (HL)
@@ -2955,10 +2959,10 @@ BDOS_SEEK_REPOSITION:
         LD A,(BDOS_RETVAL)
         INC A
         JR Z,BDOS_SEEK_COMPUTE_3
-        LD HL,$000C
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD (HL),C
-        LD HL,$000E
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD (HL),B
         CALL FILE_OPEN_SEARCH
@@ -3041,7 +3045,7 @@ FCB_ALLOC_PREP:
         ADD HL,DE
         LD C,(HL)
         LD B,$00
-        LD HL,$000C
+        LD HL,FCB.DIRECTORY_ENTRY.EX
         ADD HL,DE
         LD A,(HL)
         RRCA
@@ -3056,7 +3060,7 @@ FCB_ALLOC_PREP:
         AND $0F
         ADD A,B
         LD B,A
-        LD HL,$000E
+        LD HL,FCB.DIRECTORY_ENTRY.S2
         ADD HL,DE
         LD A,(HL)
         ADD A,A
@@ -3088,7 +3092,7 @@ F_COMPSIZE_BODY:
         LD C,$0C
         CALL DIR_SEARCH_FIRST
         LD HL,(BDOS_PARAM_PTR)
-        LD DE,$0021
+        LD DE,FCB.R0
         ADD HL,DE
         PUSH HL
         LD (HL),D
@@ -3140,7 +3144,7 @@ BDOS_F_RANDREC:
         LD HL,(BDOS_PARAM_PTR)
         LD DE,$0020
         CALL FCB_ALLOC_PREP
-        LD HL,$0021
+        LD HL,FCB.R0
         ADD HL,DE
         LD (HL),C
         INC HL
