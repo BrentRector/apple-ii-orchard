@@ -1365,3 +1365,87 @@ now two of those in this thread.
   mechanism is documented; the hazard is documented nowhere. Absence of a report is not absence of
   the failure, and I would not assert either way in print.
 * `CAT.asm`, `PATCH.asm`, `AUTORUN.asm` never examined.
+
+---
+
+# Part 8, 2026-07-31: a naming sweep. No finding changes
+
+Commit `9f91f57`. Gates: `softcard/ shared/` and the whole repo both **1121 passed / 1 skipped**
+(they are the same set; `apple-ii/` ships no test files, which CLAUDE.md had wrong). Byte-identical.
+
+**Nothing in Part 7 changes.** Every finding, figure and quote stands. This part exists for three
+things: one label correction you might quote, one methodology note worth having, and one honest
+addition to the annotation-tier tally.
+
+## 1. If you quote register/cell names from the repo, they changed
+
+The page-3 IOB cells had **three competing vocabularies** across the sources, for the same eight
+addresses. `include/apple_softcard.inc` is the repo's declared single source of truth for exactly
+these external names, and both files I touched were ignoring it. Worse, in `25f94e3` I minted a
+fourth set (`IOB_*`) rather than using the shared one.
+
+All local blocks are now deleted and everything uses the shared names:
+
+```
+DSK_TRACK $F3E0   DSK_SECTOR $F3E1   DSK_DRIVE $F3E4   DSK_SLOT      $F3E6
+DSK_BUFFER $F3E8  DSK_BUFFER_HI $F3E9  DSK_STATUS $F3EA  DSK_COMMAND $F3EB
+```
+
+So `IOB_TRACK` in Parts 5 and 7 is now `DSK_TRACK`, and so on. The addresses and the analysis are
+unchanged; only the labels moved.
+
+**One cell was genuinely disputed and is now settled by measurement.** `$F3E6` was called a
+"volume cell" in one file and a "drive letter glyph" in another. It holds **`$60` = slot 6 << 4**
+on every call across a boot, a `DIR` and a `STAT`, so the shared header's `DSK_SLOT` is correct
+and both local names were wrong. The drive glyph that made the second reading tempting is computed
+two instructions later and stored to `$0284`.
+
+## 2. The methodology note, and it is a good one for the byte-identical theme
+
+Adding the shared include broke the 60K build, and **the way it broke is the interesting part**.
+
+sjasmplus does not fail on an unresolved symbol. It resolves it to **0** and assembles happily. So
+when the include was not staged, the build emitted fourteen bytes of `$0000` where the reference
+had `$F3E4`, `$F3E6`, `$F3EB`, `$F3E9`. Plausible-looking wrong bytes, produced silently, from a
+source file that is itself completely correct.
+
+The byte-identical gate caught it immediately, which is the system working. But chasing it surfaced
+something weaker underneath: `regenerate._assemble_savebin` had been assembling checked-in sources
+**without their includes**, in a bare temp directory. Any source that depends on a shared header
+was being cross-checked in a build that could not see it. It happened not to matter until a file
+started using one. Fixed: the helper now stages includes, and the 60K build stages
+`apple_softcard.inc`.
+
+If you want a concrete line for the article's "byte-identical is the floor" argument, this is a
+sharper one than the skew story, because it cuts the other way: the gate is what *caught* a silent
+wrong-byte emission that no amount of reading the source would have revealed. The gate is not the
+weak link. The weak link is a cross-check that quietly tests less than it appears to.
+
+## 3. The annotation tally, honestly updated
+
+Seven more wrong names, and **three of them were mine**, introduced in `25f94e3` while fixing other
+wrong names.
+
+| Cell | Wrong name found | Correct |
+|---|---|---|
+| `$F3E0` | "sector" | track |
+| `$F3E4` | "track" | drive select |
+| `$F3E9` | "starting track" | buffer-pointer high byte |
+| `$F3EB` | "sector count" | command (2 = write) |
+| `$F3E6` | "volume cell" (mine) / "drive letter glyph" | slot << 4 |
+
+So the running count you keep: `[AI]` wrong seven times, `[RE]` now more than five, and three
+separate corrections of mine that themselves needed correcting. I would not soften that if you
+write about the tiers. The pattern is not "the machine tier is bad and review fixes it"; it is that
+**every** tier produces confident wrong names, and the only things that have reliably settled a
+question in this thread are running the code and reading a shipped error message.
+
+## 4. One new open item
+
+`SCR_D6` in `CPM_BootLoader_DiskXlate.asm` is documented as "current track scratch" but reads
+`$A9` at runtime, which is not a track. I do not know what it is, so it is marked UNKNOWN rather
+than renamed. Not article-relevant; noted so it is not lost.
+
+Everything else in this pass is repo housekeeping with no bearing on the write-up: include guards
+on the two shared headers, include staging in two build paths, and a corrected gate note in
+CLAUDE.md.
