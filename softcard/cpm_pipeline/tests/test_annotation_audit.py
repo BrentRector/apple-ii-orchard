@@ -149,3 +149,46 @@ def test_no_bdos_function_misdescriptions():
         "a BDOS function number is described as a different function:\n  "
         + "\n  ".join(f"{f}:{ln}  {fn} is really {truth}\n      {txt}"
                       for f, ln, fn, truth, txt in hits))
+
+
+# ── audits 5 and 6: the two cross-tree shapes audit 3 cannot see ─────────
+
+def test_audit5_catches_unknown_resolved_in_another_tree():
+    """The '$' SUBMIT probe: 44K said UNKNOWN, the 60K twin already explained it."""
+    from cpm_pipeline.annotation_audit import _GAVE_UP
+    hedged = ("[?] the compare against (BDOS_STACK_TOP) then the $24 ('$') name-byte "
+              "test and (BDOS_RETVAL) store is a special-entry path; its exact intent "
+              "is UNKNOWN.")
+    answered = ("for each entry skip deleted ($E5) ones, run a special-entry check "
+                "against the current user byte and the '$' name byte")
+    assert _GAVE_UP.search(hedged), "audit 5 no longer recognises a hedge"
+    assert not _GAVE_UP.search(answered), "audit 5 now treats an answer as a hedge"
+
+
+def test_audit6_catches_the_extent_mislabel():
+    """Both 44K BDOSes called FCB offset 12 the current-record byte; the 60K did not."""
+    from cpm_pipeline.annotation_audit import _offset_nouns
+    pre_44k = _offset_nouns("bump the FCB current-record byte (offset 12) and wrap it mod 32")
+    pre_60k = _offset_nouns("bump the FCB extent byte (offset $0C) mod 32")
+    assert pre_44k.get(12), "audit 6 failed to read the 44K claim"
+    assert pre_60k.get(12), "audit 6 failed to read the 60K claim"
+    assert not (pre_44k[12] & pre_60k[12]), (
+        "audit 6 would not have flagged the EX mislabel: "
+        f"{sorted(pre_44k[12])} vs {sorted(pre_60k[12])}")
+
+
+def test_audit6_treats_a_paraphrase_as_agreement():
+    """'block pointer map' and 'block map' are one field described twice."""
+    from cpm_pipeline.annotation_audit import _offset_nouns
+    a = _offset_nouns("the block pointer map at offset 16 of the entry")
+    b = _offset_nouns("the 16-byte block map at directory-entry offset 16")
+    shared = set(" ".join(a[16]).split()) & set(" ".join(b[16]).split())
+    assert shared, "paraphrases must share a word, or audit 6 reports every rewording"
+
+
+def test_no_offset_noun_disagreements():
+    from cpm_pipeline.annotation_audit import audit_offset_noun_disagreement
+    hits = audit_offset_noun_disagreement()
+    assert hits == [], (
+        "trees disagree about what a structure offset is:\n  "
+        + "\n  ".join(f"{lab} offset {off}: {claims}" for lab, off, claims in hits))

@@ -187,6 +187,31 @@ _POLAR = [("ready", "not ready"), ("in use", "free"),
           ("enabled", "disabled"), ("present", "absent")]
 
 
+def _headers_by_label(max_lines: int = 10):
+    """label -> {tree: the comment block directly above it}, across the OS sources.
+
+    Shared by the cross-tree audits. Each asks a different question of the same
+    harvest: audit 3 whether two trees assert opposite STATES, audit 5 whether one
+    tree gave up where another did not, audit 6 whether they disagree about what a
+    numbered structure offset is.
+    """
+    described = defaultdict(dict)
+    for tree in _TREES:
+        for p in (SOFTCARD / tree / "os").rglob("*.asm"):
+            src = p.read_text(encoding="utf-8", errors="replace").split(chr(10))
+            for n, line in enumerate(src):
+                m = _LABEL.match(line)
+                if not m:
+                    continue
+                blk, j = [], n - 1
+                while j >= 0 and src[j].lstrip().startswith(";") and len(blk) < max_lines:
+                    blk.append(src[j].lstrip(" ;").strip())
+                    j -= 1
+                if blk:
+                    described[m.group(1)].setdefault(tree, " ".join(reversed(blk)))
+    return described
+
+
 def audit_cross_tree_contradiction():
     """A label shared by several trees whose descriptions assert opposite things.
 
@@ -194,20 +219,7 @@ def audit_cross_tree_contradiction():
     list device was READY, the 44K trees said $00 meant NOT ready. Both cannot
     be true of the same two bytes.
     """
-    described = defaultdict(dict)          # label -> {tree: header text}
-    for tree in _TREES:
-        for p in (SOFTCARD / tree / "os").rglob("*.asm"):
-            lines = p.read_text(encoding="utf-8", errors="replace").split("\n")
-            for n, line in enumerate(lines):
-                m = _LABEL.match(line)
-                if not m:
-                    continue
-                blk, j = [], n - 1
-                while j >= 0 and lines[j].lstrip().startswith(";") and len(blk) < 10:
-                    blk.append(lines[j].lstrip(" ;").strip())
-                    j -= 1
-                if blk:
-                    described[m.group(1)].setdefault(tree, " ".join(reversed(blk)))
+    described = _headers_by_label()
 
     hits = []
     for label, per_tree in sorted(described.items()):
@@ -279,6 +291,113 @@ def audit_bdos_function_misdescription(paths=None):
     return hits
 
 
+
+# ── audit 5: one tree gave up where another had the answer ──────────────
+
+_GAVE_UP = re.compile(r"\[\?\]|UNKNOWN|exact (?:purpose|intent)|"
+                      r"not determinable|could not (?:be )?determine", re.I)
+
+
+def audit_unknown_resolved_elsewhere():
+    """A label marked unknown in one tree and explained in another.
+
+    This is the check that would have caught the '$' SUBMIT probe. Both 44K
+    BDOSes carried "[?] ... its exact intent is UNKNOWN" on ALLOC_VECTOR_BUILD
+    while the 60K twin's header already said the test was "against the current
+    user". Audit 3 could not see it: the trees did not assert opposite STATES,
+    one simply stopped where the other kept going.
+
+    Every hit is free information -- the answer is already in the repository.
+    """
+    hits = []
+    for label, per_tree in sorted(_headers_by_label().items()):
+        if len(per_tree) < 2:
+            continue
+        gave_up = {tr for tr, txt in per_tree.items() if _GAVE_UP.search(txt)}
+        # "answers" means a substantive header that does not itself hedge
+        answers = {tr for tr, txt in per_tree.items()
+                   if tr not in gave_up and len(txt) > 60}
+        if gave_up and answers:
+            hits.append((label, sorted(gave_up), sorted(answers),
+                         per_tree[sorted(answers)[0]][:140]))
+    return hits
+
+
+# ── audit 6: the trees disagree about what an offset IS ─────────────────
+
+# The corpus writes the noun BEFORE the offset far more often than after:
+#   "bump the FCB current-record byte (offset 12) and wrap it mod 32"
+#   "the 16-byte block map at directory-entry offset $10"
+# so capture up to three words on either side and let the caller compare sets.
+_OFF_BEFORE = re.compile(
+    r"([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){0,2})\s*\(?\s*"
+    r"(?:at\s+)?offset\s+(\$?[0-9A-Fa-f]{1,2})", re.I)
+_OFF_AFTER = re.compile(
+    r"offset\s+(\$?[0-9A-Fa-f]{1,2})\s*(?:=|is|,|->)\s*(?:the\s+)?"
+    r"([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){0,2})", re.I)
+_STOPWORDS = {"and", "the", "of", "in", "to", "a", "an", "at", "on", "for", "with",
+              "as", "from", "byte", "bytes", "field", "fields", "its", "this",
+              "that", "it", "is", "are", "wrap", "bump", "step", "go", "open",
+              # structure names, not field nouns: two trees both saying "FCB" agree
+              # about nothing, so they must not mask a disagreement about the field
+              "fcb", "dir", "directory", "entry", "then", "read", "copy", "called",
+              "twins", "k"}
+
+
+def _parse_off(tok: str) -> int:
+    return int(tok[1:], 16) if tok.startswith("$") else int(tok, 10)
+
+
+def _offset_nouns(text: str) -> dict:
+    """{offset: {noun phrases this text says live there}}, filler words removed."""
+    out = defaultdict(set)
+    for rx, noun_first in ((_OFF_BEFORE, True), (_OFF_AFTER, False)):
+        for m in rx.finditer(text):
+            noun = m.group(1) if noun_first else m.group(2)
+            tok = m.group(2) if noun_first else m.group(1)
+            try:
+                off = _parse_off(tok)
+            except ValueError:
+                continue
+            words = [w for w in re.split(r"[\s-]+", noun.lower()) if w not in _STOPWORDS]
+            if words:
+                out[off].add(" ".join(words))
+    return out
+
+
+def audit_offset_noun_disagreement():
+    """Two trees naming the SAME structure offset as two different things.
+
+    The check that would have caught the EX mislabel: both 44K BDOSes called FCB
+    offset 12 "the current-record byte" while the 60K twin called it "the extent
+    byte". Audit 3 missed it because the trees disagreed about a NOUN, not about
+    a state, and audit 5 missed it because neither tree hedged -- both were
+    confident and one was wrong.
+
+    Over-reports by design; two trees can legitimately describe one offset in
+    different words. A human decides.
+    """
+    hits = []
+    for label, per_tree in sorted(_headers_by_label().items()):
+        if len(per_tree) < 2:
+            continue
+        by_tree = {tr: _offset_nouns(txt) for tr, txt in per_tree.items()}
+        offsets = set().union(*(d.keys() for d in by_tree.values())) if by_tree else set()
+        for off in sorted(offsets):
+            claims = {tr: d[off] for tr, d in by_tree.items() if d.get(off)}
+            if len(claims) < 2:
+                continue
+            allw = [w for s in claims.values() for w in s]
+            # Compare at WORD level, not whole phrase: "block pointer map" and
+            # "block map" are the same field described twice, and demanding an
+            # exact phrase match reports every paraphrase. A disagreement is two
+            # trees sharing NO significant word about the same offset.
+            wordsets = [set(" ".join(s).split()) for s in claims.values()]
+            if not set.intersection(*wordsets) and len(set(allw)) > 1:
+                hits.append((label, off, {tr: sorted(s) for tr, s in claims.items()}))
+    return hits
+
+
 def main():
     paths = sources()
     print(f"scanned {len(paths)} .asm files under softcard/\n")
@@ -303,7 +422,23 @@ def main():
     for f, ln, fn, truth, txt in h4:
         print(f"   {f}:{ln}  {fn} is {truth}\n      {txt}")
 
-    print(f"\ntotal candidates: {len(h1) + len(h2) + len(h3) + len(h4)} "
+    h5 = audit_unknown_resolved_elsewhere()
+    print("")
+    print(f"== 5. marked unknown in one tree, explained in another: {len(h5)} ==")
+    for label, gave, ans, txt in h5:
+        print(f"   {label}: {gave} hedge; {ans} explain")
+        print(f"      {txt}")
+
+    h6 = audit_offset_noun_disagreement()
+    print("")
+    print(f"== 6. trees disagree about what an offset is: {len(h6)} ==")
+    for label, off, claims in h6:
+        detail = "; ".join(f"{tr}={sorted(s)}" for tr, s in claims.items())
+        print(f"   {label} offset {off}: {detail}")
+
+    print("")
+    total = len(h1) + len(h2) + len(h3) + len(h4) + len(h5) + len(h6)
+    print(f"total candidates: {total} "
           f"(all require human judgement; none is auto-corrected)")
 
 
