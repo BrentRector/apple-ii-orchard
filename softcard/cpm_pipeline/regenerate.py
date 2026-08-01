@@ -560,16 +560,23 @@ _BIOS_60K_ORG = 0xFA00
 _BIOS_60K_LEN = 0x0600
 
 
-def _assemble_savebin(text: str) -> bytes:
+def _assemble_savebin(text: str, includes: "tuple[Path, ...]" = ()) -> bytes:
     """Assemble a source carrying a literal ``SAVEBIN "name", org, len`` and
     return the emitted bytes (b"" on failure). Unlike assemble_z80 -- which
     substitutes a ``{out_bin}`` placeholder -- this reads back the file the
-    source's own SAVEBIN names, so it works on a checked-in source as-is."""
+    source's own SAVEBIN names, so it works on a checked-in source as-is.
+
+    ``includes`` are staged alongside the source so a checked-in file that
+    INCLUDEs a shared EQU header assembles here exactly as it does in the real
+    build. Without them sjasmplus resolves the missing names to 0 and emits
+    plausible-looking wrong bytes rather than failing."""
     m = re.search(r'SAVEBIN\s+"([^"]+)"', text)
     if not m:
         return b""
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)
+        for inc in includes:
+            shutil.copy(inc, td / Path(inc).name)
         (td / "r.asm").write_text(text, encoding="utf-8")
         subprocess.run(["sjasmplus", "r.asm"], cwd=str(td), capture_output=True, text=True)
         out = td / m.group(1)

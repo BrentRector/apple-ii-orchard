@@ -515,22 +515,25 @@ Current file: CPM_BootLoader.s
 000C39  1               ;   >>> CPM_BootLoader_DiskXlate.asm -- verbatim listing of the INCBIN'd source (regen: inject_incbin_listing) >>>
 000C39  1               ;
 000C39  1               ; ; -- page-3 IOB mirror (Z-80 $F3xx = Apple $03xx) --
-000C39  1               ; IOB_TRACK   EQU $F3E0        ; IOB TRACK cell (Apple $03E0); $03E1 = sector. Verified against
-000C39  1               ;                              ;   the shipped RWTS (RWTS_MAIN reads $03E0 track / $03E1 sector)
-000C39  1               ;                              ;   and at runtime. An earlier EQU called $03E0 the sector.
-000C39  1               ; IOB_DRIVE   EQU $F3E4        ; IOB DRIVE-select cell (Apple $03E4), 1 or 2. NOT the track;
-000C39  1               ;                              ;   an earlier EQU called it the track cell.
-000C39  1               ; IOB_VOL     EQU $F3E6        ; IOB volume cell (Apple $03E6)
-000C39  1               ; IOB_BUF     EQU $F3E8        ; IOB buffer pointer (Apple $03E8/$03E9)
-000C39  1               ; IOB_CMD     EQU $F3EB        ; IOB command cell (Apple $03EB)
-000C39  1               ; IOB_RETCODE EQU $F3EA        ; IOB return-code cell (Apple $03EA)
+000C39  1               ; ; These are SHARED external names: defined once in include/apple_softcard.inc and INCLUDEd
+000C39  1               ; ; here, not re-derived locally. This file previously minted its own IOB_* set, two of which
+000C39  1               ; ; were wrong ($03E0 called the sector, $03E4 called the track) and one of which contradicted
+000C39  1               ; ; the shared header ($03E6 called a volume cell; it is the SLOT, see below).
+000C39  1               ;     INCLUDE "apple_softcard.inc"
+000C39  1               ; ;   DSK_TRACK  $F3E0   DSK_SECTOR $F3E1   DSK_DRIVE  $F3E4   DSK_SLOT   $F3E6
+000C39  1               ; ;   DSK_BUFFER $F3E8   DSK_BUFFER_HI $F3E9   DSK_STATUS $F3EA   DSK_COMMAND $F3EB
+000C39  1               ; ; DSK_TRACK/DSK_SECTOR verified against the shipped RWTS (RWTS_MAIN reads $03E0 as the track
+000C39  1               ; ; and $03E1 as the sector) and at runtime. DSK_SLOT observed to hold $60 = slot 6 << 4 on
+000C39  1               ; ; every call; the arithmetic that builds it here is the same sequence CPM60_installer.asm
+000C39  1               ; ; uses, and the drive LETTER it was once confused with is written elsewhere.
 000C39  1               ;
 000C39  1               ; ; -- Z-80 BIOS disk scratch ($FExx) --
 000C39  1               ; REQ_TRACK   EQU $FED1        ; requested TRACK (observed 3 for the directory, 35 for block 128).
 000C39  1               ;                              ;   An earlier EQU called this the requested sector.
 000C39  1               ; REQ_RECORD  EQU $FED2        ; requested RECORD index within the track. An earlier EQU called
 000C39  1               ;                              ;   this the requested track; they were transposed.
-000C39  1               ; SCR_D6      EQU $FED6        ; current track scratch
+000C39  1               ; SCR_D6      EQU $FED6        ; UNKNOWN. Called 'current track scratch', but it reads
+000C39  1               ;                              ;   $A9 at runtime, which is not a track. Left named as found.
 000C39  1               ; SCR_D7      EQU $FED7        ; saved current track
 000C39  1               ; SCR_D8      EQU $FED8        ; first-call flag
 000C39  1               ; SCR_D9      EQU $FED9        ; pending-reseek flag
@@ -627,7 +630,7 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         LD A,L                           ; $BCA9  7D
 000C39  1               ;         CP H                             ; $BCAA  BC
 000C39  1               ;         JR NZ,SM_DOFLUSH                 ; $BCAB  20 0D
-000C39  1               ;         LD HL,(IOB_TRACK)               ; $BCAD  2A E0 F3
+000C39  1               ;         LD HL,(DSK_TRACK)               ; $BCAD  2A E0 F3
 000C39  1               ;         LD A,(REQ_TRACK)                    ; $BCB0  3A D1 FE
 000C39  1               ;         CP L                             ; $BCB3  BD
 000C39  1               ;         JR NZ,SM_DOFLUSH                 ; $BCB4  20 04
@@ -644,7 +647,7 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         LD B,A                           ; $BCC7  47
 000C39  1               ;         AND $01                          ; $BCC8  E6 01
 000C39  1               ;         INC A                            ; $BCCA  3C
-000C39  1               ;         LD (IOB_DRIVE),A                 ; $BCCB  32 E4 F3
+000C39  1               ;         LD (DSK_DRIVE),A                 ; $BCCB  32 E4 F3
 000C39  1               ;         LD A,B                           ; $BCCE  78
 000C39  1               ;         AND $0E                          ; $BCCF  E6 0E
 000C39  1               ;         ADD A,A                          ; $BCD1  87
@@ -652,7 +655,7 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         ADD A,A                          ; $BCD3  87
 000C39  1               ;         CPL                              ; $BCD4  2F
 000C39  1               ;         ADD A,$61                        ; $BCD5  C6 61
-000C39  1               ;         LD (IOB_VOL),A                   ; $BCD7  32 E6 F3
+000C39  1               ;         LD (DSK_SLOT),A                   ; $BCD7  32 E6 F3
 000C39  1               ; ; ----------------------------------------------------------------------------
 000C39  1               ; ; THE $8B TRACK FOLD -- blocks 128-139 are ALIASED ONTO THE SYSTEM TRACKS 0-2.
 000C39  1               ; ;
@@ -748,7 +751,7 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         LD L,A                           ; $BCEC  6F
 000C39  1               ; SM_STORE:
 000C39  1               ;         LD H,C                           ; $BCED  61
-000C39  1               ;         LD (IOB_TRACK),HL               ; $BCEE  22 E0 F3
+000C39  1               ;         LD (DSK_TRACK),HL               ; $BCEE  22 E0 F3
 000C39  1               ;         LD A,(SCR_DC)                    ; $BCF1  3A DC FE
 000C39  1               ;         OR A                             ; $BCF4  B7
 000C39  1               ;         CALL NZ,BIOS_FLUSH               ; $BCF5  C4 2C AD
@@ -787,12 +790,12 @@ Current file: CPM_BootLoader.s
 000C39  1               ;         LD (SCR_D9),A                    ; $BD26  32 D9 FE   clear reseek flag
 000C39  1               ;         LD A,$02                         ; $BD29  3E 02
 000C39  1               ;         LD HL,$013E                      ; $BD2B  21 3E 01
-000C39  1               ;         LD (IOB_CMD),A                   ; $BD2E  32 EB F3   command = read
+000C39  1               ;         LD (DSK_COMMAND),A                   ; $BD2E  32 EB F3   command = read
 000C39  1               ;         LD HL,$0800                      ; $BD31  21 00 08
-000C39  1               ;         LD (IOB_BUF),HL                  ; $BD34  22 E8 F3   buffer = $0800
+000C39  1               ;         LD (DSK_BUFFER),HL                  ; $BD34  22 E8 F3   buffer = $0800
 000C39  1               ;         LD HL,$0E03                      ; $BD37  21 03 0E
 000C39  1               ;         CALL BIOS_RWTS                   ; $BD3A  CD C3 FE   issue the read
-000C39  1               ;         LD A,(IOB_RETCODE)               ; $BD3D  3A EA F3
+000C39  1               ;         LD A,(DSK_STATUS)               ; $BD3D  3A EA F3
 000C39  1               ;         OR A                             ; $BD40  B7
 000C39  1               ;         RET Z                            ; $BD41  C8         ok -> return
 000C39  1               ;         POP DE                           ; $BD42  D1

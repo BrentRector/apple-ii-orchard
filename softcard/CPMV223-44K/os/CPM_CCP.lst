@@ -28,72 +28,78 @@
   13+ 0000              ; these vectors as its own labels should not also pull in this base-page section.
   14+ 0000
   15+ 0000              ; ---- base page (transient-program view) ----------------------------------------
-  16+ 0000              WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
-  17+ 0000              IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
-  18+ 0000              CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
-  19+ 0000              BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
-  20+ 0000              RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
-  21+ 0000              RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
-  22+ 0000              TFCB        EQU $005C      ; default FCB parsed from the command tail
-  23+ 0000              TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
-  24+ 0000              TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
-  25+ 0000              CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
-  26+ 0000              TPA         EQU $0100      ; transient program area / load address
-  27+ 0000
-  28+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
-  29+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
-  30+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
-  31+ 0000              C_WRITE     EQU 2          ; console output (E = char)
-  32+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
-  33+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
-  34+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
-  35+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
-  36+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
-  37+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
-  38+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
-  39+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
-  40+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
-  41+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
-  42+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
-  43+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
-  44+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
-  45+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
-  46+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
-  47+ 0000              F_SNEXT     EQU 18         ; search for next
-  48+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
-  49+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
-  50+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
-  51+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
-  52+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
-  53+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
-  54+ 0000              DRV_GET     EQU 25         ; return current drive -> A
-  55+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
-  56+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
-  57+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
-  58+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
-  59+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
-  60+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
-  61+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
-  62+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
-  63+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
-  64+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
-  65+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
-  66+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
-  67+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
-  68+ 0000
-  69+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
-  70+ 0000              FCB_DR      EQU 0          ; drive code (0 = default, 1..16 = A..P)
-  71+ 0000              FCB_F       EQU 1          ; filename (8 bytes, space-padded)
-  72+ 0000              FCB_T       EQU 9          ; filetype (3 bytes; hi bits = R/O, SYS, archive)
-  73+ 0000              FCB_EX      EQU 12         ; current extent
-  74+ 0000              FCB_S1      EQU 13         ; reserved
-  75+ 0000              FCB_S2      EQU 14         ; reserved (extent high)
-  76+ 0000              FCB_RC      EQU 15         ; record count for the current extent (0..128)
-  77+ 0000              FCB_CR      EQU 32         ; current record within the extent
-  78+ 0000              FCB_R0      EQU 33         ; random record number, low byte
-  79+ 0000              FCB_R1      EQU 34         ; random record number, middle byte
-  80+ 0000              FCB_R2      EQU 35         ; random record number, high byte (overflow)
-  81+ 0000
+  16+ 0000                  IFNDEF CPM22_INC
+  17+ 0000                  DEFINE CPM22_INC
+  18+ 0000
+  19+ 0000              WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
+  20+ 0000              IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
+  21+ 0000              CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
+  22+ 0000              BDOS        EQU $0005      ; BDOS entry vector: CALL BDOS with C=function, DE=arg
+  23+ 0000              RST2_VEC    EQU $0010      ; Z-80 RST 2 ($10) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  24+ 0000              RST4_VEC    EQU $0020      ; Z-80 RST 4 ($20) restart vector (8 bytes); CP/M leaves it for the app/debugger
+  25+ 0000              TFCB        EQU $005C      ; default FCB parsed from the command tail
+  26+ 0000              TFCB2       EQU $006C      ; second parsed FCB (overlaps TFCB+16)
+  27+ 0000              TBUFF       EQU $0080      ; default DMA buffer (128 B); also the command-tail buffer
+  28+ 0000              CMDLINE     EQU $0081      ; command-tail characters (TBUFF+1): $0080 = length, $0081+ = the upper-cased tail
+  29+ 0000              TPA         EQU $0100      ; transient program area / load address
+  30+ 0000
+  31+ 0000              ; ---- BDOS function numbers (register C) ----------------------------------------
+  32+ 0000              P_TERMCPM   EQU 0          ; system reset (return to CCP)
+  33+ 0000              C_READ      EQU 1          ; console input (echoed) -> A
+  34+ 0000              C_WRITE     EQU 2          ; console output (E = char)
+  35+ 0000              A_READ      EQU 3          ; reader (AUX) input -> A
+  36+ 0000              A_WRITE     EQU 4          ; punch (AUX) output (E = char)
+  37+ 0000              L_WRITE     EQU 5          ; list (printer) output (E = char)
+  38+ 0000              C_RAWIO     EQU 6          ; direct console I/O (E=$FF read / else write)
+  39+ 0000              A_STATIN    EQU 7          ; get IOBYTE -> A
+  40+ 0000              A_STATOUT   EQU 8          ; set IOBYTE (E = value)
+  41+ 0000              C_WRITESTR  EQU 9          ; print '$'-terminated string (DE -> string)
+  42+ 0000              C_READSTR   EQU 10         ; buffered console line input (DE -> buffer)
+  43+ 0000              C_STAT      EQU 11         ; console status -> A (0 = none ready)
+  44+ 0000              S_BDOSVER   EQU 12         ; return BDOS version -> HL
+  45+ 0000              DRV_ALLRESET EQU 13        ; reset disk system
+  46+ 0000              DRV_SET     EQU 14         ; select drive (E = 0=A..15=P)
+  47+ 0000              F_OPEN      EQU 15         ; open file (DE -> FCB)
+  48+ 0000              F_CLOSE     EQU 16         ; close file (DE -> FCB)
+  49+ 0000              F_SFIRST    EQU 17         ; search for first (DE -> FCB)
+  50+ 0000              F_SNEXT     EQU 18         ; search for next
+  51+ 0000              F_DELETE    EQU 19         ; delete file (DE -> FCB)
+  52+ 0000              F_READ      EQU 20         ; read sequential (DE -> FCB)
+  53+ 0000              F_WRITE     EQU 21         ; write sequential (DE -> FCB)
+  54+ 0000              F_MAKE      EQU 22         ; create file (DE -> FCB)
+  55+ 0000              F_RENAME    EQU 23         ; rename file (DE -> FCB)
+  56+ 0000              DRV_LOGINVEC EQU 24        ; return login vector -> HL
+  57+ 0000              DRV_GET     EQU 25         ; return current drive -> A
+  58+ 0000              F_DMAOFF    EQU 26         ; set DMA address (DE)
+  59+ 0000              DRV_ALLOCVEC EQU 27        ; return allocation vector -> HL
+  60+ 0000              DRV_SETRO   EQU 28         ; write-protect current drive
+  61+ 0000              DRV_ROVEC   EQU 29         ; return read-only vector -> HL
+  62+ 0000              F_ATTRIB    EQU 30         ; set file attributes (DE -> FCB)
+  63+ 0000              DRV_DPB     EQU 31         ; return DPB address -> HL
+  64+ 0000              F_USERNUM   EQU 32         ; get/set user number (E=$FF get / else set)
+  65+ 0000              F_READRAND  EQU 33         ; read random (DE -> FCB)
+  66+ 0000              F_WRITERAND EQU 34         ; write random (DE -> FCB)
+  67+ 0000              F_SIZE      EQU 35         ; compute file size (DE -> FCB)
+  68+ 0000              F_RANDREC   EQU 36         ; set random record (DE -> FCB)
+  69+ 0000              DRV_RESET   EQU 37         ; reset drives (DE = drive vector)
+  70+ 0000              F_WRITEZF   EQU 40         ; write random with zero fill (DE -> FCB)
+  71+ 0000
+  72+ 0000              ; ---- FCB field offsets (from the start of a 36-byte FCB) ------------------------
+  73+ 0000              FCB_DR      EQU 0          ; drive code (0 = default, 1..16 = A..P)
+  74+ 0000              FCB_F       EQU 1          ; filename (8 bytes, space-padded)
+  75+ 0000              FCB_T       EQU 9          ; filetype (3 bytes; hi bits = R/O, SYS, archive)
+  76+ 0000              FCB_EX      EQU 12         ; current extent
+  77+ 0000              FCB_S1      EQU 13         ; reserved
+  78+ 0000              FCB_S2      EQU 14         ; reserved (extent high)
+  79+ 0000              FCB_RC      EQU 15         ; record count for the current extent (0..128)
+  80+ 0000              FCB_CR      EQU 32         ; current record within the extent
+  81+ 0000              FCB_R0      EQU 33         ; random record number, low byte
+  82+ 0000              FCB_R1      EQU 34         ; random record number, middle byte
+  83+ 0000              FCB_R2      EQU 35         ; random record number, high byte (overflow)
+  84+ 0000
+  85+ 0000
+  86+ 0000                  ENDIF
+  87+ 0000
 # file closed: cpm22.inc
   14  0000                  INCLUDE "cpm_system_223.inc"
 # file opened: cpm_system_223.inc

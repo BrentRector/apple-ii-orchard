@@ -77,7 +77,7 @@ SOURCES_223: dict[str, ChunkSource | Path] = {
             ("CPM_BootLoader_ProbeOvl.bin",
              OS223_44K / "CPM_BootLoader_ProbeOvl.asm", ()),
             ("CPM_BootLoader_DiskXlate.bin",
-             OS223_44K / "CPM_BootLoader_DiskXlate.asm", ()),
+             OS223_44K / "CPM_BootLoader_DiskXlate.asm", (SOFTCARD_INC,)),
         ),
     ),
     # NOTE: there is no separate CPM223_RWTS / CPM223_InstallFragments source.

@@ -29,22 +29,25 @@
     DEVICE NOSLOT64K
 
 ; -- page-3 IOB mirror (Z-80 $F3xx = Apple $03xx) --
-IOB_TRACK   EQU $F3E0        ; IOB TRACK cell (Apple $03E0); $03E1 = sector. Verified against
-                             ;   the shipped RWTS (RWTS_MAIN reads $03E0 track / $03E1 sector)
-                             ;   and at runtime. An earlier EQU called $03E0 the sector.
-IOB_DRIVE   EQU $F3E4        ; IOB DRIVE-select cell (Apple $03E4), 1 or 2. NOT the track;
-                             ;   an earlier EQU called it the track cell.
-IOB_VOL     EQU $F3E6        ; IOB volume cell (Apple $03E6)
-IOB_BUF     EQU $F3E8        ; IOB buffer pointer (Apple $03E8/$03E9)
-IOB_CMD     EQU $F3EB        ; IOB command cell (Apple $03EB)
-IOB_RETCODE EQU $F3EA        ; IOB return-code cell (Apple $03EA)
+; These are SHARED external names: defined once in include/apple_softcard.inc and INCLUDEd
+; here, not re-derived locally. This file previously minted its own IOB_* set, two of which
+; were wrong ($03E0 called the sector, $03E4 called the track) and one of which contradicted
+; the shared header ($03E6 called a volume cell; it is the SLOT, see below).
+    INCLUDE "apple_softcard.inc"
+;   DSK_TRACK  $F3E0   DSK_SECTOR $F3E1   DSK_DRIVE  $F3E4   DSK_SLOT   $F3E6
+;   DSK_BUFFER $F3E8   DSK_BUFFER_HI $F3E9   DSK_STATUS $F3EA   DSK_COMMAND $F3EB
+; DSK_TRACK/DSK_SECTOR verified against the shipped RWTS (RWTS_MAIN reads $03E0 as the track
+; and $03E1 as the sector) and at runtime. DSK_SLOT observed to hold $60 = slot 6 << 4 on
+; every call; the arithmetic that builds it here is the same sequence CPM60_installer.asm
+; uses, and the drive LETTER it was once confused with is written elsewhere.
 
 ; -- Z-80 BIOS disk scratch ($FExx) --
 REQ_TRACK   EQU $FED1        ; requested TRACK (observed 3 for the directory, 35 for block 128).
                              ;   An earlier EQU called this the requested sector.
 REQ_RECORD  EQU $FED2        ; requested RECORD index within the track. An earlier EQU called
                              ;   this the requested track; they were transposed.
-SCR_D6      EQU $FED6        ; current track scratch
+SCR_D6      EQU $FED6        ; UNKNOWN. Called 'current track scratch', but it reads
+                             ;   $A9 at runtime, which is not a track. Left named as found.
 SCR_D7      EQU $FED7        ; saved current track
 SCR_D8      EQU $FED8        ; first-call flag
 SCR_D9      EQU $FED9        ; pending-reseek flag
@@ -141,7 +144,7 @@ SM_MAP:
         LD A,L                           ; $BCA9  7D
         CP H                             ; $BCAA  BC
         JR NZ,SM_DOFLUSH                 ; $BCAB  20 0D
-        LD HL,(IOB_TRACK)               ; $BCAD  2A E0 F3
+        LD HL,(DSK_TRACK)               ; $BCAD  2A E0 F3
         LD A,(REQ_TRACK)                    ; $BCB0  3A D1 FE
         CP L                             ; $BCB3  BD
         JR NZ,SM_DOFLUSH                 ; $BCB4  20 04
@@ -158,7 +161,7 @@ SM_NOFLUSH:
         LD B,A                           ; $BCC7  47
         AND $01                          ; $BCC8  E6 01
         INC A                            ; $BCCA  3C
-        LD (IOB_DRIVE),A                 ; $BCCB  32 E4 F3
+        LD (DSK_DRIVE),A                 ; $BCCB  32 E4 F3
         LD A,B                           ; $BCCE  78
         AND $0E                          ; $BCCF  E6 0E
         ADD A,A                          ; $BCD1  87
@@ -166,7 +169,7 @@ SM_NOFLUSH:
         ADD A,A                          ; $BCD3  87
         CPL                              ; $BCD4  2F
         ADD A,$61                        ; $BCD5  C6 61
-        LD (IOB_VOL),A                   ; $BCD7  32 E6 F3
+        LD (DSK_SLOT),A                   ; $BCD7  32 E6 F3
 ; ----------------------------------------------------------------------------
 ; THE $8B TRACK FOLD -- blocks 128-139 are ALIASED ONTO THE SYSTEM TRACKS 0-2.
 ;
@@ -262,7 +265,7 @@ SM_SETSEC:
         LD L,A                           ; $BCEC  6F
 SM_STORE:
         LD H,C                           ; $BCED  61
-        LD (IOB_TRACK),HL               ; $BCEE  22 E0 F3
+        LD (DSK_TRACK),HL               ; $BCEE  22 E0 F3
         LD A,(SCR_DC)                    ; $BCF1  3A DC FE
         OR A                             ; $BCF4  B7
         CALL NZ,BIOS_FLUSH               ; $BCF5  C4 2C AD
@@ -301,12 +304,12 @@ DISK_READ:
         LD (SCR_D9),A                    ; $BD26  32 D9 FE   clear reseek flag
         LD A,$02                         ; $BD29  3E 02
         LD HL,$013E                      ; $BD2B  21 3E 01
-        LD (IOB_CMD),A                   ; $BD2E  32 EB F3   command = read
+        LD (DSK_COMMAND),A                   ; $BD2E  32 EB F3   command = read
         LD HL,$0800                      ; $BD31  21 00 08
-        LD (IOB_BUF),HL                  ; $BD34  22 E8 F3   buffer = $0800
+        LD (DSK_BUFFER),HL                  ; $BD34  22 E8 F3   buffer = $0800
         LD HL,$0E03                      ; $BD37  21 03 0E
         CALL BIOS_RWTS                   ; $BD3A  CD C3 FE   issue the read
-        LD A,(IOB_RETCODE)               ; $BD3D  3A EA F3
+        LD A,(DSK_STATUS)               ; $BD3D  3A EA F3
         OR A                             ; $BD40  B7
         RET Z                            ; $BD41  C8         ok -> return
         POP DE                           ; $BD42  D1

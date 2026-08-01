@@ -13,6 +13,9 @@
 ; these vectors as its own labels should not also pull in this base-page section.
 
 ; ---- base page (transient-program view) ----------------------------------------
+    IFNDEF CPM22_INC
+    DEFINE CPM22_INC
+
 WBOOTV      EQU $0000      ; warm-boot vector: JP WBOOT (a CALL/JP $0000 restarts CP/M)
 IOBYTE_ADDR EQU $0003      ; logical<->physical device map (STAT / fns 7,8)
 CDISK_ADDR  EQU $0004      ; current drive (low nibble) / user (high nibble)
@@ -78,3 +81,6 @@ FCB_CR      EQU 32         ; current record within the extent
 FCB_R0      EQU 33         ; random record number, low byte
 FCB_R1      EQU 34         ; random record number, middle byte
 FCB_R2      EQU 35         ; random record number, high byte (overflow)
+
+
+    ENDIF

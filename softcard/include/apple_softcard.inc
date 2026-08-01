@@ -25,6 +25,9 @@
 ; ---- SoftCard I/O Configuration Block (Z-80 $F200-$F3FF = Apple $0200-$03FF) -----
 ; [DOC S&HD 2-3, 2-16..2-27].  The I/O Vector Table: primitive char-I/O vectors that
 ; normally point into the BIOS but can be repatched (CONFIGIO) [DOC S&HD 2-18..2-19].
+    IFNDEF APPLE_SOFTCARD_INC
+    DEFINE APPLE_SOFTCARD_INC
+
 CONST_VEC   EQU $F380      ; Console status vector  -> A=$FF if char ready
 CONIN1_VEC  EQU $F382      ; Console input vector #1 (TTY:/CRT:)
 CONIN2_VEC  EQU $F384      ; Console input vector #2 (UC1:)
@@ -112,3 +115,6 @@ SCRN_ROM    EQU $F871      ; read lo-res pixel (Y,A) -> A colour 0..15          
 PREAD       EQU $FB1E      ; read game-paddle/timer -> Y [DOC S&HD 2-25] [apple2.json]
 TEXT_ROM    EQU $FB2F      ; set text mode + full-screen window                  [apple2.json]
 HOME_ROM    EQU $FC58      ; clear text window, home cursor                      [apple2.json]
+
+
+    ENDIF

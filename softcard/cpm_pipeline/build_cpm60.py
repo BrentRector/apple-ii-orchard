@@ -42,7 +42,11 @@ _INCLUDE = _REPO / "softcard" / "include"
 # -DCFG_60K); there is no separate 60K CCP source. The master + the via-layout cross-check
 # both build it from here + the shared EQU includes.
 _CANONICAL_CCP = _REPO / "softcard" / "CPMV223-44K" / "os" / "CPM_CCP.asm"
-_CCP_INCLUDES = ("cpm22.inc", "cpm_system_223.inc")
+# apple_softcard.inc is staged too: CPM60_installer.asm uses the shared DSK_* page-3
+# IOB names from it rather than re-deriving its own (it previously minted four, three
+# of them wrong). The header carries an include guard, so pulling it in more than once
+# is safe.
+_CCP_INCLUDES = ("cpm22.inc", "cpm_system_223.inc", "apple_softcard.inc")
 _DISK = DISK_2_23_44K_SYSTEM
 _SJASMPLUS = _REPO / "shared" / "toolchain" / "sjasmplus" / "sjasmplus-1.23.0.win" / "sjasmplus.exe"
 
@@ -154,7 +158,8 @@ def _folded_ccp() -> bytes:
 
 
 def _components() -> dict[str, bytes]:
-    z = lambda p: _assemble_savebin(p.read_text(encoding="utf-8"))
+    _incs = tuple(_INCLUDE / i for i in _CCP_INCLUDES)
+    z = lambda p: _assemble_savebin(p.read_text(encoding="utf-8"), _incs)
     out_bins: dict[str, bytes] = {}
     with tempfile.TemporaryDirectory() as tds:
         td = Path(tds)

@@ -46,12 +46,14 @@ TFCB EQU $005C   ; default FCB (drive byte = cmdline arg-1 drive, if given)
 ; -- 60K-BIOS RWTS-bridge variables (high RAM, shared with 6502 via window) --
 RPC_PARM    EQU $F3D0   ; RPC parameter word (page/opcode passed to 6502)
 RPC_TRAMP   EQU $F3DE   ; ptr to live RPC trampoline; opcode byte written thru it
-RPC_STAT    EQU $F3EA   ; 6502-returned status (0=ok, $10=protected, else=I/O err)
-IOB_CMD     EQU $F3EB   ; IOB command byte; 2 = WRITE (bit 0 set = read). NOT a sector count.
-IOB_BUF_HI  EQU $F3E9   ; high byte of the IOB buffer pointer ($03E8/$03E9). NOT a track.
-IOB_TRACK   EQU $F3E0   ; IOB TRACK cell; $F3E1 is the sector. A 16-bit store here sets both.
-DRV_MASK    EQU $F3E4   ; (current drive & 3) - target drive for the 6502 RWTS
-DRV_NAME    EQU $F3E6   ; drive letter glyph for messages
+; The page-3 IOB cells are SHARED external names from include/apple_softcard.inc, not
+; re-derived here. This file previously minted four of its own, three of them wrong:
+; $F3EB "sector count" (it is the COMMAND, 2 = write), $F3E9 "starting track" (it is the
+; buffer-pointer high byte), and $F3E6 "drive letter glyph" (the glyph goes to $0284; this
+; is the SLOT, $60 = slot 6 << 4).
+    INCLUDE "apple_softcard.inc"
+;   DSK_TRACK $F3E0  DSK_SECTOR $F3E1  DSK_DRIVE $F3E4  DSK_SLOT $F3E6
+;   DSK_BUFFER $F3E8  DSK_BUFFER_HI $F3E9  DSK_STATUS $F3EA  DSK_COMMAND $F3EB
 
     IFNDEF CPM60_LINK  ; [link] master defines CPM60_LINK and owns this; standalone keeps it
 TPA     EQU $0100                        ; CP/M transient program area (local; 60K build does not stage shared includes)
@@ -77,7 +79,7 @@ TPA     EQU $0100                        ; CP/M transient program area (local; 6
 ;    is outside the 0-15 the CCP's DIR and USER commands reach. If a drive was given
 ;    on the command line
 ;    (FCB drive byte != 0) use it; else query current disk (fn $19) and +1.
-;    Save (drive & 3) -> DRV_MASK for the 6502 RWTS.  C = 1-based drive index.
+;    Save (drive & 3) -> DSK_DRIVE for the 6502 RWTS.  C = 1-based drive index.
 ; ---------------------------------------------------------------------------
 TPA_START:
         LD C,$20                ; BDOS fn 32 set/get user code
@@ -94,7 +96,7 @@ TPA_START:
 TPA_START_1:
         LD C,A                  ; C = 1-based target drive
         AND $03
-        LD (DRV_MASK),A         ; F3E4 = drive & 3 (which Disk II drive)
+        LD (DSK_DRIVE),A         ; F3E4 = drive & 3 (which Disk II drive)
         DEC C                   ; C = 0-based drive
         PUSH BC                 ; keep drive across the BDOS probing below
 
@@ -179,7 +181,8 @@ TPA_START_2:
         ADD A,A
         CPL
         ADD A,$61
-        LD (DRV_NAME),A         ; F3E6 = drive glyph for runtime messages
+        LD (DSK_SLOT),A         ; $F3E6 = slot << 4 ($60 = slot 6). NOT the drive glyph:
+                                ;   that is computed next and stored to $0284.
         LD A,C
         ADD A,$41               ; 'A'+drive -> letter
         LD ($0284),A            ; patch the "drive Z:" letter in the prompt
@@ -198,23 +201,23 @@ TPA_START_2:
 ;    the 'cp/m    sys' entry claims is the system area. Each pass:
 ;      - RPC_WRITE: RPC write of one unit ($F3D0 <- $0E03 opcode; A=page byte
 ;        written thru ($F3DE)) -> 6502 RWTS lays the page onto the disk.
-;      - read RPC_STAT ($F3EA): 0 = OK; $10 = write protected; other = I/O error
+;      - read DSK_STATUS ($F3EA): 0 = OK; $10 = write protected; other = I/O error
 ;      - advance the IOB buffer page, then the sector; on sector wrap, the track.
 ;    On any error, print the matching message and bail to the reboot prompt.
 ; ---------------------------------------------------------------------------
         LD A,$02
-        LD (IOB_CMD),A          ; $F3EB = 2 = WRITE command
+        LD (DSK_COMMAND),A          ; $F3EB = 2 = WRITE command
         LD A,$14
-        LD (IOB_BUF_HI),A       ; $F3E9 = buffer page $14 -> Apple $1400 (image start)
+        LD (DSK_BUFFER_HI),A       ; $F3E9 = buffer page $14 -> Apple $1400 (image start)
         LD HL,WBOOTV            ; HL = $0000: L = TRACK 0, H = SECTOR 0
         LD B,$30                ; 48 units = 3 tracks x 16 sectors = 12,288 bytes
 TPA_START_3:
-        LD (IOB_TRACK),HL       ; L -> $03E0 track, H -> $03E1 sector
+        LD (DSK_TRACK),HL       ; L -> $03E0 track, H -> $03E1 sector
         PUSH BC
         PUSH HL
         LD HL,$0E03             ; RPC opcode/parm: page $0E, function $03 (write)
         CALL RPC_WRITE          ; do the raw write via 6502
-        LD A,(RPC_STAT)         ; F3EA: 6502 status
+        LD A,(DSK_STATUS)         ; F3EA: 6502 status
         OR A
         JP Z,TPA_START_5        ; 0 -> OK, continue
         LD DE,$02E4             ; default error msg = "Disk I/O error"
@@ -225,7 +228,7 @@ TPA_START_4:
         CALL PRINT_STR
         JP TPA_START_7          ; -> reboot prompt
 TPA_START_5:
-        LD HL,IOB_BUF_HI
+        LD HL,DSK_BUFFER_HI
         INC (HL)                ; next 256 bytes of the image
         POP HL
         INC H                   ; next SECTOR
@@ -275,7 +278,7 @@ TPA_START_9:
 ;   In:        HL = RPC parameter word (page in H, function in L, e.g. $0E03 =
 ;              page $0E, function $03 write); A = opcode byte written through the
 ;              trampoline to trigger the 6502.
-;   Out:       the 6502 has run; it leaves its status in RPC_STAT ($F3EA) for the
+;   Out:       the 6502 has run; it leaves its status in DSK_STATUS ($F3EA) for the
 ;              caller to test (0 = OK, $10 = write-protected, else = I/O error).
 ;   Clobbers:  HL (reloaded from RPC_TRAMP). A is consumed.
 ;   Algorithm: (RPC_PARM) <- HL ; HL <- (RPC_TRAMP) ; (HL) <- A  [fires the 6502].
