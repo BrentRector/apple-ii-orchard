@@ -163,6 +163,12 @@ def test_audit5_catches_unknown_resolved_in_another_tree():
                 "against the current user byte and the '$' name byte")
     assert _GAVE_UP.search(hedged), "audit 5 no longer recognises a hedge"
     assert not _GAVE_UP.search(answered), "audit 5 now treats an answer as a hedge"
+    # Each alternative must be exercised on its OWN. The first version of this test
+    # used only the sample above, which contains BOTH "[?]" and "UNKNOWN", so it
+    # passed while a mangled UNKNOWN matched nothing at all.
+    assert _GAVE_UP.search("its exact intent is UNKNOWN here"), "the UNKNOWN branch is dead"
+    assert _GAVE_UP.search("[?] see below"), "the [?] branch is dead"
+    assert _GAVE_UP.search("not determinable from these bytes"), "the not-determinable branch is dead"
 
 
 def test_audit6_catches_the_extent_mislabel():

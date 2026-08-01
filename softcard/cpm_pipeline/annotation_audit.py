@@ -294,7 +294,7 @@ def audit_bdos_function_misdescription(paths=None):
 
 # ── audit 5: one tree gave up where another had the answer ──────────────
 
-_GAVE_UP = re.compile(r"\[\?\]|UNKNOWN|exact (?:purpose|intent)|"
+_GAVE_UP = re.compile(r"\[\?\]|\bUNKNOWN\b|exact (?:purpose|intent)|"
                       r"not determinable|could not (?:be )?determine", re.I)
 
 
