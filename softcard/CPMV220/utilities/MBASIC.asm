@@ -12425,7 +12425,7 @@ FILE_OPEN_16:
 ;      Finally maps the BDOS A-result into an MBASIC error/return code.
 FCB_BDOS_IO:
         PUSH DE                          ; $5B44  D5
-        LD C,C_READSTR                           ; $5B45  4F        C = BDOS function
+        LD C,A                           ; $5B45  4F        C = BDOS function
         PUSH BC                          ; $5B46  C5
         CALL BDOS                    ; $5B47  CD 05 00
         POP BC                           ; $5B4A  C1
