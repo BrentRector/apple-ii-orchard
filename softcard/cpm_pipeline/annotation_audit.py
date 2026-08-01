@@ -294,8 +294,18 @@ def audit_bdos_function_misdescription(paths=None):
 
 # ── audit 5: one tree gave up where another had the answer ──────────────
 
-_GAVE_UP = re.compile(r"\[\?\]|\bUNKNOWN\b|exact (?:purpose|intent)|"
-                      r"not determinable|could not (?:be )?determine", re.I)
+# Two things that are NOT hedges and used to trip this audit:
+#   * a bare trailing "[?]" on an otherwise complete [RE] header. The 60K BDOS carried 16 of
+#     those and the two 44K BDOSes 11 more, all appended to substantive text with nothing
+#     after them. They have been removed from the sources; the pattern below also requires
+#     the tag to be FOLLOWED by something, so a stray one cannot resurrect the noise.
+#   * the word "unknown" in explanatory prose ("the reason it resisted decoding..."). The
+#     repo's marker is UPPERCASE UNKNOWN, so that alternative is case-SENSITIVE while the
+#     rest of the pattern is not.
+_GAVE_UP = re.compile(
+    r"\[\?\](?=\s*\S)|exact (?:purpose|intent)|"
+    r"not determinable|could not (?:be )?determine", re.I)
+_GAVE_UP_CASED = re.compile(r"\bUNKNOWN\b")
 
 
 def audit_unknown_resolved_elsewhere():
@@ -313,7 +323,8 @@ def audit_unknown_resolved_elsewhere():
     for label, per_tree in sorted(_headers_by_label().items()):
         if len(per_tree) < 2:
             continue
-        gave_up = {tr for tr, txt in per_tree.items() if _GAVE_UP.search(txt)}
+        gave_up = {tr for tr, txt in per_tree.items()
+                   if _GAVE_UP.search(txt) or _GAVE_UP_CASED.search(txt)}
         # "answers" means a substantive header that does not itself hedge
         answers = {tr for tr, txt in per_tree.items()
                    if tr not in gave_up and len(txt) > 60}

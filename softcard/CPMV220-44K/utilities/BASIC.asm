@@ -13178,7 +13178,11 @@ FP_NORM_BITLOOP:
 FP_NORM_LOWBYTE:
         DEC B
         RLA
-        ; keep rotating the low byte left until its top bit is set (counting the shift in B)
+        ; keep rotating the low byte left until its top bit is set (counting the shift in B).
+        ; The comment states the EXIT condition, not the branch-taken one: RLA puts bit 7 in
+        ; carry and JR NC loops while it is CLEAR, so the loop ends once it is SET. Audit 1
+        ; flags this shape because it assumes a comment describes the branch that is taken;
+        ; checked and correct as written.
         JR NC,FP_NORM_LOWBYTE
         INC B
         RRA
@@ -13570,7 +13574,10 @@ FMUL_2:
         LD D,A
         LD A,C
         ; Add the operand into the running product only when this mantissa bit is set; otherwise
-        ; just shift.
+        ; just shift. The comment describes the FALL-THROUGH (add) case: RRA puts bit 0 in
+        ; carry and JR NC skips the add when it is CLEAR, so the add runs when it is SET.
+        ; Audit 1 flags this because the set-claim sits on a branch taken when clear;
+        ; checked and correct as written.
         JR NC,FMUL_5
         PUSH DE
 ; [RE] SMC operand cell: LD DE,nnnn at $4D43 is patched by FMUL setup ($4D20 LD (FMUL_3+1),HL) to

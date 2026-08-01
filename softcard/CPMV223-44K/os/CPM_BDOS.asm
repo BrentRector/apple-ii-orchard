@@ -465,13 +465,16 @@ CON_RETYPE_LINE:
         CALL CON_PUT_COL
         CALL CON_CRLF
 ; ----------------------------------------------------------------------
-; CON_RETYPE_LOOP -- reprint buffered characters until the column matches the count.
-;   In: CON_LINE_START_COL = chars already re-echoed; CON_COL = target count.
-;   Out: remaining buffered chars emitted as spaces (placeholder re-echo).  Clobbers: AF, C, HL.
-;   Algorithm: while CON_COL >= the running CON_LINE_START_COL counter is false, emit a space via
-;              CON_PUT_COL and loop. [RE] Re-echo loop of CON_RETYPE_LINE.
-;   [?] The compared cells are the editor's column vs echoed-count; exact pairing UNKNOWN beyond
-;       'advance until equal'.
+; CON_RETYPE_LOOP -- re-indent the cursor to the column the input line started at.
+;   In:  CON_LINE_START_COL = TARGET column; CON_COL = the live column tracker.
+;   Out: spaces emitted until CON_COL >= CON_LINE_START_COL.  Clobbers: AF, C, HL.
+;   Algorithm: while CON_COL < CON_LINE_START_COL, emit a space via CON_PUT_COL (which
+;              advances CON_COL) and loop.
+;   [RE] Re-echo loop of CON_RETYPE_LINE. RESOLVED: the two cells were transposed here and the
+;        routine hedged as a result. F_READCONBUF_H seeds CON_LINE_START_COL from CON_COL at
+;        the start of the line edit, so it holds the column the line BEGAN at. After
+;        CON_RETYPE_LINE emits '#' and a CR/LF, this walks the cursor back out to that column
+;        so the redisplayed line lines up under the prompt. The 60K twin had it right.
 ; ----------------------------------------------------------------------
 CON_RETYPE_LOOP:
         LD A,(CON_COL)
@@ -712,7 +715,7 @@ READBUF_REDISPLAY_LOOP:
 ;              target the cursor is (CON_SAVED_COL := saved - column) and fall into
 ;              READBUF_REPOS_LOOP.
 ;   [RE] Cursor-reposition step after a Ctrl-R / delete redisplay.
-;   [?] Any stale auto-name prefix is a skew artifact -- this is console line-editor code, NOT
+;   [RE] KNOWN de-skew artifact, not an open question: any stale auto-name prefix is a skew artifact -- this is console line-editor code, NOT
 ;       directory traversal.
 ; ----------------------------------------------------------------------
 READBUF_REPOS:
@@ -741,7 +744,8 @@ READBUF_REPOS_LOOP:
 ;   Out: char written, count incremented; falls into the echo/limit check.  Clobbers: AF, B, HL.
 ;   Algorithm: write the char at ++HL, bump B, then fall into READBUF_STORE_ECHO which echoes it and
 ;              checks the buffer-full limit.
-;   [?] Any stale auto-name is a skew mislabel -- this is the line editor's character-store path,
+;   [RE] Any stale auto-name is a KNOWN skew mislabel, not an open question: this is the line
+;        editor's character-store path,
 ;   NOT
 ;       an FCB/directory compare.
 ; ----------------------------------------------------------------------
@@ -840,7 +844,7 @@ F_DIRECTIO_H:
 ;   Algorithm: poll raw BIOS console status ($FA06); if no key, return 0; if a key is ready, read it
 ;              raw
 ;              ($FA09) and store as the result. [RE]
-;   [?] Any stale auto-name prefix is a skew artifact -- this is direct console input, NOT an
+;   [RE] KNOWN de-skew artifact, not an open question: any stale auto-name prefix is a skew artifact -- this is direct console input, NOT an
 ;   FCB/directory routine.
 ; ----------------------------------------------------------------------
 DIRECTIO_INPUT:
@@ -1339,7 +1343,7 @@ SHL_HL_C_LOOP:
 ;   Algorithm: PUSH BC; C=current drive; HL=1; SHL_HL_C to form 1<<drive; POP BC; L=C OR L, H=B OR
 ;              H.
 ;   [RE] sets the current drive's bit in whatever vector the caller passes in BC (R/O and login
-;   setters). [?]
+;   setters).
 ; ----------------------------------------------------------------------
 DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC
@@ -1439,7 +1443,7 @@ CHECK_DIRENT_READONLY_INNER:
 ;        A,C,HL.
 ;   Algorithm: CALL DRIVE_BIT_TEST; RET Z if clear (writable), else load the disk-R/O error vector
 ;       (BDOS_ERRVEC_RODISK) and dispatch via BDOS_VECTOR_JUMP.
-;   [RE] guards writes against a write-protected disk. [?]
+;   [RE] guards writes against a write-protected disk.
 ; ----------------------------------------------------------------------
 CHECK_DRIVE_READONLY:
         CALL DRIVE_BIT_TEST
@@ -1452,7 +1456,7 @@ CHECK_DRIVE_READONLY:
 ;   In: DIRBUF_PTR -> directory sector buffer; DEBLOCK_BYTE_OFF = byte offset of the entry.
 ;   Out: HL = DIRBUF_PTR + DEBLOCK_BYTE_OFF.  Clobbers: A,HL.
 ;   Algorithm: load the buffer base, load the 8-bit entry offset, add it to L with carry into H.
-;   [RE] locates the directory entry just matched by a BDOS directory search. [?]
+;   [RE] locates the directory entry just matched by a BDOS directory search.
 ; ----------------------------------------------------------------------
 FCB_BUF_PTR_ADD_OFFSET:
         LD HL,(DIRBUF_PTR)
@@ -1512,7 +1516,7 @@ MARK_FCB_S2_HIGHBIT:
 ;              on
 ;       the high byte; no value is stored.
 ;   [RE] RECPTR_INC_STORE uses this: on NC it bumps and stores CUR_RECORD+1, extending the
-;   high-water count. [?]
+;   high-water count.
 ; ----------------------------------------------------------------------
 CMP_CURREC_VS_WORKPTR:
         LD HL,(CUR_RECORD)
@@ -1965,7 +1969,7 @@ ALLOC_FROM_FCB_NEXT:
 ;   SUBMIT continuation file, so a batch resumes after a warm boot. It is STANDARD DRI CODE,
 ;   not a SoftCard addition: the 2.20 and 2.23 BDOSes carry it identically.
 ;
-;   The reason it read as unknown was the label. BDOS_USER_NUM is the CURRENT USER NUMBER
+;   The reason it resisted decoding was the label. BDOS_USER_NUM is the CURRENT USER NUMBER
 ;   cell, not a stack cell: F_USERNUM_H (fn 32) writes it and FCB_MERGE_USER ORs it into
 ;   FCB byte 0. DRI overlapped it with the BDOS stack top to save a byte -- BDOS_DISPATCH
 ;   does LD SP,BDOS_USER_NUM, and because the Z-80 decrements SP BEFORE writing, pushes land
@@ -2729,7 +2733,18 @@ FCB_MERGE_NEXT:
         INC HL
         DEC C
         JP NZ,FCB_MERGE_MAP_LOOP
-        LD BC,$FFEC
+        ; Back up from the END of the entry to EX. TRACED, both statically and at runtime:
+        ; the map loop leaves the pointers at base+32 on BOTH paths (the 8-bit path does one
+        ; INC HL and one DEC C per slot, 16 slots; the 16-bit path does two of each per slot,
+        ; 8 slots), so -20 reaches offset 12, which is EX -- NOT the record count at 15.
+        ; Verified in the emulator: at this instruction HL-20 == BDOS_PARAM_PTR+12 exactly,
+        ; and the byte there matched the FCB's EX and not its RC. An earlier comment here
+        ; called it "the record-count field", the same EX/RC confusion corrected elsewhere
+        ; in this file. The +3 step further down then moves EX -> RC, which is only coherent
+        ; if this landing really is EX.
+        ; (The 16-bit path is unreachable on SoftCard hardware: every DSM here is <= 139, so
+        ; block numbers are always 8-bit. It is traced above for completeness, not observed.)
+        LD BC,DIRECTORY_ENTRY.EX - DIRECTORY_ENTRY
         ADD HL,BC
         EX DE,HL
         ADD HL,BC

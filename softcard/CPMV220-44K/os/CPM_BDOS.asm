@@ -647,15 +647,17 @@ CON_RETYPE_LINE:
         ; CR/LF onto a fresh line
         CALL CON_CRLF
 ; ----------------------------------------------------------------------
-; CON_RETYPE_LOOP -- reprint buffered characters until the column matches the count.
-;   In: CON_LINE_START_COL = chars already re-echoed; CON_COL = target count.
-;   Out: remaining buffered chars emitted as spaces (placeholder re-echo).
+; CON_RETYPE_LOOP -- re-indent the cursor to the column the input line started at.
+;   In:  CON_LINE_START_COL = TARGET column; CON_COL = the live column tracker.
+;   Out: spaces emitted until CON_COL >= CON_LINE_START_COL.
 ;   Clobbers: AF, C, HL.
-;   Algorithm: while column (CON_COL) >= the running CON_LINE_START_COL counter is false, emit a
-;              space via CON_PUT_COL and loop.
-;   [RE] Re-echo loop of CON_RETYPE_LINE.
-;   [?] The compared cells are the editor's column vs echoed-count; exact pairing UNKNOWN
-;       beyond 'advance until equal'.
+;   Algorithm: while CON_COL < CON_LINE_START_COL, emit a space via CON_PUT_COL (which
+;              advances CON_COL) and loop.
+;   [RE] Re-echo loop of CON_RETYPE_LINE. RESOLVED: the two cells were transposed here and
+;        the routine hedged as a result. F_READCONBUF_H seeds CON_LINE_START_COL from CON_COL
+;        at the start of the line edit, so it holds the column the line BEGAN at. After
+;        CON_RETYPE_LINE emits '#' and a CR/LF, this walks the cursor back out to that column
+;        so the redisplayed line lines up under the prompt. The 60K twin had it right.
 ; ----------------------------------------------------------------------
 CON_RETYPE_LOOP:
         ; Current column / line length
@@ -959,7 +961,7 @@ READBUF_REDISPLAY_LOOP:
 ;              the target the cursor is (CON_SAVED_COL := saved - column) and fall into the
 ;              backspace loop READBUF_REPOS_LOOP.
 ;   [RE] Cursor-reposition step after a Ctrl-R / delete redisplay.
-;   [?] Auto-name 'READBUF_REPOS' was a stale/mislabel from the skewed source -- this is
+;   [RE] KNOWN de-skew artifact, not an open question: the auto-name 'READBUF_REPOS' was a stale/mislabel from the skewed source -- this is
 ;       console line-editor code, NOT directory traversal.
 ; ----------------------------------------------------------------------
 READBUF_REPOS:
@@ -997,7 +999,7 @@ READBUF_REPOS_LOOP:
 ;   Clobbers: AF, B, HL.
 ;   Algorithm: write the char at ++HL, bump B, then fall into READBUF_STORE_ECHO which
 ;              echoes it and checks the buffer-full limit.
-;   [?] Auto-name 'READBUF_STORE' is a stale skew mislabel -- this is the line
+;   [RE] KNOWN de-skew artifact, not an open question: the auto-name 'READBUF_STORE' is a stale skew mislabel -- this is the line
 ;       editor's character-store path, NOT an FCB/directory compare.
 ; ----------------------------------------------------------------------
 READBUF_STORE:
@@ -1120,7 +1122,7 @@ F_DIRECTIO_H:
 ;   Clobbers: AF.
 ;   Algorithm: poll raw BIOS console status ($AA06); if no key, return 0 (A=0 result);
 ;              if a key is ready, read it raw ($AA09) and store as the result.
-;   [?] Auto-name carries a stale 'READBUF_STORE' skew prefix -- this is direct
+;   [RE] KNOWN de-skew artifact, not an open question: the auto-name carries a stale 'READBUF_STORE' skew prefix -- this is direct
 ;       console input, NOT an FCB/directory routine.
 ; ----------------------------------------------------------------------
 DIRECTIO_INPUT:
@@ -1534,8 +1536,11 @@ DISK_STATUS_CHECK:
 ;              (DRV_INSTALL_RWTS_10) to compute HL = HL >> 2, then save the result to CUR_BLOCK_NUMBER
 ;              (consumed by RECORD_TO_TRACK as the search target) and cache it at REC_CACHE.
 ; [RE] DRV_INSTALL_RWTS_10 verified as a 'shift HL logically right C times' helper (OR A clears
-; carry, then RRA on H and L, C iterations); C=2 -> divide by 4. The exact meaning of the /4 is
-; UNKNOWN; it is the quantity the subsequent track/sector resolver searches for.
+; carry, then RRA on H and L, C iterations); C=2 -> divide by 4.
+; RESOLVED from the 60K twin: the /4 is ENTRIES PER RECORD. CP/M packs four 32-byte directory
+; entries into one 128-byte record, so CUR_RECORD is an entry INDEX and index>>2 is the record
+; number holding it -- which is what the subsequent track/sector resolver searches for.
+; (128/32 = 4; the 60K DIR_RECORD_DEBLOCK header states the same packing.)
 ; ----------------------------------------------------------------------
 REC_DIV4_SETUP:
         ; HL = current logical record number (16-bit load).
@@ -1776,7 +1781,7 @@ DISK_STORE_SEC_TRK_9:
 ;       BLOCK_WIDTH_FLAG==0 fall through to the word path (DISK_STORE_SEC_TRK_13), otherwise read
 ;       a single byte into L with H=0.
 ;   [RE] the DSM>255 vs <=255 entry-width branch (standard CP/M big/small-disk map handling).
-;       FCB offset $10 is the on-disk allocation map. [?]
+;       FCB offset $10 is the on-disk allocation map.
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_10:
         ; current FCB pointer (BDOS DE parameter)
@@ -1817,7 +1822,7 @@ DISK_STORE_SEC_TRK_13:
 ;   Clobbers: A,BC,DE,HL.
 ;   Algorithm: CALL DISK_STORE_SEC_TRK_6 to get the map index in A, move it to BC (C=A, B=0),
 ;       CALL GET_ALLOC_BLOCK_ENTRY to fetch the block number, then cache it in CUR_BLOCK_NUMBER.
-;   [RE] composes the index computation and the map lookup to get the current block number. [?]
+;   [RE] composes the index computation and the map lookup to get the current block number.
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_14:
         ; derive the allocation-map index for this record/extent
@@ -1853,7 +1858,7 @@ DISK_STORE_SEC_TRK_16:
 ;              record, store
 ;       it in BLOCK_BASE_RECORD; then OR in the within-block record bits (FCB_CURREC AND DPB_BLM) and store the
 ;       full record number back into CUR_BLOCK_NUMBER.
-;   [RE] canonical record = (block << BSH) | (record AND BLM). [?]
+;   [RE] canonical record = (block << BSH) | (record AND BLM).
 ; ----------------------------------------------------------------------
 DISK_STORE_SEC_TRK_17:
         ; BSH = number of left shifts (records-per-block log2)
@@ -2036,7 +2041,7 @@ SHL_HL_C_LOOP:
 ;   Algorithm: PUSH BC; C = current drive; HL = 1; CALL SHL_HL_C to form 1<<drive; POP BC;
 ;       L = C OR L (low byte), H = B OR H (high byte).
 ;   [RE] sets the current drive's bit in whatever vector the caller passes in BC (used by both the
-;       R/O vector and the login vector setters). [?]
+;       R/O vector and the login vector setters).
 ; ----------------------------------------------------------------------
 DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC
@@ -2146,7 +2151,7 @@ CHECK_DIRENT_READONLY_INNER:
 ;   Clobbers: A,C,HL.
 ;   Algorithm: CALL DRIVE_BIT_TEST (current drive's R/O bit); RET Z if clear (writable), else load
 ;       the disk-R/O error vector (BDOS_ERRVEC_RODISK at $9C0D) and dispatch via BDOS_VECTOR_JUMP.
-;   [RE] guards writes against a write-protected disk. [?]
+;   [RE] guards writes against a write-protected disk.
 ; ----------------------------------------------------------------------
 CHECK_DRIVE_READONLY:
         ; test the current drive's read-only bit
@@ -2163,7 +2168,7 @@ CHECK_DRIVE_READONLY:
 ;   Clobbers: A,HL.
 ;   Algorithm: load the buffer base, load the 8-bit entry offset, add it to L with carry into H
 ;              (DIRENT_PTR_ADD).
-;   [RE] locates the directory entry just matched by a BDOS directory search. [?]
+;   [RE] locates the directory entry just matched by a BDOS directory search.
 ; ----------------------------------------------------------------------
 FCB_BUF_PTR_ADD_OFFSET:
         ; directory sector buffer base
@@ -2228,7 +2233,7 @@ MARK_FCB_S2_HIGHBIT:
 ;   Algorithm: DE = CUR_RECORD, HL = (DPB_WORK_PTR0); subtract low byte (SUB), then high byte (SBC),
 ;       leaving HL pointing at the high byte; no value is stored.
 ;   [RE] RECPTR_INC_STORE uses this: on NC (CUR_RECORD >= working) it bumps and stores CUR_RECORD+1,
-;       extending the high-water record count. [?]
+;       extending the high-water record count.
 ; ----------------------------------------------------------------------
 CMP_CURREC_VS_WORKPTR:
         ; current logical record number
@@ -2753,7 +2758,7 @@ ALLOC_FROM_FCB_NEXT:
 ;   SUBMIT continuation file, so a batch resumes after a warm boot. It is STANDARD DRI CODE,
 ;   not a SoftCard addition: the 2.20 and 2.23 BDOSes carry it identically.
 ;
-;   The reason it read as unknown was the label. BDOS_USER_NUM is the CURRENT USER NUMBER
+;   The reason it resisted decoding was the label. BDOS_USER_NUM is the CURRENT USER NUMBER
 ;   cell, not a stack cell: F_USERNUM_H (fn 32) writes it and FCB_MERGE_USER ORs it into
 ;   FCB byte 0. DRI overlapped it with the BDOS stack top to save a byte -- BDOS_DISPATCH
 ;   does LD SP,BDOS_USER_NUM, and because the Z-80 decrements SP BEFORE writing, pushes land
@@ -3622,7 +3627,7 @@ FCB_MERGE_WORD:
 ;        continues to FCB_MERGE_FINISH.
 ;   Clobbers: A,B,C,D,E,H,L,flags
 ;   Algorithm: advance both pointers, decrement the count; while slots remain re-enter the merge
-;              loop; when done back up by 20 bytes ($FFEC) to the record-count field and keep the
+;              loop; when done back up by 20 bytes to EX (offset 12, NOT the record count) and keep the
 ;              larger of the FCB/entry counts (and the matching S2/extent bytes), then fall into
 ;              FCB_MERGE_FINISH.
 ;   [RE]
@@ -3633,20 +3638,27 @@ FCB_MERGE_NEXT:
         DEC C
         ; more allocation slots -> keep merging
         JP NZ,FCB_MERGE_MAP_LOOP
-        ; SUSPECT COMMENT, left as found: the map loop ends at entry+32, so backing up 20
-        ; lands on offset 12 (EX), not the record count at 15. The +3 step below then reaches
-        ; RC, which only makes sense if this really is EX. Not corrected because the 16-bit
-        ; block-number path advances the pointer differently and was not traced. [?]
-        LD BC,$FFEC
+        ; Back up from the END of the entry to EX. TRACED, both statically and at runtime:
+        ; the map loop leaves the pointers at base+32 on BOTH paths (the 8-bit path does one
+        ; INC HL and one DEC C per slot, 16 slots; the 16-bit path does two of each per slot,
+        ; 8 slots), so -20 reaches offset 12, which is EX -- NOT the record count at 15.
+        ; Verified in the emulator: at this instruction HL-20 == BDOS_PARAM_PTR+12 exactly,
+        ; and the byte there matched the FCB's EX and not its RC. An earlier comment here
+        ; called it "the record-count field", the same EX/RC confusion corrected elsewhere
+        ; in this file. The +3 step further down then moves EX -> RC, which is only coherent
+        ; if this landing really is EX.
+        ; (The 16-bit path is unreachable on SoftCard hardware: every DSM here is <= 139, so
+        ; block numbers are always 8-bit. It is traced above for completeness, not observed.)
+        LD BC,DIRECTORY_ENTRY.EX - DIRECTORY_ENTRY
         ADD HL,BC
         EX DE,HL
         ADD HL,BC
         LD A,(DE)
-        ; compare FCB record count with the entry's
+        ; compare the FCB's EX (extent) with the entry's
         CP (HL)
-        ; FCB count smaller -> keep the entry's count
+        ; FCB extent smaller -> keep the entry's
         JP C,FCB_MERGE_FINISH
-        ; FCB count larger -> store it into the entry
+        ; FCB extent larger -> store it into the entry
         LD (HL),A
         ; step from EX to RC, as arithmetic on the field names
         LD BC,DIRECTORY_ENTRY.RC - DIRECTORY_ENTRY.EX

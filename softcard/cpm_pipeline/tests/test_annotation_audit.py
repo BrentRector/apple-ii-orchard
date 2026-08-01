@@ -23,7 +23,10 @@ from cpm_pipeline.annotation_audit import (audit_bdos_function_misdescription,
                                            audit_data_that_may_be_code,
                                            sources)
 
-# BASIC.asm:13181 and :13572 -- comments describing the loop exit / fall-through.
+# BASIC.asm -- two comments that describe the loop-EXIT / FALL-THROUGH case rather than the
+# branch-taken case audit 1 models. Both were re-checked against the instructions: RLA/JR NC
+# loops while bit 7 is clear so it exits once set, and RRA/JR NC skips the add when bit 0 is
+# clear so the add runs when set. Correct as written; each site now says so inline.
 KNOWN_BENIGN_POLARITY = 2
 
 

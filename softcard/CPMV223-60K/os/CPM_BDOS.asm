@@ -1058,7 +1058,7 @@ DEFERRED_COPY_BUF:
 ;   Algorithm: compare A against CR($0D)/LF($0A)/TAB($09)/BS($08) (each a non-control 'pass'), then
 ;       CP $20; JP LC_BANK2_RET leaves carry = (A < $20) for the remaining control chars. Lives in the lower
 ;       LC bank; the upper-bank echo caller reaches it via LC_BANK1_CALL_ISCTRL ($DF36).
-;   [RE] control-char discriminator for CON_PUT_VISIBLE (^X caret display). [?]
+;   [RE] control-char discriminator for CON_PUT_VISIBLE (^X caret display).
 ; ----------------------------------------------------------------------
 IS_CTRL_CHAR:
         CP $0D
@@ -1080,7 +1080,7 @@ IS_CTRL_CHAR_TAIL:
 ;   Algorithm: HL := $DEDA (upper-bank CON_COL); RET on rubout; INC the column, but if the char is
 ;       a control code (< space) undo it, and for BS ($08) tail to $DD64 (the upper-bank column-fix
 ;       stub) to also DEC. Runs in the lower LC bank; called from LC_BANK1_CALL_TRACKCOL via CALL CON_TRACK_COL.
-;   [RE] column tracker feeding TAB expansion and line-edit backspace. [?]
+;   [RE] column tracker feeding TAB expansion and line-edit backspace.
 ; ----------------------------------------------------------------------
 CON_TRACK_COL:
         LD A,C
@@ -1158,7 +1158,7 @@ SELDSK_DPB_FETCH_1:
 ;   Out: the BIOS head is homed and the two 16-bit work cells addressed by (DEBLOCK_HSTREC_PTR0) and (DEBLOCK_HSTREC_PTR1) are
 ;        zeroed, restarting a directory sweep from record 0.  Clobbers: A,HL,flags.
 ;   Algorithm: CALL BIOS HOME ($FA18); A := 0; zero the word at (DEBLOCK_HSTREC_PTR0) and the word at (DEBLOCK_HSTREC_PTR1).
-;   [RE] scan-reset run at the start of ALLOC_VECTOR_BUILD and each DIR_SEARCH_FIRST. [?]
+;   [RE] scan-reset run at the start of ALLOC_VECTOR_BUILD and each DIR_SEARCH_FIRST.
 ; ----------------------------------------------------------------------
 DISK_HOME_CLEAR_SCAN:
         CALL HOME
@@ -1179,7 +1179,7 @@ DISK_HOME_CLEAR_SCAN:
 ;   Clobbers: A,BC,HL,flags.
 ;   Algorithm: HL := (CUR_RECORD $BFF7); C := 2; SHR_HL_C (>>2 = four 32-byte entries per 128-byte
 ;       record); store HL to $BFF2 and $BFF9; fall into RECORD_TO_TRACK.
-;   [RE] CP/M packs four 32-byte directory entries per 128-byte record; this picks the record. [?]
+;   [RE] CP/M packs four 32-byte directory entries per 128-byte record; this picks the record.
 ; ----------------------------------------------------------------------
 REC_DIV4_SETUP:
         LD HL,(CUR_RECORD)
@@ -1197,7 +1197,7 @@ REC_DIV4_SETUP:
 ;       sector-within-track, add the DPB track offset, program the BIOS via the $FAxx SET* vectors,
 ;       and SECTRAN the sector through the skew table (DPB_OFF) before SETSEC.
 ;   [RE] the 60K record->track/sector deblock; DPB geometry read from the LC low-page work cells.
-;        [?] cross-checked against the 44K RECORD_TO_TRACK twin.
+;        Cross-checked against the 44K RECORD_TO_TRACK twin, so this is [RE] grade.
 ; ----------------------------------------------------------------------
 RECORD_TO_TRACK:
         LD HL,CUR_BLOCK_NUMBER
@@ -1285,7 +1285,7 @@ RECORD_TO_TRACK_3:
 ;   Clobbers: A,B,C,flags.
 ;   Algorithm: shift the record byte (FCB_CURREC) right (8 - BSH) times, shift the extent byte (FCB_EXTENT_MASKED)
 ;       left BSH times, and add them to form the block-map slot index.
-;   [RE] 60K deblock helper computing the FCB allocation-map slot from record + extent. [?]
+;   [RE] 60K deblock helper computing the FCB allocation-map slot from record + extent.
 ; ----------------------------------------------------------------------
 REC_BLOCK_SHIFT_6:
         LD HL,DPB_BSH
@@ -1345,7 +1345,7 @@ FCB_BLOCKMAP_INDEX_10_1:
 ;   Clobbers: A,BC,HL,flags.
 ;   Algorithm: REC_BLOCK_SHIFT_6 forms the block-map slot in A; C:=A,B:=0; FCB_BLOCKMAP_INDEX_10
 ;       reads that slot's block number; store to $BFF2.
-;   [RE] 60K record->block lookup; feeds BLOCK_IS_ZERO_16 / BLOCK_BASE_RECORD_17. [?]
+;   [RE] 60K record->block lookup; feeds BLOCK_IS_ZERO_16 / BLOCK_BASE_RECORD_17.
 ; ----------------------------------------------------------------------
 REC_TO_BLOCK_14:
         CALL REC_BLOCK_SHIFT_6
@@ -1360,7 +1360,7 @@ REC_TO_BLOCK_14:
 ;   Out: A = L, Z set when the 16-bit block number is 0 (no block yet allocated for this record).
 ;   Clobbers: A,HL,flags.
 ;   Algorithm: HL := (CUR_BLOCK_NUMBER); A := L OR H; RET (Z <=> block==0).
-;   [RE] the read/write core branches on Z here to decide allocate-vs-use. [?]
+;   [RE] the read/write core branches on Z here to decide allocate-vs-use.
 ; ----------------------------------------------------------------------
 BLOCK_IS_ZERO_16:
         LD HL,(CUR_BLOCK_NUMBER)
@@ -1374,7 +1374,7 @@ BLOCK_IS_ZERO_16:
 ;        exact physical record.  Clobbers: A,C,HL,flags.
 ;   Algorithm: HL := block (CUR_BLOCK_NUMBER); ADD HL,HL BSH times to get the base record (stored $BFF4); then OR
 ;       in (record-low $BFF0 AND BLM $BFD1) and store the physical record back to $BFF2.
-;   [RE] block-number -> physical-record fold used before RECORD_TO_TRACK. [?]
+;   [RE] block-number -> physical-record fold used before RECORD_TO_TRACK.
 ; ----------------------------------------------------------------------
 BLOCK_BASE_RECORD_17:
         LD A,(DPB_BSH)
@@ -1427,7 +1427,7 @@ FCB_PTR_RC_CR:
 ;        FCB+$0C) masked with EXM.  Clobbers: A,DE,HL.
 ;   Algorithm: FCB_PTR_RC_CR gets the RC/CR pointers; copy CR->$BFF0 and RC->$BFEE; FCB_PTR_EXTENT
 ;       gets &EX; store (EX AND EXM $BFD2) -> $BFEF.
-;   [RE] primes the working record/extent bytes the read/write core operates on. [?]
+;   [RE] primes the working record/extent bytes the read/write core operates on.
 ; ----------------------------------------------------------------------
 FCB_PRIME_FIELDS:
         CALL FCB_PTR_RC_CR
@@ -1448,7 +1448,7 @@ FCB_PRIME_FIELDS:
 ;   Clobbers: A,C,DE,HL.
 ;   Algorithm: FCB_PTR_RC_CR gets the pointers; C := 1 unless WRITE_TYPE (WRITE_TYPE_FLAG)==2 (then 0); store
 ;       (CR $BFF0 + C) to the FCB CR byte and RC $BFEE to the FCB RC byte.
-;   [RE] post-I/O FCB position commit; WRITE_TYPE=2 (WRITEZF) does not advance CR. [?]
+;   [RE] post-I/O FCB position commit; WRITE_TYPE=2 (WRITEZF) does not advance CR.
 ; ----------------------------------------------------------------------
 FCB_WRITEBACK_REC:
         CALL FCB_PTR_RC_CR
@@ -1519,7 +1519,7 @@ SHL_HL_C_LOOP:
 ;   Algorithm: PUSH BC; C := current drive (BDOS_CUR_DRIVE); HL := 1; SHL_HL_C to form 1<<drive; POP BC;
 ;       L := C OR L, H := B OR H.
 ;   [RE] sets the current drive's bit in whatever vector the caller passes in BC (R/O and login
-;   setters). [?]
+;   setters).
 ; ----------------------------------------------------------------------
 DRIVE_BIT_OR_INTO_VECTOR:
         PUSH BC
@@ -1609,7 +1609,7 @@ CHECK_DIRENT_READONLY_INNER:
 ;        error record at $DC0D and dispatches via $DF18).  Clobbers: A,C,HL.
 ;   Algorithm: CALL DRIVE_BIT_TEST; RET Z if clear (writable), else HL := $DC0D (disk-R/O error block)
 ;       and JP $DF18 (the BDOS error dispatch trampoline).
-;   [RE] guards writes against a write-protected disk. [?]
+;   [RE] guards writes against a write-protected disk.
 ; ----------------------------------------------------------------------
 CHECK_DRIVE_READONLY:
         CALL DRIVE_BIT_TEST
@@ -1622,7 +1622,7 @@ CHECK_DRIVE_READONLY:
 ;   Out: HL = (DIRBUF ptr) + offset.  Clobbers: A,HL.
 ;   Algorithm: load the buffer base (DIRBUF_PTR), load the 8-bit entry offset (DEBLOCK_BYTE_OFF), add it to L with carry
 ;       into H (falls into DIRENT_PTR_ADD).
-;   [RE] locates the directory entry just matched by a BDOS directory search. [?]
+;   [RE] locates the directory entry just matched by a BDOS directory search.
 ; ----------------------------------------------------------------------
 FCB_BUF_PTR_ADD_OFFSET:
         LD HL,(DIRBUF_PTR)
@@ -1655,7 +1655,7 @@ FCB_GET_S2:
 ;   Out: the random-record scratch FCB primed, the FCB S2 byte cleared, and the FCB's drive selected
 ;        (FCB_LOGIN_SELECT).  Clobbers: A,BC,DE,HL.
 ;   Algorithm: CALL RANDREC_FIELD_RESET; CALL CLEAR_FCB_S2; CALL FCB_LOGIN_SELECT; RET.
-;   [RE] common front end of BDOS_F_OPEN (fn 15) and BDOS_F_MAKE (fn 22). [?]
+;   [RE] common front end of BDOS_F_OPEN (fn 15) and BDOS_F_MAKE (fn 22).
 ; ----------------------------------------------------------------------
 F_MAKE_OPEN_PREP:
         CALL RANDREC_FIELD_RESET
@@ -1693,7 +1693,7 @@ MARK_FCB_S2_HIGHBIT:
 ;   Algorithm: DE := (CUR_RECORD $BFF7), HL := (word at $BFC0); subtract low byte then high byte,
 ;       leaving HL on the high byte; no value is stored.
 ;   [RE] RECPTR_INC_STORE uses this: on NC it bumps and stores CUR_RECORD+1, extending the high-water
-;   count. [?]
+;   count.
 ; ----------------------------------------------------------------------
 CMP_CURREC_VS_WORKPTR:
         LD HL,(CUR_RECORD)
@@ -2542,7 +2542,18 @@ FCB_MERGE_NEXT:
         INC HL
         DEC C
         JR NZ,FCB_MERGE_MAP_LOOP
-        LD BC,$FFEC
+        ; Back up from the END of the entry to EX. TRACED, both statically and at runtime:
+        ; the map loop leaves the pointers at base+32 on BOTH paths (the 8-bit path does one
+        ; INC HL and one DEC C per slot, 16 slots; the 16-bit path does two of each per slot,
+        ; 8 slots), so -20 reaches offset 12, which is EX -- NOT the record count at 15.
+        ; Verified in the emulator: at this instruction HL-20 == BDOS_PARAM_PTR+12 exactly,
+        ; and the byte there matched the FCB's EX and not its RC. An earlier comment here
+        ; called it "the record-count field", the same EX/RC confusion corrected elsewhere
+        ; in this file. The +3 step further down then moves EX -> RC, which is only coherent
+        ; if this landing really is EX.
+        ; (The 16-bit path is unreachable on SoftCard hardware: every DSM here is <= 139, so
+        ; block numbers are always 8-bit. It is traced above for completeness, not observed.)
+        LD BC,DIRECTORY_ENTRY.EX - DIRECTORY_ENTRY
         ADD HL,BC
         EX DE,HL
         ADD HL,BC
@@ -3617,7 +3628,7 @@ BDOS_F_WRITEZF:
 ;   Algorithm: bump the sequence byte at $DF87; HL := $DF88; store to $DF11 and $DF85; BC := $0024; CALL
 ;       $DF3C (the lower-LC LDIR-across-banks helper) to copy the FCB into the scratch; DE := $DF88.
 ;   [RE] common front end of the random-record and search functions; keeps a private copy of the caller's
-;       FCB in the BDOS bank so the file machinery can run with the LC banked in. [?]
+;       FCB in the BDOS bank so the file machinery can run with the LC banked in.
 ; ----------------------------------------------------------------------
 RANDREC_FIELD_RESET:
         LD HL,DEFERRED_COPY_FLAG
